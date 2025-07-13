@@ -86,6 +86,9 @@ public:
     bool RegisterTool(const string &name, unique_ptr<ToolHandler> handler);
     bool UnregisterTool(const string &name);
     vector<string> ListRegisteredTools() const;
+    
+    // Main loop for stdio mode (blocks until process ends)
+    void RunMainLoop();
 
 private:
     MCPServerConfig config;

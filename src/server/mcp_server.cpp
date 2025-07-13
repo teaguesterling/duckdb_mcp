@@ -111,16 +111,16 @@ bool MCPServer::Start() {
     running = true;
     start_time = time(nullptr);
     
-    // Start server thread based on transport type
+    // For stdio transport, we don't start a background thread
+    // The caller will use RunMainLoop() to handle communication
     if (config.transport == "stdio") {
-        server_thread = make_uniq<std::thread>(&MCPServer::ServerLoop, this);
+        // Just mark as running - RunMainLoop() will handle the actual communication
+        return true;
     } else {
         // TCP/WebSocket not implemented yet
         running = false;
         return false;
     }
-    
-    return true;
 }
 
 void MCPServer::Stop() {
@@ -186,6 +186,24 @@ bool MCPServer::UnregisterTool(const string &name) {
 
 vector<string> MCPServer::ListRegisteredTools() const {
     return tool_registry.ListTools();
+}
+
+void MCPServer::RunMainLoop() {
+    if (config.transport != "stdio") {
+        throw InvalidInputException("RunMainLoop() is only supported for stdio transport");
+    }
+    
+    if (!running.load()) {
+        throw InvalidInputException("Server must be started before calling RunMainLoop()");
+    }
+    
+    // Create server-side file descriptor transport using stdin/stdout
+    auto transport = make_uniq<FdServerTransport>();
+    
+    // Connect and handle the connection in main thread (blocks forever)
+    if (transport->Connect()) {
+        HandleConnection(std::move(transport));
+    }
 }
 
 void MCPServer::ServerLoop() {

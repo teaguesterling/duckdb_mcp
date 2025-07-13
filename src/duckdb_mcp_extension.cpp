@@ -498,15 +498,29 @@ static void MCPServerStartFunction(DataChunk &args, ExpressionState &state, Vect
             // - max_connections, request_timeout_seconds
             // - require_auth, auth_token
             
-            // Start server
-            if (server_manager.StartServer(server_config)) {
-                string success_msg = "SUCCESS: MCP server started on " + transport;
-                if (transport != "stdio") {
-                    success_msg += " at " + bind_address + ":" + std::to_string(port);
+            // For stdio transport, take over the process completely
+            if (transport == "stdio") {
+                // Create and start MCP server directly without background thread
+                MCPServer server(server_config);
+                if (server.Start()) {
+                    // Never return - handle MCP protocol until process ends
+                    // Note: We don't set result_data[i] because we never return from RunMainLoop()
+                    server.RunMainLoop();
+                    
+                    // This should never be reached
+                    result_data[i] = StringVector::AddString(result, "ERROR: MCP server unexpectedly returned");
+                } else {
+                    result_data[i] = StringVector::AddString(result, "ERROR: Failed to start MCP server");
                 }
-                result_data[i] = StringVector::AddString(result, success_msg);
             } else {
-                result_data[i] = StringVector::AddString(result, "ERROR: Failed to start MCP server");
+                // For non-stdio transports, use background thread as before
+                if (server_manager.StartServer(server_config)) {
+                    string success_msg = "SUCCESS: MCP server started on " + transport;
+                    success_msg += " at " + bind_address + ":" + std::to_string(port);
+                    result_data[i] = StringVector::AddString(result, success_msg);
+                } else {
+                    result_data[i] = StringVector::AddString(result, "ERROR: Failed to start MCP server");
+                }
             }
             
         } catch (const std::exception &e) {
