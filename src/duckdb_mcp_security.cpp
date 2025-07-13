@@ -38,12 +38,23 @@ bool MCPSecurityConfig::IsCommandAllowed(const string &command_path) const {
         return false;
     }
     
-    // Normalize path for comparison
-    string normalized_command = command_path;
+    // Security: Only allow absolute paths to prevent relative path attacks
+    if (!command_path.empty() && command_path[0] != '/') {
+        return false;
+    }
     
-    // Check against allowlist
+    // Security: Ensure this is an executable path only (no arguments)
+    // The command_path should not contain spaces or argument separators
+    if (StringUtil::Contains(command_path, " ") || 
+        StringUtil::Contains(command_path, "\t") ||
+        StringUtil::Contains(command_path, "\n") ||
+        StringUtil::Contains(command_path, "\r")) {
+        return false;
+    }
+    
+    // Check against allowlist (exact match required)
     for (const auto &allowed : allowed_commands) {
-        if (normalized_command == allowed) {
+        if (command_path == allowed) {
             return true;
         }
     }

@@ -8,6 +8,7 @@
 #include "protocol/mcp_message.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/string_util.hpp"
+#include "duckdb/common/enums/set_scope.hpp"
 #include "duckdb/function/scalar_function.hpp"
 #include "duckdb/main/extension_util.hpp"
 #include "duckdb/main/database.hpp"
@@ -175,46 +176,26 @@ static void MCPCallToolFunction(DataChunk &args, ExpressionState &state, Vector 
     }
 }
 
-// Configuration function for MCP security settings
-static void ConfigureMCPFunction(DataChunk &args, ExpressionState &state, Vector &result) {
-    auto &setting_vector = args.data[0];
-    
-    result.SetVectorType(VectorType::CONSTANT_VECTOR);
-    auto result_data = ConstantVector::GetData<string_t>(result);
-    
-    try {
-        if (args.size() == 0 || setting_vector.GetValue(0).IsNull()) {
-            result_data[0] = StringVector::AddString(result, "Usage: mcp_configure('setting=value')");
-            return;
-        }
-        
-        string setting = setting_vector.GetValue(0).ToString();
-        auto &security = MCPSecurityConfig::GetInstance();
-        
-        if (StringUtil::StartsWith(setting, "allowed_mcp_commands=")) {
-            string commands = setting.substr(21); // len("allowed_mcp_commands=")
-            security.SetAllowedCommands(commands);
-            result_data[0] = StringVector::AddString(result, "Set allowed MCP commands: " + commands);
-        } else if (StringUtil::StartsWith(setting, "allowed_mcp_urls=")) {
-            string urls = setting.substr(17); // len("allowed_mcp_urls=")
-            security.SetAllowedUrls(urls);
-            result_data[0] = StringVector::AddString(result, "Set allowed MCP URLs: " + urls);
-        } else if (StringUtil::StartsWith(setting, "mcp_server_file=")) {
-            string file_path = setting.substr(16); // len("mcp_server_file=")
-            security.SetServerFile(file_path);
-            result_data[0] = StringVector::AddString(result, "Set MCP server file: " + file_path);
-        } else if (setting == "mcp_lock_servers=true") {
-            security.LockServers(true);
-            result_data[0] = StringVector::AddString(result, "MCP servers locked - no further changes allowed");
-        } else if (setting == "mcp_lock_servers=false") {
-            security.LockServers(false);
-            result_data[0] = StringVector::AddString(result, "MCP servers unlocked");
-        } else {
-            result_data[0] = StringVector::AddString(result, "Unknown setting: " + setting);
-        }
-    } catch (const std::exception &e) {
-        result_data[0] = StringVector::AddString(result, "ERROR: " + string(e.what()));
-    }
+// Callback functions for MCP configuration settings
+static void SetAllowedMCPCommands(ClientContext &context, SetScope scope, Value &parameter) {
+    auto &security = MCPSecurityConfig::GetInstance();
+    security.SetAllowedCommands(parameter.ToString());
+}
+
+static void SetAllowedMCPUrls(ClientContext &context, SetScope scope, Value &parameter) {
+    auto &security = MCPSecurityConfig::GetInstance();
+    security.SetAllowedUrls(parameter.ToString());
+}
+
+static void SetMCPServerFile(ClientContext &context, SetScope scope, Value &parameter) {
+    auto &security = MCPSecurityConfig::GetInstance();
+    security.SetServerFile(parameter.ToString());
+}
+
+static void SetMCPLockServers(ClientContext &context, SetScope scope, Value &parameter) {
+    auto &security = MCPSecurityConfig::GetInstance();
+    bool lock = parameter.GetValue<bool>();
+    security.LockServers(lock);
 }
 
 void DuckdbMcpExtension::Load(DuckDB &db) {
@@ -225,6 +206,23 @@ void DuckdbMcpExtension::Load(DuckDB &db) {
     // Register MCP storage extension for ATTACH support
     auto &config = DBConfig::GetConfig(*db.instance);
     config.storage_extensions["mcp"] = MCPStorageExtension::Create();
+    
+    // Register MCP configuration options
+    config.AddExtensionOption("allowed_mcp_commands", 
+        "Colon-delimited list of executable paths allowed for MCP servers (security: executable paths only, no arguments)", 
+        LogicalType::VARCHAR, Value(""), SetAllowedMCPCommands);
+    
+    config.AddExtensionOption("allowed_mcp_urls", 
+        "Space-delimited list of URL prefixes allowed for MCP servers", 
+        LogicalType::VARCHAR, Value(""), SetAllowedMCPUrls);
+    
+    config.AddExtensionOption("mcp_server_file", 
+        "Path to MCP server configuration file", 
+        LogicalType::VARCHAR, Value("./.mcp.json"), SetMCPServerFile);
+    
+    config.AddExtensionOption("mcp_lock_servers", 
+        "Lock MCP server configuration to prevent runtime changes (security feature)", 
+        LogicalType::BOOLEAN, Value(false), SetMCPLockServers);
     
     // Initialize default security settings
     auto &security = MCPSecurityConfig::GetInstance();
@@ -250,10 +248,6 @@ void DuckdbMcpExtension::Load(DuckDB &db) {
     auto call_tool_func = ScalarFunction("mcp_call_tool", 
         {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR}, LogicalType::JSON(), MCPCallToolFunction);
     ExtensionUtil::RegisterFunction(*db.instance, call_tool_func);
-    
-    // Register configuration function
-    auto config_func = ScalarFunction("mcp_configure", {LogicalType::VARCHAR}, LogicalType::VARCHAR, ConfigureMCPFunction);
-    ExtensionUtil::RegisterFunction(*db.instance, config_func);
 }
 
 extern "C" {

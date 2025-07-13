@@ -3,11 +3,11 @@ cmake  -DEXTENSION_STATIC_BUILD=1 -DDUCKDB_EXTENSION_CONFIGS='/mnt/aux-data/teag
 -- Running vcpkg install
 warning: Embedding `vcpkg-configuration` in a manifest file is an EXPERIMENTAL feature.
 All requested packages are currently installed.
-All requested installations completed successfully in: 91.8 us
+All requested installations completed successfully in: 74.6 us
 -- Running vcpkg install - done
 -- git hash a0e210194e, version v1.3.1-dev44, extension folder a0e210194e
 -- Extensions will be deployed to: /mnt/aux-data/teague/Projects/duckdb_mcp/build/release/repository
--- Load extension 'duckdb_mcp' from '/mnt/aux-data/teague/Projects/duckdb_mcp' @ 1de174a
+-- Load extension 'duckdb_mcp' from '/mnt/aux-data/teague/Projects/duckdb_mcp' @ 55acfd2
 -- Load extension 'json' from '/mnt/aux-data/teague/Projects/duckdb_mcp/duckdb/extensions' @ a0e210194e
 -- Load extension 'core_functions' from '/mnt/aux-data/teague/Projects/duckdb_mcp/duckdb/extensions' @ a0e210194e
 -- Load extension 'parquet' from '/mnt/aux-data/teague/Projects/duckdb_mcp/duckdb/extensions' @ a0e210194e
@@ -201,13 +201,85 @@ gmake[1]: Entering directory '/mnt/aux-data/teague/Projects/duckdb_mcp/build/rel
 [ 64%] Built target core_functions_extension
 [ 68%] Built target json_extension
 [ 68%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_extension.dir/src/duckdb_mcp_extension.cpp.o
-In file included from /mnt/aux-data/teague/Projects/duckdb_mcp/src/duckdb_mcp_extension.cpp:4:
-/mnt/aux-data/teague/Projects/duckdb_mcp/src/include/duckdb_mcp_security.hpp:7:10: fatal error: duckdb/storage/attached_database.hpp: No such file or directory
-    7 | #include "duckdb/storage/attached_database.hpp"
-      |          ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-compilation terminated.
-gmake[3]: *** [extension/duckdb_mcp/CMakeFiles/duckdb_mcp_extension.dir/build.make:79: extension/duckdb_mcp/CMakeFiles/duckdb_mcp_extension.dir/src/duckdb_mcp_extension.cpp.o] Error 1
-gmake[2]: *** [CMakeFiles/Makefile2:9813: extension/duckdb_mcp/CMakeFiles/duckdb_mcp_extension.dir/all] Error 2
-gmake[1]: *** [Makefile:136: all] Error 2
+[ 68%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_extension.dir/src/duckdb_mcp_config.cpp.o
+[ 68%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_extension.dir/src/duckdb_mcp_security.cpp.o
+[ 68%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_extension.dir/src/mcpfs/mcp_path.cpp.o
+[ 68%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_extension.dir/src/mcpfs/mcp_file_system.cpp.o
+[ 69%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_extension.dir/src/protocol/mcp_message.cpp.o
+[ 69%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_extension.dir/src/protocol/mcp_transport.cpp.o
+[ 69%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_extension.dir/src/protocol/mcp_connection.cpp.o
+[ 69%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_extension.dir/src/client/mcp_storage_extension.cpp.o
+[ 69%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_extension.dir/src/client/mcp_transaction_manager.cpp.o
+[ 69%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_extension.dir/src/catalog/mcp_catalog.cpp.o
+[ 70%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_extension.dir/src/catalog/mcp_schema_entry.cpp.o
+[ 70%] Linking CXX static library libduckdb_mcp_extension.a
+[ 70%] Built target duckdb_mcp_extension
+[ 71%] Built target duckdb_static
+[ 71%] Linking CXX shared library loadable_extension_optimizer_demo.duckdb_extension
+[ 71%] Built target loadable_extension_optimizer_demo_loadable_extension
+[ 71%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/duckdb_mcp_extension.cpp.o
+[ 71%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/duckdb_mcp_config.cpp.o
+[ 71%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/duckdb_mcp_security.cpp.o
+[ 71%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/mcpfs/mcp_path.cpp.o
+[ 71%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/mcpfs/mcp_file_system.cpp.o
+[ 72%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/protocol/mcp_message.cpp.o
+[ 72%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/protocol/mcp_transport.cpp.o
+[ 72%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/protocol/mcp_connection.cpp.o
+[ 72%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/client/mcp_storage_extension.cpp.o
+[ 72%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/client/mcp_transaction_manager.cpp.o
+[ 72%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/catalog/mcp_catalog.cpp.o
+[ 73%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/catalog/mcp_schema_entry.cpp.o
+[ 73%] Linking CXX shared library duckdb_mcp.duckdb_extension
+[ 73%] Built target duckdb_mcp_loadable_extension
+[ 73%] Linking CXX shared library json.duckdb_extension
+[ 78%] Built target json_loadable_extension
+[ 78%] Linking CXX shared library core_functions.duckdb_extension
+[ 79%] Built target core_functions_loadable_extension
+[ 79%] Linking CXX shared library parquet.duckdb_extension
+[ 87%] Built target parquet_loadable_extension
+[ 87%] Linking CXX shared library loadable_extension_demo.duckdb_extension
+[ 87%] Built target loadable_extension_demo_loadable_extension
+[ 87%] repository
+[ 87%] Built target duckdb_local_extension_repo
+[ 87%] Linking CXX shared library libduckdb.so
+[ 87%] Built target duckdb
+[ 88%] Built target sqlite3_api_wrapper_sqlite3
+[ 88%] Built target sqlite3_udf_api
+[ 88%] Built target sqlite3_api_wrapper_static
+[ 88%] Linking CXX shared library libsqlite3_api_wrapper.so
+[ 88%] Built target sqlite3_api_wrapper
+[ 88%] Linking CXX executable test_sqlite3_api_wrapper
+[ 88%] Built target test_sqlite3_api_wrapper
+[ 89%] Built target duckdb_linenoise
+[ 89%] Linking CXX executable ../../duckdb
+[ 90%] Built target shell
+[ 90%] Built target duckdb_json_functions
+[ 95%] Built target test_api
+[ 95%] Built target test_sql_adbc
+[ 95%] Built target test_sql_capi
+[ 95%] Built target test_api_udf_function
+[ 95%] Built target test_appender
+[ 95%] Built target test_arrow_roundtrip
+[ 95%] Built target test_catalog
+[ 95%] Built target test_common
+[ 96%] Built target test_logging
+[ 96%] Built target test_memory_leak
+[ 96%] Built target test_parallel_csv
+[ 96%] Built target test_secrets
+[ 97%] Built target test_serialization
+[ 98%] Built target test_filter
+[ 98%] Built target test_table_function
+[ 98%] Built target test_index
+[ 98%] Built target test_sql_interquery_parallelism
+[ 98%] Built target test_sql_storage
+[ 98%] Built target test_sql_storage_catalog
+[ 98%] Built target test_ossfuzz
+[ 98%] Built target test_mbedtls
+[ 98%] Built target test_extensions
+[ 98%] Built target test_helpers
+[ 99%] Built target test_sqlite
+[ 99%] Built target test_persistence
+[100%] Linking CXX executable unittest
+[100%] Built target unittest
+[100%] Built target imdb
 gmake[1]: Leaving directory '/mnt/aux-data/teague/Projects/duckdb_mcp/build/release'
-make: *** [extension-ci-tools/makefiles/duckdb_extension.Makefile:78: release] Error 2
