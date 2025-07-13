@@ -4,7 +4,7 @@
 #include "duckdb/common/vector.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/common/exception.hpp"
-#include "duckdb/storage/attached_database.hpp"
+#include "duckdb/storage/storage_extension.hpp"
 
 namespace duckdb {
 

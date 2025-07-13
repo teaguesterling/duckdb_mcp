@@ -2,9 +2,8 @@
 #include "client/mcp_storage_extension.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/common/file_system.hpp"
-#include "duckdb/common/types/list_value.hpp"
-#include "duckdb/common/types/struct_value.hpp"
-#include "duckdb/storage/attached_database.hpp"
+#include "duckdb/common/types/value.hpp"
+#include "duckdb/storage/storage_extension.hpp"
 
 namespace duckdb {
 

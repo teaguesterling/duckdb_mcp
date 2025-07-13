@@ -95,7 +95,7 @@ shared_ptr<MCPConnection> MCPStorageExtension::CreateMCPConnection(const AttachI
     auto transport = make_uniq<StdioTransport>(transport_config);
     
     // Create connection
-    auto connection = make_shared<MCPConnection>(info.name, std::move(transport));
+    auto connection = make_shared_ptr<MCPConnection>(info.name, std::move(transport));
     
     // Register connection globally so it can be accessed by MCPFS and MCP functions
     MCPConnectionRegistry::GetInstance().RegisterConnection(info.name, connection);

@@ -12,8 +12,6 @@ public:
     std::string Name() override { return "duckdb_mcp"; }
 };
 
-// Function declarations
-void ConfigureMCPFunction(DataChunk &args, ExpressionState &state, Vector &result);
-void StartMCPFunction(DataChunk &args, ExpressionState &state, Vector &result);
+// Function declarations for any non-static functions if needed
 
 } // namespace duckdb
