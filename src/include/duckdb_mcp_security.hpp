@@ -29,6 +29,9 @@ public:
     //! Lock server configuration (prevent further changes)
     void LockServers(bool lock);
     
+    //! Disable MCP server functionality entirely (client-only mode)
+    void SetServingDisabled(bool disabled);
+    
     //! Check if a command path is allowed
     bool IsCommandAllowed(const string &command_path) const;
     
@@ -38,6 +41,9 @@ public:
     //! Check if servers are locked
     bool AreServersLocked() const { return servers_locked; }
     
+    //! Check if serving is disabled
+    bool IsServingDisabled() const { return serving_disabled; }
+    
     //! Get server file path
     string GetServerFile() const { return server_file; }
     
@@ -45,12 +51,13 @@ public:
     void ValidateAttachSecurity(const string &command, const vector<string> &args) const;
 
 private:
-    MCPSecurityConfig() : servers_locked(false), server_file("./.mcp.json") {}
+    MCPSecurityConfig() : servers_locked(false), serving_disabled(false), server_file("./.mcp.json") {}
     
     vector<string> allowed_commands;
     vector<string> allowed_urls;
     string server_file;
     bool servers_locked;
+    bool serving_disabled;
     
     //! Parse colon or space delimited string into vector
     vector<string> ParseDelimitedString(const string &input, char delimiter) const;

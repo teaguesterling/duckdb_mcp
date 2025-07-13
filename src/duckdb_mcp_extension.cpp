@@ -198,6 +198,12 @@ static void SetMCPLockServers(ClientContext &context, SetScope scope, Value &par
     security.LockServers(lock);
 }
 
+static void SetMCPDisableServing(ClientContext &context, SetScope scope, Value &parameter) {
+    auto &security = MCPSecurityConfig::GetInstance();
+    bool disable = parameter.GetValue<bool>();
+    security.SetServingDisabled(disable);
+}
+
 void DuckdbMcpExtension::Load(DuckDB &db) {
     // Register MCPFS file system
     auto &fs = FileSystem::GetFileSystem(*db.instance);
@@ -223,6 +229,10 @@ void DuckdbMcpExtension::Load(DuckDB &db) {
     config.AddExtensionOption("mcp_lock_servers", 
         "Lock MCP server configuration to prevent runtime changes (security feature)", 
         LogicalType::BOOLEAN, Value(false), SetMCPLockServers);
+    
+    config.AddExtensionOption("mcp_disable_serving", 
+        "Disable MCP server functionality entirely (client-only mode)", 
+        LogicalType::BOOLEAN, Value(false), SetMCPDisableServing);
     
     // Initialize default security settings
     auto &security = MCPSecurityConfig::GetInstance();

@@ -17,6 +17,7 @@ set(EXTENSION_SOURCES
   src/mcpfs/mcp_file_system.cpp
   src/protocol/mcp_message.cpp
   src/protocol/mcp_transport.cpp
+  src/protocol/mcp_http_transport.cpp
   src/protocol/mcp_connection.cpp
   src/client/mcp_storage_extension.cpp
   src/client/mcp_transaction_manager.cpp

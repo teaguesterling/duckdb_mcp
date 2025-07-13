@@ -32,6 +32,10 @@ void MCPSecurityConfig::LockServers(bool lock) {
     servers_locked = lock;
 }
 
+void MCPSecurityConfig::SetServingDisabled(bool disabled) {
+    serving_disabled = disabled;
+}
+
 bool MCPSecurityConfig::IsCommandAllowed(const string &command_path) const {
     // If no allowlist is configured, allow nothing (secure by default)
     if (allowed_commands.empty()) {
