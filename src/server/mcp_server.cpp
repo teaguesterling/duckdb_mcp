@@ -1,6 +1,7 @@
 #include "server/mcp_server.hpp"
 #include "server/resource_providers.hpp"
 #include "server/tool_handlers.hpp"
+#include "server/stdio_server_transport.hpp"
 #include "protocol/mcp_transport.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb_mcp_security.hpp"
@@ -189,14 +190,13 @@ vector<string> MCPServer::ListRegisteredTools() const {
 
 void MCPServer::ServerLoop() {
     if (config.transport == "stdio") {
-        // Create stdio transport for this server
-        StdioTransport::StdioConfig stdio_config;
-        stdio_config.command_path = ""; // Server mode - we are the process
+        // Create server-side file descriptor transport using stdin/stdout
+        auto transport = make_uniq<FdServerTransport>();
         
-        auto transport = make_uniq<StdioTransport>(stdio_config);
-        
-        // Handle connection
-        HandleConnection(std::move(transport));
+        // Connect and handle the connection
+        if (transport->Connect()) {
+            HandleConnection(std::move(transport));
+        }
     }
 }
 
