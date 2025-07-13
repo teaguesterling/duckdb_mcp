@@ -73,6 +73,9 @@ public:
 
     // Error handling
     string GetLastError() const { return last_error; }
+    
+    // Raw MCP protocol access
+    MCPMessage SendRequest(const string &method, const Value &params);
 
 private:
     string server_name;
@@ -84,7 +87,6 @@ private:
     mutable mutex connection_mutex;
 
     // Protocol helpers
-    MCPMessage SendRequest(const string &method, const Value &params);
     bool SendNotification(const string &method, const Value &params);
     Value GenerateRequestId();
     

@@ -28,7 +28,7 @@ void MCPFileHandle::LoadResourceContent() {
     }
     
     try {
-        auto resource = connection->ReadResource(parsed_path.full_mcp_uri);
+        auto resource = connection->ReadResource(parsed_path.resource_uri);
         resource_content = resource.content;
         content_loaded = true;
         current_position = 0;
@@ -58,8 +58,8 @@ unique_ptr<FileHandle> MCPFileSystem::OpenFile(const string &path, FileOpenFlags
     }
     
     // Check if resource exists
-    if (!connection->ResourceExists(parsed_path.full_mcp_uri)) {
-        throw IOException("MCP resource not found: " + parsed_path.full_mcp_uri);
+    if (!connection->ResourceExists(parsed_path.resource_uri)) {
+        throw IOException("MCP resource not found: " + parsed_path.resource_uri);
     }
     
     return make_uniq<MCPFileHandle>(*this, path, flags, connection, parsed_path);
@@ -125,7 +125,7 @@ bool MCPFileSystem::FileExists(const string &filename, optional_ptr<FileOpener> 
             return false;
         }
         
-        return connection->ResourceExists(parsed_path.full_mcp_uri);
+        return connection->ResourceExists(parsed_path.resource_uri);
     } catch (...) {
         return false;
     }
@@ -180,6 +180,10 @@ bool MCPFileSystem::CanSeek() {
     return true; // MCP resources are loaded into memory, so seeking is supported
 }
 
+bool MCPFileSystem::OnDiskFile(FileHandle &handle) {
+    return false; // MCP files are virtual, not stored on disk
+}
+
 bool MCPFileSystem::DirectoryExists(const string &directory, optional_ptr<FileOpener> opener) {
     // MCP doesn't have traditional directories
     return false;
@@ -210,20 +214,27 @@ vector<OpenFileInfo> MCPFileSystem::Glob(const string &path, FileOpener *opener)
             return results;
         }
         
-        // List all resources and filter by pattern
-        auto resources = connection->ListResources();
-        
-        for (const auto &resource : resources) {
-            string full_path = MCPPathParser::ConstructPath(parsed_path.server_name, resource.uri);
+        // For exact path matching, first check if the specific resource exists
+        if (connection->ResourceExists(parsed_path.resource_uri)) {
+            OpenFileInfo info;
+            info.path = path;  // Use the original path as requested
+            results.push_back(info);
+        } else {
+            // List all resources and filter by pattern
+            auto resources = connection->ListResources();
             
-            // Simple pattern matching - would implement proper glob matching
-            if (StringUtil::Contains(resource.uri, parsed_path.resource_path) ||
-                StringUtil::Contains(full_path, path)) {
-                OpenFileInfo info;
-                info.path = full_path;
-                // Note: OpenFileInfo doesn't have a size field
-                // Size information would need to be stored in extended_info if needed
-                results.push_back(info);
+            for (const auto &resource : resources) {
+                string full_path = MCPPathParser::ConstructPath(parsed_path.server_name, resource.uri);
+                
+                // Simple pattern matching - would implement proper glob matching
+                if (StringUtil::Contains(resource.uri, parsed_path.resource_uri) ||
+                    StringUtil::Contains(full_path, path)) {
+                    OpenFileInfo info;
+                    info.path = full_path;
+                    // Note: OpenFileInfo doesn't have a size field
+                    // Size information would need to be stored in extended_info if needed
+                    results.push_back(info);
+                }
             }
         }
     } catch (...) {
@@ -247,7 +258,11 @@ bool MCPFileSystem::CanHandleFile(const string &fpath) {
 
 shared_ptr<MCPConnection> MCPFileSystem::GetConnection(const string &server_name) {
     // Get connection from the global registry
-    return MCPConnectionRegistry::GetInstance().GetConnection(server_name);
+    auto connection = MCPConnectionRegistry::GetInstance().GetConnection(server_name);
+    if (!connection) {
+        throw IOException("No MCP connection found in registry for server: '" + server_name + "'");
+    }
+    return connection;
 }
 
 MCPPath MCPFileSystem::ValidateAndParsePath(const string &path) {

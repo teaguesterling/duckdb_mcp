@@ -58,6 +58,10 @@ void StdioTransport::Send(const MCPMessage &message) {
     }
     
     string json = message.ToJSON();
+    
+    // Debug logging - TODO: remove this when issue is fixed
+    fprintf(stderr, "[MCP-DEBUG] Sending JSON: %s\n", json.c_str());
+    
     WriteToProcess(json + "\n");
 }
 
@@ -67,6 +71,10 @@ MCPMessage StdioTransport::Receive() {
     }
     
     string response = ReadFromProcess();
+    
+    // Debug logging - TODO: remove this when issue is fixed  
+    // fprintf(stderr, "[MCP-DEBUG] Raw JSON response: %s\n", response.c_str());
+    
     return MCPMessage::FromJSON(response);
 }
 

@@ -65,7 +65,7 @@ struct MCPMessage {
 namespace MCPMethods {
     // Initialization
     constexpr const char* INITIALIZE = "initialize";
-    constexpr const char* INITIALIZED = "initialized";
+    constexpr const char* INITIALIZED = "notifications/initialized";
     
     // Resources
     constexpr const char* RESOURCES_LIST = "resources/list";

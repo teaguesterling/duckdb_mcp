@@ -14,33 +14,21 @@ MCPPath MCPPathParser::ParsePath(const string &path) {
     // Remove "mcp://" prefix
     string remainder = path.substr(6); // strlen("mcp://") = 6
     
-    // Find first "/" to separate server name from MCP protocol
+    // Find first "/" to separate server name from resource URI
     auto slash_pos = remainder.find('/');
     if (slash_pos == string::npos) {
-        throw InvalidInputException("MCP path missing protocol separator: " + path);
+        throw InvalidInputException("MCP path missing resource separator: " + path);
     }
     
     result.server_name = remainder.substr(0, slash_pos);
-    string protocol_and_path = remainder.substr(slash_pos + 1);
-    
-    // Find "://" to identify MCP protocol boundary
-    auto protocol_sep = protocol_and_path.find("://");
-    if (protocol_sep == string::npos) {
-        throw InvalidInputException("MCP path missing protocol separator: " + path);
-    }
-    
-    result.mcp_protocol = protocol_and_path.substr(0, protocol_sep);
-    result.resource_path = protocol_and_path.substr(protocol_sep + 3); // +3 for "://"
-    
-    // Reconstruct full MCP URI
-    result.full_mcp_uri = result.mcp_protocol + "://" + result.resource_path;
+    result.resource_uri = remainder.substr(slash_pos + 1);
     
     // Validate components
     if (result.server_name.empty()) {
         throw InvalidInputException("MCP path has empty server name: " + path);
     }
-    if (result.mcp_protocol.empty()) {
-        throw InvalidInputException("MCP path has empty protocol: " + path);
+    if (result.resource_uri.empty()) {
+        throw InvalidInputException("MCP path has empty resource URI: " + path);
     }
     
     return result;

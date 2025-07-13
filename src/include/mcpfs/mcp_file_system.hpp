@@ -59,6 +59,9 @@ public:
     void Reset(FileHandle &handle) override;
     idx_t SeekPosition(FileHandle &handle) override;
     bool CanSeek() override;
+    
+    // File system characteristics
+    bool OnDiskFile(FileHandle &handle) override;
 
     // Directory operations
     bool DirectoryExists(const string &directory, optional_ptr<FileOpener> opener = nullptr) override;

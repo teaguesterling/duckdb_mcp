@@ -66,15 +66,31 @@ shared_ptr<MCPConnection> MCPStorageExtension::CreateMCPConnection(const AttachI
         throw InvalidInputException("Currently only stdio:// transport is supported. Got: " + connection_string);
     }
     
-    // Extract command path from stdio:///path/to/server
-    string command_path = connection_string.substr(8); // Remove "stdio://"
-    if (command_path.empty()) {
+    // Extract command line from stdio:///path/to/server
+    string command_line = connection_string.substr(8); // Remove "stdio://"
+    if (command_line.empty()) {
         throw InvalidInputException("Empty command path in stdio connection string");
+    }
+    
+    // Parse command line into executable and arguments
+    // Simple parsing: first token is command, rest are arguments
+    stringstream ss(command_line);
+    string token;
+    vector<string> tokens;
+    while (ss >> token) {
+        tokens.push_back(token);
+    }
+    
+    if (tokens.empty()) {
+        throw InvalidInputException("Invalid command in stdio connection string");
     }
     
     // Create transport configuration
     StdioTransport::StdioConfig transport_config;
-    transport_config.command_path = command_path;
+    transport_config.command_path = tokens[0];
+    for (size_t i = 1; i < tokens.size(); i++) {
+        transport_config.arguments.push_back(tokens[i]);
+    }
     
     // Parse additional options from ATTACH parameters
     if (info.options.find("args") != info.options.end()) {

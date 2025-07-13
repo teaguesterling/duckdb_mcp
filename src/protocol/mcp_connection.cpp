@@ -141,9 +141,9 @@ MCPResource MCPConnection::ReadResource(const string &uri) {
     resource.uri = uri;
     
     // Parse response.result into resource
-    // Placeholder - would extract contents, metadata, etc.
+    // For now, just convert the entire result to string for debugging
+    // TODO: Implement proper parsing of MCP response structure
     if (!response.result.IsNull()) {
-        // For now, just store the result as content
         resource.content = response.result.ToString();
         resource.content_loaded = true;
         resource.size = resource.content.length();
@@ -244,21 +244,8 @@ Value MCPConnection::GenerateRequestId() {
 }
 
 bool MCPConnection::SendInitialize() {
-    Value client_info = Value::STRUCT({
-        {"name", Value("DuckDB MCP Extension")},
-        {"version", Value("0.1.0")}
-    });
-    
-    Value capabilities = Value::STRUCT({
-        {"roots", Value::LIST(LogicalType::VARCHAR, {})},
-        {"sampling", Value::STRUCT({})}
-    });
-    
-    Value params = Value::STRUCT({
-        {"protocolVersion", Value("2024-11-05")},
-        {"clientInfo", client_info},
-        {"capabilities", capabilities}
-    });
+    // Use empty struct since we'll manually construct JSON in ToJSON()
+    Value params = Value::STRUCT({});
     
     auto response = SendRequest(MCPMethods::INITIALIZE, params);
     

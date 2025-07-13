@@ -7,16 +7,14 @@ namespace duckdb {
 // Structure representing parsed MCP path components
 struct MCPPath {
     string server_name;     // Server alias from ATTACH
-    string mcp_protocol;    // MCP resource scheme (file, resource, etc.)
-    string resource_path;   // Path within the MCP protocol namespace
-    string full_mcp_uri;    // Reconstructed MCP URI (protocol://path)
+    string resource_uri;    // Complete MCP resource URI to pass to server
     
     bool IsValid() const {
-        return !server_name.empty() && !mcp_protocol.empty();
+        return !server_name.empty() && !resource_uri.empty();
     }
     
     string ToString() const {
-        return "mcp://" + server_name + "/" + full_mcp_uri;
+        return "mcp://" + server_name + "/" + resource_uri;
     }
 };
 
