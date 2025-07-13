@@ -12,6 +12,7 @@ include_directories(src/include)
 set(EXTENSION_SOURCES 
   src/duckdb_mcp_extension.cpp
   src/duckdb_mcp_config.cpp
+  src/duckdb_mcp_security.cpp
   src/mcpfs/mcp_path.cpp
   src/mcpfs/mcp_file_system.cpp
   src/protocol/mcp_message.cpp

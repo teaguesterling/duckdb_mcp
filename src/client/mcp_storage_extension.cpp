@@ -4,6 +4,7 @@
 #include "mcpfs/mcp_file_system.hpp"
 #include "catalog/mcp_catalog.hpp"
 #include "client/mcp_transaction_manager.hpp"
+#include "duckdb_mcp_security.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/parser/parsed_data/create_schema_info.hpp"
 #include "duckdb/catalog/catalog_entry/schema_catalog_entry.hpp"
@@ -59,66 +60,33 @@ unique_ptr<TransactionManager> MCPStorageExtension::MCPStorageTransactionManager
 }
 
 shared_ptr<MCPConnection> MCPStorageExtension::CreateMCPConnection(const AttachInfo &info) {
-    string connection_string = info.path;
+    // Parse structured parameters from ATTACH statement
+    auto params = ParseMCPAttachParams(info);
     
-    // Parse connection string - expect format like "stdio:///path/to/server"
-    if (!StringUtil::StartsWith(StringUtil::Lower(connection_string), "stdio://")) {
-        throw InvalidInputException("Currently only stdio:// transport is supported. Got: " + connection_string);
+    // Validate parameters
+    if (!params.IsValid()) {
+        throw InvalidInputException("Invalid MCP connection parameters. Required: command");
     }
     
-    // Extract command line from stdio:///path/to/server
-    string command_line = connection_string.substr(8); // Remove "stdio://"
-    if (command_line.empty()) {
-        throw InvalidInputException("Empty command path in stdio connection string");
+    // Security validation
+    auto &security = MCPSecurityConfig::GetInstance();
+    security.ValidateAttachSecurity(params.command, params.args);
+    
+    // Only stdio transport supported for now
+    if (params.transport != "stdio") {
+        throw InvalidInputException("Currently only stdio transport is supported. Got: " + params.transport);
     }
     
-    // Parse command line into executable and arguments
-    // Simple parsing: first token is command, rest are arguments
-    stringstream ss(command_line);
-    string token;
-    vector<string> tokens;
-    while (ss >> token) {
-        tokens.push_back(token);
-    }
-    
-    if (tokens.empty()) {
-        throw InvalidInputException("Invalid command in stdio connection string");
-    }
-    
-    // Create transport configuration
+    // Create transport configuration with validated parameters
     StdioTransport::StdioConfig transport_config;
-    transport_config.command_path = tokens[0];
-    for (size_t i = 1; i < tokens.size(); i++) {
-        transport_config.arguments.push_back(tokens[i]);
-    }
+    transport_config.command_path = params.command;
+    transport_config.arguments = params.args;
+    transport_config.working_directory = params.working_dir;
     
-    // Parse additional options from ATTACH parameters
-    if (info.options.find("args") != info.options.end()) {
-        auto args_value = info.options.at("args");
-        // Would parse args array from the Value - simplified for now
-        if (!args_value.IsNull()) {
-            // For now, assume it's a simple string that we split on spaces
-            string args_str = args_value.ToString();
-            // Simple space-based splitting - would need proper JSON array parsing
-            stringstream ss(args_str);
-            string arg;
-            while (ss >> arg) {
-                transport_config.arguments.push_back(arg);
-            }
-        }
-    }
-    
-    if (info.options.find("cwd") != info.options.end()) {
-        auto cwd_value = info.options.at("cwd");
-        if (!cwd_value.IsNull()) {
-            transport_config.working_directory = cwd_value.ToString();
-        }
-    }
-    
+    // Parse additional legacy options for backward compatibility
     if (info.options.find("timeout") != info.options.end()) {
         auto timeout_value = info.options.at("timeout");
         if (!timeout_value.IsNull()) {
-            // Parse timeout - assume it's in seconds for now
             transport_config.timeout_seconds = std::stoi(timeout_value.ToString());
         }
     }
@@ -126,8 +94,13 @@ shared_ptr<MCPConnection> MCPStorageExtension::CreateMCPConnection(const AttachI
     // Create transport
     auto transport = make_uniq<StdioTransport>(transport_config);
     
-    // Create and return MCP connection
-    return make_shared_ptr<MCPConnection>(info.name, std::move(transport));
+    // Create connection
+    auto connection = make_shared<MCPConnection>(info.name, std::move(transport));
+    
+    // Register connection globally so it can be accessed by MCPFS and MCP functions
+    MCPConnectionRegistry::GetInstance().RegisterConnection(info.name, connection);
+    
+    return connection;
 }
 
 void MCPStorageExtension::RegisterMCPConnection(ClientContext &context, const string &name, 
