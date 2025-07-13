@@ -176,6 +176,205 @@ static void MCPCallToolFunction(DataChunk &args, ExpressionState &state, Vector 
     }
 }
 
+// List MCP tools
+static void MCPListToolsFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+    auto &server_vector = args.data[0];
+    
+    result.SetVectorType(VectorType::FLAT_VECTOR);
+    auto result_data = FlatVector::GetData<string_t>(result);
+    auto &result_validity = FlatVector::Validity(result);
+    
+    for (idx_t i = 0; i < args.size(); i++) {
+        if (server_vector.GetValue(i).IsNull()) {
+            result_data[i] = StringVector::AddString(result, "TRACE: server_name is null");
+            continue;
+        }
+        
+        string server_name = server_vector.GetValue(i).ToString();
+        
+        try {
+            // Get connection from registry
+            auto connection = MCPConnectionRegistry::GetInstance().GetConnection(server_name);
+            if (!connection) {
+                throw InvalidInputException("MCP server not attached: " + server_name);
+            }
+            
+            if (!connection->IsInitialized()) {
+                if (!connection->Initialize()) {
+                    throw IOException("Failed to initialize MCP connection: " + connection->GetLastError());
+                }
+            }
+            
+            // Get raw MCP response
+            auto response = connection->SendRequest(MCPMethods::TOOLS_LIST, Value::STRUCT({}));
+            
+            if (response.IsError()) {
+                result_data[i] = StringVector::AddString(result, "MCP_ERROR: " + response.error.message);
+                continue;
+            }
+            
+            // Return the actual JSON response from MCP server
+            result_data[i] = StringVector::AddString(result, response.result.ToString());
+        } catch (const std::exception &e) {
+            // For debugging, return the error message instead of NULL
+            result_data[i] = StringVector::AddString(result, "ERROR: " + string(e.what()));
+        }
+    }
+}
+
+// List MCP prompts
+static void MCPListPromptsFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+    auto &server_vector = args.data[0];
+    
+    result.SetVectorType(VectorType::FLAT_VECTOR);
+    auto result_data = FlatVector::GetData<string_t>(result);
+    auto &result_validity = FlatVector::Validity(result);
+    
+    for (idx_t i = 0; i < args.size(); i++) {
+        if (server_vector.GetValue(i).IsNull()) {
+            result_data[i] = StringVector::AddString(result, "TRACE: server_name is null");
+            continue;
+        }
+        
+        string server_name = server_vector.GetValue(i).ToString();
+        
+        try {
+            // Get connection from registry
+            auto connection = MCPConnectionRegistry::GetInstance().GetConnection(server_name);
+            if (!connection) {
+                throw InvalidInputException("MCP server not attached: " + server_name);
+            }
+            
+            if (!connection->IsInitialized()) {
+                if (!connection->Initialize()) {
+                    throw IOException("Failed to initialize MCP connection: " + connection->GetLastError());
+                }
+            }
+            
+            // Get raw MCP response
+            auto response = connection->SendRequest(MCPMethods::PROMPTS_LIST, Value::STRUCT({}));
+            
+            if (response.IsError()) {
+                result_data[i] = StringVector::AddString(result, "MCP_ERROR: " + response.error.message);
+                continue;
+            }
+            
+            // Return the actual JSON response from MCP server
+            result_data[i] = StringVector::AddString(result, response.result.ToString());
+        } catch (const std::exception &e) {
+            // For debugging, return the error message instead of NULL
+            result_data[i] = StringVector::AddString(result, "ERROR: " + string(e.what()));
+        }
+    }
+}
+
+// Get MCP prompt content
+static void MCPGetPromptFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+    auto &server_vector = args.data[0];
+    auto &prompt_vector = args.data[1];
+    auto &params_vector = args.data[2];
+    
+    result.SetVectorType(VectorType::FLAT_VECTOR);
+    auto result_data = FlatVector::GetData<string_t>(result);
+    auto &result_validity = FlatVector::Validity(result);
+    
+    for (idx_t i = 0; i < args.size(); i++) {
+        if (server_vector.GetValue(i).IsNull() || prompt_vector.GetValue(i).IsNull()) {
+            result_validity.SetInvalid(i);
+            continue;
+        }
+        
+        string server_name = server_vector.GetValue(i).ToString();
+        string prompt_name = prompt_vector.GetValue(i).ToString();
+        string params_json = params_vector.GetValue(i).IsNull() ? "{}" : params_vector.GetValue(i).ToString();
+        
+        try {
+            // Get connection from registry
+            auto connection = MCPConnectionRegistry::GetInstance().GetConnection(server_name);
+            if (!connection) {
+                throw InvalidInputException("MCP server not attached: " + server_name);
+            }
+            
+            if (!connection->IsInitialized()) {
+                if (!connection->Initialize()) {
+                    throw IOException("Failed to initialize MCP connection: " + connection->GetLastError());
+                }
+            }
+            
+            // Create MCP prompt get params
+            Value call_params = Value::STRUCT({
+                {"name", Value(prompt_name)},
+                {"arguments", Value(params_json)}  // Pass raw JSON string for prompt arguments
+            });
+            
+            // Get raw MCP response
+            auto response = connection->SendRequest(MCPMethods::PROMPTS_GET, call_params);
+            
+            if (response.IsError()) {
+                result_data[i] = StringVector::AddString(result, "MCP_ERROR: " + response.error.message);
+                continue;
+            }
+            
+            // Return raw JSON response
+            result_data[i] = StringVector::AddString(result, response.result.ToString());
+        } catch (const std::exception &e) {
+            // For debugging, return the error message instead of NULL
+            result_data[i] = StringVector::AddString(result, "ERROR: " + string(e.what()));
+        }
+    }
+}
+
+// Reconnect to an MCP server
+static void MCPReconnectServerFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+    auto &server_vector = args.data[0];
+    
+    result.SetVectorType(VectorType::FLAT_VECTOR);
+    auto result_data = FlatVector::GetData<string_t>(result);
+    auto &result_validity = FlatVector::Validity(result);
+    
+    for (idx_t i = 0; i < args.size(); i++) {
+        if (server_vector.GetValue(i).IsNull()) {
+            result_data[i] = StringVector::AddString(result, "ERROR: server_name is null");
+            continue;
+        }
+        
+        string server_name = server_vector.GetValue(i).ToString();
+        
+        try {
+            // Get connection from registry
+            auto connection = MCPConnectionRegistry::GetInstance().GetConnection(server_name);
+            if (!connection) {
+                result_data[i] = StringVector::AddString(result, "ERROR: MCP server not found: " + server_name);
+                continue;
+            }
+            
+            // Force disconnect and reconnect
+            connection->Disconnect();
+            
+            bool connected = connection->Connect();
+            if (!connected) {
+                result_data[i] = StringVector::AddString(result, "ERROR: Failed to reconnect to server: " + 
+                    connection->GetLastError());
+                continue;
+            }
+            
+            // Re-initialize the connection
+            bool initialized = connection->Initialize();
+            if (!initialized) {
+                result_data[i] = StringVector::AddString(result, "ERROR: Failed to re-initialize server: " + 
+                    connection->GetLastError());
+                continue;
+            }
+            
+            // Return success message with connection info
+            result_data[i] = StringVector::AddString(result, "SUCCESS: Reconnected to " + connection->GetConnectionInfo());
+            
+        } catch (const std::exception &e) {
+            result_data[i] = StringVector::AddString(result, "ERROR: " + string(e.what()));
+        }
+    }
+}
+
 // Callback functions for MCP configuration settings
 static void SetAllowedMCPCommands(ClientContext &context, SetScope scope, Value &parameter) {
     auto &security = MCPSecurityConfig::GetInstance();
@@ -258,6 +457,25 @@ void DuckdbMcpExtension::Load(DuckDB &db) {
     auto call_tool_func = ScalarFunction("mcp_call_tool", 
         {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR}, LogicalType::JSON(), MCPCallToolFunction);
     ExtensionUtil::RegisterFunction(*db.instance, call_tool_func);
+    
+    // Register MCP tool functions
+    auto list_tools_func = ScalarFunction("mcp_list_tools", 
+        {LogicalType::VARCHAR}, LogicalType::JSON(), MCPListToolsFunction);
+    ExtensionUtil::RegisterFunction(*db.instance, list_tools_func);
+    
+    // Register MCP prompt functions
+    auto list_prompts_func = ScalarFunction("mcp_list_prompts", 
+        {LogicalType::VARCHAR}, LogicalType::JSON(), MCPListPromptsFunction);
+    ExtensionUtil::RegisterFunction(*db.instance, list_prompts_func);
+    
+    auto get_prompt_func = ScalarFunction("mcp_get_prompt", 
+        {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR}, LogicalType::JSON(), MCPGetPromptFunction);
+    ExtensionUtil::RegisterFunction(*db.instance, get_prompt_func);
+    
+    // Register MCP connection management functions
+    auto reconnect_func = ScalarFunction("mcp_reconnect_server", 
+        {LogicalType::VARCHAR}, LogicalType::VARCHAR, MCPReconnectServerFunction);
+    ExtensionUtil::RegisterFunction(*db.instance, reconnect_func);
 }
 
 extern "C" {
