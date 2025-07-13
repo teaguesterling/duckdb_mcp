@@ -6,6 +6,9 @@
 #include "client/mcp_storage_extension.hpp"
 #include "protocol/mcp_connection.hpp"
 #include "protocol/mcp_message.hpp"
+#include "server/mcp_server.hpp"
+#include "server/resource_providers.hpp"
+#include "server/tool_handlers.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/common/enums/set_scope.hpp"
@@ -445,6 +448,219 @@ static void MCPServerHealthFunction(DataChunk &args, ExpressionState &state, Vec
     }
 }
 
+// Start MCP server with inline configuration
+static void MCPServerStartFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+    auto &transport_vector = args.data[0];
+    auto &bind_address_vector = args.data[1];
+    auto &port_vector = args.data[2];
+    auto &config_json_vector = args.data[3];
+    
+    result.SetVectorType(VectorType::FLAT_VECTOR);
+    auto result_data = FlatVector::GetData<string_t>(result);
+    auto &result_validity = FlatVector::Validity(result);
+    
+    for (idx_t i = 0; i < args.size(); i++) {
+        try {
+            // Get database instance from state
+            auto &context = state.GetContext();
+            auto &db_instance = DatabaseInstance::GetDatabase(context);
+            
+            // Parse parameters
+            string transport = transport_vector.GetValue(i).IsNull() ? "stdio" : transport_vector.GetValue(i).ToString();
+            string bind_address = bind_address_vector.GetValue(i).IsNull() ? "localhost" : bind_address_vector.GetValue(i).ToString();
+            int port = port_vector.GetValue(i).IsNull() ? 8080 : port_vector.GetValue(i).GetValue<int32_t>();
+            string config_json = config_json_vector.GetValue(i).IsNull() ? "{}" : config_json_vector.GetValue(i).ToString();
+            
+            // Check if serving is disabled
+            auto &security = MCPSecurityConfig::GetInstance();
+            if (security.IsServingDisabled()) {
+                result_data[i] = StringVector::AddString(result, "ERROR: MCP server functionality is disabled (mcp_disable_serving=true)");
+                continue;
+            }
+            
+            // Check if server is already running
+            auto &server_manager = MCPServerManager::GetInstance();
+            if (server_manager.IsServerRunning()) {
+                result_data[i] = StringVector::AddString(result, "ERROR: MCP server is already running. Stop it first with mcp_server_stop()");
+                continue;
+            }
+            
+            // Create server configuration
+            MCPServerConfig server_config;
+            server_config.transport = transport;
+            server_config.bind_address = bind_address;
+            server_config.port = port;
+            server_config.db_instance = &db_instance;
+            
+            // TODO: Parse config_json for additional settings like:
+            // - enable_query_tool, enable_describe_tool, enable_export_tool
+            // - allowed_queries, denied_queries
+            // - max_connections, request_timeout_seconds
+            // - require_auth, auth_token
+            
+            // Start server
+            if (server_manager.StartServer(server_config)) {
+                string success_msg = "SUCCESS: MCP server started on " + transport;
+                if (transport != "stdio") {
+                    success_msg += " at " + bind_address + ":" + std::to_string(port);
+                }
+                result_data[i] = StringVector::AddString(result, success_msg);
+            } else {
+                result_data[i] = StringVector::AddString(result, "ERROR: Failed to start MCP server");
+            }
+            
+        } catch (const std::exception &e) {
+            result_data[i] = StringVector::AddString(result, "ERROR: " + string(e.what()));
+        }
+    }
+}
+
+// Stop MCP server
+static void MCPServerStopFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+    result.SetVectorType(VectorType::FLAT_VECTOR);
+    auto result_data = FlatVector::GetData<string_t>(result);
+    
+    for (idx_t i = 0; i < args.size(); i++) {
+        try {
+            auto &server_manager = MCPServerManager::GetInstance();
+            
+            if (!server_manager.IsServerRunning()) {
+                result_data[i] = StringVector::AddString(result, "ERROR: MCP server is not running");
+                continue;
+            }
+            
+            server_manager.StopServer();
+            result_data[i] = StringVector::AddString(result, "SUCCESS: MCP server stopped");
+            
+        } catch (const std::exception &e) {
+            result_data[i] = StringVector::AddString(result, "ERROR: " + string(e.what()));
+        }
+    }
+}
+
+// Get MCP server status
+static void MCPServerStatusFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+    result.SetVectorType(VectorType::FLAT_VECTOR);
+    auto result_data = FlatVector::GetData<string_t>(result);
+    
+    for (idx_t i = 0; i < args.size(); i++) {
+        try {
+            auto &server_manager = MCPServerManager::GetInstance();
+            
+            if (!server_manager.IsServerRunning()) {
+                result_data[i] = StringVector::AddString(result, "Server Status: STOPPED");
+                continue;
+            }
+            
+            auto server = server_manager.GetServer();
+            if (server) {
+                string status = server->GetStatus();
+                result_data[i] = StringVector::AddString(result, status);
+            } else {
+                result_data[i] = StringVector::AddString(result, "ERROR: Server manager inconsistency");
+            }
+            
+        } catch (const std::exception &e) {
+            result_data[i] = StringVector::AddString(result, "ERROR: " + string(e.what()));
+        }
+    }
+}
+
+// Publish table as MCP resource
+static void MCPPublishTableFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+    auto &table_vector = args.data[0];
+    auto &uri_vector = args.data[1];
+    auto &format_vector = args.data[2];
+    
+    result.SetVectorType(VectorType::FLAT_VECTOR);
+    auto result_data = FlatVector::GetData<string_t>(result);
+    
+    for (idx_t i = 0; i < args.size(); i++) {
+        try {
+            auto &server_manager = MCPServerManager::GetInstance();
+            
+            if (!server_manager.IsServerRunning()) {
+                result_data[i] = StringVector::AddString(result, "ERROR: MCP server is not running");
+                continue;
+            }
+            
+            // Parse parameters
+            string table_name = table_vector.GetValue(i).ToString();
+            string resource_uri = uri_vector.GetValue(i).IsNull() ? 
+                ("data://tables/" + table_name) : uri_vector.GetValue(i).ToString();
+            string format = format_vector.GetValue(i).IsNull() ? "json" : format_vector.GetValue(i).ToString();
+            
+            // Get database instance
+            auto &context = state.GetContext();
+            auto &db_instance = DatabaseInstance::GetDatabase(context);
+            
+            // Create resource provider
+            auto provider = make_uniq<TableResourceProvider>(table_name, format, db_instance);
+            
+            // Publish resource
+            auto server = server_manager.GetServer();
+            if (server->PublishResource(resource_uri, std::move(provider))) {
+                result_data[i] = StringVector::AddString(result, "SUCCESS: Published table '" + table_name + 
+                    "' as resource '" + resource_uri + "' in " + format + " format");
+            } else {
+                result_data[i] = StringVector::AddString(result, "ERROR: Failed to publish table");
+            }
+            
+        } catch (const std::exception &e) {
+            result_data[i] = StringVector::AddString(result, "ERROR: " + string(e.what()));
+        }
+    }
+}
+
+// Publish query as MCP resource
+static void MCPPublishQueryFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+    auto &query_vector = args.data[0];
+    auto &uri_vector = args.data[1];
+    auto &format_vector = args.data[2];
+    auto &refresh_vector = args.data[3];
+    
+    result.SetVectorType(VectorType::FLAT_VECTOR);
+    auto result_data = FlatVector::GetData<string_t>(result);
+    
+    for (idx_t i = 0; i < args.size(); i++) {
+        try {
+            auto &server_manager = MCPServerManager::GetInstance();
+            
+            if (!server_manager.IsServerRunning()) {
+                result_data[i] = StringVector::AddString(result, "ERROR: MCP server is not running");
+                continue;
+            }
+            
+            // Parse parameters
+            string query = query_vector.GetValue(i).ToString();
+            string resource_uri = uri_vector.GetValue(i).ToString();
+            string format = format_vector.GetValue(i).IsNull() ? "json" : format_vector.GetValue(i).ToString();
+            uint32_t refresh_seconds = refresh_vector.GetValue(i).IsNull() ? 0 : refresh_vector.GetValue(i).GetValue<uint32_t>();
+            
+            // Get database instance
+            auto &context = state.GetContext();
+            auto &db_instance = DatabaseInstance::GetDatabase(context);
+            
+            // Create resource provider
+            auto provider = make_uniq<QueryResourceProvider>(query, format, db_instance, refresh_seconds);
+            
+            // Publish resource
+            auto server = server_manager.GetServer();
+            if (server->PublishResource(resource_uri, std::move(provider))) {
+                string refresh_info = refresh_seconds > 0 ? 
+                    " (refresh every " + std::to_string(refresh_seconds) + "s)" : " (no refresh)";
+                result_data[i] = StringVector::AddString(result, "SUCCESS: Published query as resource '" + 
+                    resource_uri + "' in " + format + " format" + refresh_info);
+            } else {
+                result_data[i] = StringVector::AddString(result, "ERROR: Failed to publish query");
+            }
+            
+        } catch (const std::exception &e) {
+            result_data[i] = StringVector::AddString(result, "ERROR: " + string(e.what()));
+        }
+    }
+}
+
 // Callback functions for MCP configuration settings
 static void SetAllowedMCPCommands(ClientContext &context, SetScope scope, Value &parameter) {
     auto &security = MCPSecurityConfig::GetInstance();
@@ -550,6 +766,31 @@ void DuckdbMcpExtension::Load(DuckDB &db) {
     auto health_func = ScalarFunction("mcp_server_health", 
         {LogicalType::VARCHAR}, LogicalType::VARCHAR, MCPServerHealthFunction);
     ExtensionUtil::RegisterFunction(*db.instance, health_func);
+    
+    // Register MCP server functions
+    auto server_start_func = ScalarFunction("mcp_server_start", 
+        {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::INTEGER, LogicalType::VARCHAR}, 
+        LogicalType::VARCHAR, MCPServerStartFunction);
+    ExtensionUtil::RegisterFunction(*db.instance, server_start_func);
+    
+    auto server_stop_func = ScalarFunction("mcp_server_stop", 
+        {}, LogicalType::VARCHAR, MCPServerStopFunction);
+    ExtensionUtil::RegisterFunction(*db.instance, server_stop_func);
+    
+    auto server_status_func = ScalarFunction("mcp_server_status", 
+        {}, LogicalType::VARCHAR, MCPServerStatusFunction);
+    ExtensionUtil::RegisterFunction(*db.instance, server_status_func);
+    
+    // Register resource publishing functions
+    auto publish_table_func = ScalarFunction("mcp_publish_table", 
+        {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR}, 
+        LogicalType::VARCHAR, MCPPublishTableFunction);
+    ExtensionUtil::RegisterFunction(*db.instance, publish_table_func);
+    
+    auto publish_query_func = ScalarFunction("mcp_publish_query", 
+        {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::INTEGER}, 
+        LogicalType::VARCHAR, MCPPublishQueryFunction);
+    ExtensionUtil::RegisterFunction(*db.instance, publish_query_func);
 }
 
 extern "C" {

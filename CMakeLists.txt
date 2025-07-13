@@ -23,6 +23,9 @@ set(EXTENSION_SOURCES
   src/client/mcp_transaction_manager.cpp
   src/catalog/mcp_catalog.cpp
   src/catalog/mcp_schema_entry.cpp
+  src/server/mcp_server.cpp
+  src/server/resource_providers.cpp
+  src/server/tool_handlers.cpp
 )
 
 build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
