@@ -111,10 +111,10 @@ bool MCPServer::Start() {
     running = true;
     start_time = time(nullptr);
     
-    // For stdio transport, we don't start a background thread
-    // The caller will use RunMainLoop() to handle communication
+    // For stdio transport in background mode, start server thread
     if (config.transport == "stdio") {
-        // Just mark as running - RunMainLoop() will handle the actual communication
+        // For background mode, start thread. For foreground mode, caller will use RunMainLoop()
+        server_thread = make_uniq<std::thread>(&MCPServer::ServerLoop, this);
         return true;
     } else {
         // TCP/WebSocket not implemented yet

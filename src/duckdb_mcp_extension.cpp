@@ -2,6 +2,7 @@
 #include "duckdb_mcp_extension.hpp"
 #include "duckdb_mcp_config.hpp"
 #include "duckdb_mcp_security.hpp"
+#include <cstdlib>
 #include "mcpfs/mcp_file_system.hpp"
 #include "client/mcp_storage_extension.hpp"
 #include "protocol/mcp_connection.hpp"
@@ -498,19 +499,28 @@ static void MCPServerStartFunction(DataChunk &args, ExpressionState &state, Vect
             // - max_connections, request_timeout_seconds
             // - require_auth, auth_token
             
-            // For stdio transport, take over the process completely
+            // For stdio transport, check if foreground mode is requested
             if (transport == "stdio") {
-                // Create and start MCP server directly without background thread
-                MCPServer server(server_config);
-                if (server.Start()) {
-                    // Never return - handle MCP protocol until process ends
-                    // Note: We don't set result_data[i] because we never return from RunMainLoop()
-                    server.RunMainLoop();
-                    
-                    // This should never be reached
-                    result_data[i] = StringVector::AddString(result, "ERROR: MCP server unexpectedly returned");
+                // Check environment variable for foreground mode
+                const char* foreground_env = std::getenv("DUCKDB_MCP_FOREGROUND");
+                bool foreground_mode = foreground_env && (strcmp(foreground_env, "1") == 0);
+                
+                if (foreground_mode) {
+                    // Foreground mode: take over process completely (never return)
+                    MCPServer server(server_config);
+                    if (server.Start()) {
+                        server.RunMainLoop(); // Blocks forever
+                        result_data[i] = StringVector::AddString(result, "ERROR: MCP server unexpectedly returned");
+                    } else {
+                        result_data[i] = StringVector::AddString(result, "ERROR: Failed to start MCP server");
+                    }
                 } else {
-                    result_data[i] = StringVector::AddString(result, "ERROR: Failed to start MCP server");
+                    // Background mode: use server manager (standard pattern)
+                    if (server_manager.StartServer(server_config)) {
+                        result_data[i] = StringVector::AddString(result, "SUCCESS: MCP server started on stdio (background mode)");
+                    } else {
+                        result_data[i] = StringVector::AddString(result, "ERROR: Failed to start MCP server");
+                    }
                 }
             } else {
                 // For non-stdio transports, use background thread as before
