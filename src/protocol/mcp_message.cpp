@@ -69,6 +69,35 @@ string MCPMessage::ToJSON() const {
                 } else {
                     json += ",\"params\":{}";
                 }
+            } else if (method == "tools/call") {
+                // For tool calling, extract name and arguments from params struct
+                if (params.type().id() == LogicalTypeId::STRUCT) {
+                    string tool_name, arguments = "{}";
+                    auto &struct_values = StructValue::GetChildren(params);
+                    for (size_t i = 0; i < struct_values.size(); i++) {
+                        auto &key = StructType::GetChildName(params.type(), i);
+                        if (key == "name") {
+                            tool_name = struct_values[i].ToString();
+                        } else if (key == "arguments") {
+                            string arg_str = struct_values[i].ToString();
+                            // If it looks like JSON, use it directly, otherwise wrap in quotes
+                            if (arg_str.empty() || arg_str == "{}") {
+                                arguments = "{}";
+                            } else if (arg_str[0] == '{' || arg_str[0] == '[') {
+                                arguments = arg_str;  // Already JSON
+                            } else {
+                                arguments = "\"" + arg_str + "\"";  // Wrap as string
+                            }
+                        }
+                    }
+                    if (!tool_name.empty()) {
+                        json += ",\"params\":{\"name\":\"" + tool_name + "\",\"arguments\":" + arguments + "}";
+                    } else {
+                        json += ",\"params\":{}";
+                    }
+                } else {
+                    json += ",\"params\":{}";
+                }
             } else {
                 json += ",\"params\":{}";
             }

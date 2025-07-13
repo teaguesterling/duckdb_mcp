@@ -148,9 +148,11 @@ static void MCPCallToolFunction(DataChunk &args, ExpressionState &state, Vector 
             }
             
             // Create MCP tool call params
+            // Note: For now, we pass the JSON string directly as arguments
+            // A more sophisticated implementation would parse the JSON into a proper Value
             Value call_params = Value::STRUCT({
                 {"name", Value(tool_name)},
-                {"arguments", Value::STRUCT({})}  // TODO: Parse params_json properly
+                {"arguments", Value(params_json)}  // Pass raw JSON string
             });
             
             // Get raw MCP response
