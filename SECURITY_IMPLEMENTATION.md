@@ -10,26 +10,31 @@ This document describes the security framework implemented for the DuckDB MCP ex
 - **New (secure)**: `ATTACH DATABASE USING MCP(command='python', args=['server.py'], working_dir='/path/to/server') AS myserver`
 
 ### 2. Security Configuration
-The extension provides security settings through the `mcp_configure()` function:
+The extension provides security settings through DuckDB's native `SET` syntax:
 
 ```sql
--- Set allowed MCP command paths (colon-delimited)
-SELECT mcp_configure('allowed_mcp_commands=/usr/bin/python:/usr/bin/node');
+-- Set allowed MCP command paths (colon-delimited, absolute paths only)
+SET allowed_mcp_commands='/usr/bin/python:/usr/bin/node';
 
 -- Set allowed URLs for MCP servers (space-delimited)  
-SELECT mcp_configure('allowed_mcp_urls=http://localhost https://api.example.com');
+SET allowed_mcp_urls='http://localhost https://api.example.com';
 
 -- Set MCP server configuration file path
-SELECT mcp_configure('mcp_server_file=./my-mcp-config.json');
+SET mcp_server_file='./my-mcp-config.json';
 
 -- Lock server configuration (prevents further changes)
-SELECT mcp_configure('mcp_lock_servers=true');
+SET mcp_lock_servers=true;
+
+-- View current settings
+SELECT current_setting('allowed_mcp_commands');
 ```
 
 ### 3. Command Validation
 - **Allowlist-based**: Only commands in `allowed_mcp_commands` can be executed
-- **Path validation**: Commands must match exact paths (no relative paths, no shell injection)
-- **Argument sanitization**: Dangerous characters (`..`, `|`, `;`, `&`, backticks, `$`) are blocked
+- **Absolute paths only**: Commands must be absolute paths (starting with `/`) to prevent relative path attacks
+- **No arguments allowed**: Commands cannot contain spaces, tabs, or argument separators to prevent injection
+- **Exact matching**: Commands must exactly match allowlist entries
+- **Argument sanitization**: Process arguments are validated separately to prevent dangerous characters (`..`, `|`, `;`, `&`, backticks, `$`)
 
 ### 4. Server Locking
 - Once `mcp_lock_servers=true` is set, no further ATTACH/DETACH operations are allowed
@@ -64,16 +69,19 @@ SELECT mcp_configure('mcp_lock_servers=true');
 ## Example Secure Usage
 
 ```sql
--- Configure security settings
-SELECT mcp_configure('allowed_mcp_commands=/usr/bin/python');
-SELECT mcp_configure('mcp_lock_servers=true');
+-- Configure security settings using native DuckDB SET syntax
+SET allowed_mcp_commands='/usr/bin/python';
+SET mcp_lock_servers=true;
 
--- Secure ATTACH with structured parameters
+-- Secure ATTACH with structured parameters (when implemented)
 ATTACH DATABASE USING MCP(
     command='/usr/bin/python',
     args=['fastmcp_server.py'],
     working_dir='/opt/mcp-servers/data-server'
 ) AS data_server;
+
+-- Legacy ATTACH format (current implementation)
+ATTACH 'stdio:///usr/bin/python fastmcp_server.py' AS data_server (TYPE MCP);
 
 -- Use MCP functions safely
 SELECT mcp_list_resources('data_server');
