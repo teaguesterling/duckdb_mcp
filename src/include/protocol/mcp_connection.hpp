@@ -73,6 +73,13 @@ public:
 
     // Error handling
     string GetLastError() const { return last_error; }
+    bool HasRecoverableError() const;
+    void ClearError();
+    
+    // Connection health monitoring
+    bool IsHealthy() const;
+    time_t GetLastActivityTime() const { return last_activity_time; }
+    uint32_t GetConsecutiveFailures() const { return consecutive_failures; }
     
     // Raw MCP protocol access
     MCPMessage SendRequest(const string &method, const Value &params);
@@ -84,6 +91,9 @@ private:
     MCPCapabilities capabilities;
     atomic<uint64_t> next_request_id;
     string last_error;
+    atomic<bool> is_recoverable_error;
+    atomic<uint32_t> consecutive_failures;
+    atomic<time_t> last_activity_time;
     mutable mutex connection_mutex;
 
     // Protocol helpers
@@ -96,8 +106,13 @@ private:
     void ParseCapabilities(const Value &server_info);
     
     // Error handling
-    void SetError(const string &error);
+    void SetError(const string &error, bool recoverable = false);
     void HandleTransportError(const string &operation);
+    void RecordSuccess();
+    void RecordFailure();
+    
+    // Automatic retry logic
+    bool SendRequestWithRetry(const string &method, const Value &params, MCPMessage &response, int max_retries = 3);
 };
 
 } // namespace duckdb

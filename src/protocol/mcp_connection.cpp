@@ -1,11 +1,15 @@
 #include "protocol/mcp_connection.hpp"
 #include "duckdb/common/exception.hpp"
+#include <ctime>
+#include <thread>
+#include <chrono>
 
 namespace duckdb {
 
 MCPConnection::MCPConnection(const string &server_name, unique_ptr<MCPTransport> transport)
     : server_name(server_name), transport(std::move(transport)), 
-      state(MCPConnectionState::DISCONNECTED), next_request_id(1) {
+      state(MCPConnectionState::DISCONNECTED), next_request_id(1),
+      is_recoverable_error(false), consecutive_failures(0), last_activity_time(time(nullptr)) {
 }
 
 MCPConnection::~MCPConnection() {
@@ -25,17 +29,20 @@ bool MCPConnection::Connect() {
     
     try {
         if (!transport->Connect()) {
-            SetError("Failed to establish transport connection");
+            SetError("Failed to establish transport connection", true);
             state = MCPConnectionState::ERROR;
+            RecordFailure();
             return false;
         }
         
         state = MCPConnectionState::CONNECTED;
+        RecordSuccess();
         return true;
         
     } catch (const std::exception &e) {
-        SetError("Connection error: " + string(e.what()));
+        SetError("Connection error: " + string(e.what()), true);
         state = MCPConnectionState::ERROR;
+        RecordFailure();
         return false;
     }
 }
@@ -214,14 +221,12 @@ MCPMessage MCPConnection::SendRequest(const string &method, const Value &params)
         throw InvalidInputException("Connection not established");
     }
     
-    auto request_id = GenerateRequestId();
-    auto request = MCPMessage::CreateRequest(method, params, request_id);
-    
-    try {
-        return transport->SendAndReceive(request);
-    } catch (const std::exception &e) {
-        throw IOException("Request failed: " + string(e.what()));
+    MCPMessage response;
+    if (!SendRequestWithRetry(method, params, response)) {
+        throw IOException("Request failed after retries: " + GetLastError());
     }
+    
+    return response;
 }
 
 bool MCPConnection::SendNotification(const string &method, const Value &params) {
@@ -277,13 +282,83 @@ void MCPConnection::ParseCapabilities(const Value &server_info) {
     // Would parse actual capabilities from server_info
 }
 
-void MCPConnection::SetError(const string &error) {
+void MCPConnection::SetError(const string &error, bool recoverable) {
     last_error = error;
+    is_recoverable_error = recoverable;
 }
 
 void MCPConnection::HandleTransportError(const string &operation) {
-    SetError("Transport error during " + operation);
+    SetError("Transport error during " + operation, true);
     state = MCPConnectionState::ERROR;
+}
+
+bool MCPConnection::HasRecoverableError() const {
+    return is_recoverable_error.load();
+}
+
+void MCPConnection::ClearError() {
+    last_error.clear();
+    is_recoverable_error = false;
+}
+
+bool MCPConnection::IsHealthy() const {
+    auto current_state = GetState();
+    return (current_state == MCPConnectionState::CONNECTED || 
+            current_state == MCPConnectionState::INITIALIZED) &&
+           consecutive_failures.load() < 3;
+}
+
+void MCPConnection::RecordSuccess() {
+    consecutive_failures = 0;
+    last_activity_time = time(nullptr);
+    ClearError();
+}
+
+void MCPConnection::RecordFailure() {
+    consecutive_failures.fetch_add(1);
+    last_activity_time = time(nullptr);
+}
+
+bool MCPConnection::SendRequestWithRetry(const string &method, const Value &params, MCPMessage &response, int max_retries) {
+    auto request_id = GenerateRequestId();
+    auto request = MCPMessage::CreateRequest(method, params, request_id);
+    
+    for (int attempt = 0; attempt <= max_retries; attempt++) {
+        try {
+            if (!IsConnected()) {
+                // Try to reconnect for recoverable errors
+                if (attempt > 0 && HasRecoverableError()) {
+                    if (!Connect()) {
+                        continue; // Try next attempt
+                    }
+                    if (!Initialize()) {
+                        continue; // Try next attempt  
+                    }
+                } else {
+                    SetError("Connection not established", false);
+                    return false;
+                }
+            }
+            
+            response = transport->SendAndReceive(request);
+            RecordSuccess();
+            return true;
+            
+        } catch (const std::exception &e) {
+            RecordFailure();
+            SetError("Request attempt " + std::to_string(attempt + 1) + " failed: " + string(e.what()), true);
+            
+            // Don't retry for the last attempt
+            if (attempt == max_retries) {
+                break;
+            }
+            
+            // Brief delay before retry (exponential backoff)
+            std::this_thread::sleep_for(std::chrono::milliseconds(100 * (1 << attempt)));
+        }
+    }
+    
+    return false;
 }
 
 } // namespace duckdb

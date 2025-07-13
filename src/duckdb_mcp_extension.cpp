@@ -375,6 +375,76 @@ static void MCPReconnectServerFunction(DataChunk &args, ExpressionState &state, 
     }
 }
 
+// Get MCP server connection health status
+static void MCPServerHealthFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+    auto &server_vector = args.data[0];
+    
+    result.SetVectorType(VectorType::FLAT_VECTOR);
+    auto result_data = FlatVector::GetData<string_t>(result);
+    auto &result_validity = FlatVector::Validity(result);
+    
+    for (idx_t i = 0; i < args.size(); i++) {
+        if (server_vector.GetValue(i).IsNull()) {
+            result_data[i] = StringVector::AddString(result, "ERROR: server_name is null");
+            continue;
+        }
+        
+        string server_name = server_vector.GetValue(i).ToString();
+        
+        try {
+            // Get connection from registry
+            auto connection = MCPConnectionRegistry::GetInstance().GetConnection(server_name);
+            if (!connection) {
+                result_data[i] = StringVector::AddString(result, "ERROR: MCP server not found: " + server_name);
+                continue;
+            }
+            
+            // Get detailed health information
+            string health_info = "Server: " + server_name + "\n";
+            
+            // Connection state
+            auto state = connection->GetState();
+            switch (state) {
+                case MCPConnectionState::DISCONNECTED:
+                    health_info += "State: DISCONNECTED\n";
+                    break;
+                case MCPConnectionState::CONNECTING:
+                    health_info += "State: CONNECTING\n";
+                    break;
+                case MCPConnectionState::CONNECTED:
+                    health_info += "State: CONNECTED\n";
+                    break;
+                case MCPConnectionState::INITIALIZED:
+                    health_info += "State: INITIALIZED\n";
+                    break;
+                case MCPConnectionState::ERROR:
+                    health_info += "State: ERROR\n";
+                    break;
+            }
+            
+            // Health status
+            health_info += "Healthy: " + string(connection->IsHealthy() ? "true" : "false") + "\n";
+            
+            // Error information
+            string last_error = connection->GetLastError();
+            if (!last_error.empty()) {
+                health_info += "Last Error: " + last_error + "\n";
+                health_info += "Recoverable: " + string(connection->HasRecoverableError() ? "true" : "false") + "\n";
+            }
+            
+            // Connection statistics
+            health_info += "Consecutive Failures: " + std::to_string(connection->GetConsecutiveFailures()) + "\n";
+            health_info += "Last Activity: " + std::to_string(connection->GetLastActivityTime()) + "\n";
+            health_info += "Connection Info: " + connection->GetConnectionInfo();
+            
+            result_data[i] = StringVector::AddString(result, health_info);
+            
+        } catch (const std::exception &e) {
+            result_data[i] = StringVector::AddString(result, "ERROR: " + string(e.what()));
+        }
+    }
+}
+
 // Callback functions for MCP configuration settings
 static void SetAllowedMCPCommands(ClientContext &context, SetScope scope, Value &parameter) {
     auto &security = MCPSecurityConfig::GetInstance();
@@ -476,6 +546,10 @@ void DuckdbMcpExtension::Load(DuckDB &db) {
     auto reconnect_func = ScalarFunction("mcp_reconnect_server", 
         {LogicalType::VARCHAR}, LogicalType::VARCHAR, MCPReconnectServerFunction);
     ExtensionUtil::RegisterFunction(*db.instance, reconnect_func);
+    
+    auto health_func = ScalarFunction("mcp_server_health", 
+        {LogicalType::VARCHAR}, LogicalType::VARCHAR, MCPServerHealthFunction);
+    ExtensionUtil::RegisterFunction(*db.instance, health_func);
 }
 
 extern "C" {
