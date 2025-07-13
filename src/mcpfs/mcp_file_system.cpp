@@ -29,7 +29,75 @@ void MCPFileHandle::LoadResourceContent() {
     
     try {
         auto resource = connection->ReadResource(parsed_path.resource_uri);
-        resource_content = resource.content;
+        
+        // Extract the actual text content from the MCP JSON response
+        string json_response = resource.content;
+        string extracted_content;
+        
+        // Look for pattern: "text":"..."
+        auto text_pos = json_response.find("\"text\":\"");
+        if (text_pos != string::npos) {
+            text_pos += 8; // len("\"text\":\"")
+            auto text_end = text_pos;
+            
+            // Find the end of the text field, handling escaped quotes
+            bool escaped = false;
+            for (size_t i = text_pos; i < json_response.length(); i++) {
+                char c = json_response[i];
+                if (escaped) {
+                    escaped = false;
+                    continue;
+                }
+                if (c == '\\') {
+                    escaped = true;
+                    continue;
+                }
+                if (c == '"') {
+                    text_end = i;
+                    break;
+                }
+            }
+            
+            if (text_end > text_pos) {
+                string escaped_text = json_response.substr(text_pos, text_end - text_pos);
+                
+                // Unescape the content (handle \n, \t, \\, \")
+                for (size_t i = 0; i < escaped_text.length(); i++) {
+                    if (escaped_text[i] == '\\' && i + 1 < escaped_text.length()) {
+                        char next = escaped_text[i + 1];
+                        if (next == 'n') {
+                            extracted_content += '\n';
+                            i++; // Skip the next character
+                        } else if (next == 't') {
+                            extracted_content += '\t';
+                            i++; // Skip the next character
+                        } else if (next == 'r') {
+                            extracted_content += '\r';
+                            i++; // Skip the next character
+                        } else if (next == '\\') {
+                            extracted_content += '\\';
+                            i++; // Skip the next character
+                        } else if (next == '"') {
+                            extracted_content += '"';
+                            i++; // Skip the next character
+                        } else {
+                            extracted_content += escaped_text[i];
+                        }
+                    } else {
+                        extracted_content += escaped_text[i];
+                    }
+                }
+                
+                resource_content = extracted_content;
+            } else {
+                // Fallback: use the entire JSON response
+                resource_content = json_response;
+            }
+        } else {
+            // Fallback: use the entire JSON response
+            resource_content = json_response;
+        }
+        
         content_loaded = true;
         current_position = 0;
     } catch (const std::exception &e) {

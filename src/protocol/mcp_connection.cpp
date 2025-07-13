@@ -141,8 +141,8 @@ MCPResource MCPConnection::ReadResource(const string &uri) {
     resource.uri = uri;
     
     // Parse response.result into resource
-    // For now, just convert the entire result to string for debugging
-    // TODO: Implement proper parsing of MCP response structure
+    // Store the raw JSON response for MCP functions, 
+    // MCPFS will extract content as needed
     if (!response.result.IsNull()) {
         resource.content = response.result.ToString();
         resource.content_loaded = true;
