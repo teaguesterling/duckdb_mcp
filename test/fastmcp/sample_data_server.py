@@ -20,6 +20,7 @@ from mcp.types import (
     Resource,
     Tool,
     CallToolResult,
+    TextContent,
 )
 
 # Sample CSV data
@@ -113,21 +114,22 @@ def main():
         ]
 
     @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[CallToolResult]:
+    async def handle_call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
         """Handle tool calls."""
         if name == "get_data_info":
             dataset = arguments.get("dataset")
             if dataset:
                 if dataset not in SAMPLE_CSV_DATA:
-                    return [CallToolResult(
-                        error=f"Unknown dataset: {dataset}"
-                    )]
+                    return CallToolResult(
+                        content=[TextContent(type="text", text=f"Error: Unknown dataset: {dataset}")],
+                        isError=True
+                    )
                 
                 # Count rows (excluding header)
                 rows = len(SAMPLE_CSV_DATA[dataset].strip().split('\n')) - 1
-                return [CallToolResult(
-                    content=[{"type": "text", "text": f"Dataset '{dataset}' has {rows} rows"}]
-                )]
+                return CallToolResult(
+                    content=[TextContent(type="text", text=f"Dataset '{dataset}' has {rows} rows")]
+                )
             else:
                 # List all datasets
                 info = []
@@ -135,16 +137,17 @@ def main():
                     rows = len(data.strip().split('\n')) - 1
                     info.append(f"- {name}: {rows} rows")
                 
-                return [CallToolResult(
-                    content=[{
-                        "type": "text", 
-                        "text": f"Available datasets:\n" + "\n".join(info)
-                    }]
-                )]
+                return CallToolResult(
+                    content=[TextContent(
+                        type="text", 
+                        text=f"Available datasets:\n" + "\n".join(info)
+                    )]
+                )
         else:
-            return [CallToolResult(
-                error=f"Unknown tool: {name}"
-            )]
+            return CallToolResult(
+                content=[TextContent(type="text", text=f"Error: Unknown tool: {name}")],
+                isError=True
+            )
 
     # Run the server
     import asyncio

@@ -1,5 +1,6 @@
 #include "server/resource_providers.hpp"
 #include "duckdb/common/exception.hpp"
+#include "json_utils.hpp"
 #include <ctime>
 
 namespace duckdb {
@@ -52,34 +53,40 @@ string TableResourceProvider::GetDescription() const {
 
 string TableResourceProvider::FormatResult(QueryResult &result) const {
     if (format == "json") {
-        // Convert to JSON
-        string json = "[";
-        bool first_row = true;
-        
-        while (auto chunk = result.Fetch()) {
-            for (idx_t i = 0; i < chunk->size(); i++) {
-                if (!first_row) {
-                    json += ",";
-                }
-                first_row = false;
-                
-                json += "{";
-                for (idx_t col = 0; col < chunk->ColumnCount(); col++) {
-                    if (col > 0) json += ",";
-                    json += "\"" + result.names[col] + "\":";
-                    
-                    auto value = chunk->GetValue(col, i);
-                    if (value.IsNull()) {
-                        json += "null";
-                    } else {
-                        json += "\"" + value.ToString() + "\"";
-                    }
-                }
-                json += "}";
-            }
+        // Convert to JSON using proper JSON library
+        yyjson_mut_doc *doc = JSONUtils::CreateDocument();
+        if (!doc) {
+            throw InternalException("Failed to create JSON document");
         }
-        json += "]";
-        return json;
+        
+        try {
+            yyjson_mut_val *json_array = JSONUtils::CreateArray(doc);
+            yyjson_mut_doc_set_root(doc, json_array);
+            
+            while (auto chunk = result.Fetch()) {
+                for (idx_t i = 0; i < chunk->size(); i++) {
+                    yyjson_mut_val *json_row = JSONUtils::CreateObject(doc);
+                    
+                    for (idx_t col = 0; col < chunk->ColumnCount(); col++) {
+                        const string &column_name = result.names[col];
+                        Value cell_value = chunk->GetValue(col, i);
+                        
+                        yyjson_mut_val *json_value = JSONUtils::ValueToJSON(doc, cell_value);
+                        yyjson_mut_obj_add(json_row, yyjson_mut_strcpy(doc, column_name.c_str()), json_value);
+                    }
+                    
+                    JSONUtils::ArrayAdd(doc, json_array, json_row);
+                }
+            }
+            
+            string json_str = JSONUtils::Serialize(doc);
+            JSONUtils::FreeDocument(doc);
+            return json_str;
+            
+        } catch (...) {
+            JSONUtils::FreeDocument(doc);
+            throw;
+        }
         
     } else if (format == "csv") {
         // Convert to CSV
@@ -190,34 +197,40 @@ string QueryResourceProvider::ExecuteQuery() const {
 
 string QueryResourceProvider::FormatResult(QueryResult &result) const {
     if (format == "json") {
-        // Convert to JSON (similar to TableResourceProvider)
-        string json = "[";
-        bool first_row = true;
-        
-        while (auto chunk = result.Fetch()) {
-            for (idx_t i = 0; i < chunk->size(); i++) {
-                if (!first_row) {
-                    json += ",";
-                }
-                first_row = false;
-                
-                json += "{";
-                for (idx_t col = 0; col < chunk->ColumnCount(); col++) {
-                    if (col > 0) json += ",";
-                    json += "\"" + result.names[col] + "\":";
-                    
-                    auto value = chunk->GetValue(col, i);
-                    if (value.IsNull()) {
-                        json += "null";
-                    } else {
-                        json += "\"" + value.ToString() + "\"";
-                    }
-                }
-                json += "}";
-            }
+        // Convert to JSON using proper JSON library (same as TableResourceProvider)
+        yyjson_mut_doc *doc = JSONUtils::CreateDocument();
+        if (!doc) {
+            throw InternalException("Failed to create JSON document");
         }
-        json += "]";
-        return json;
+        
+        try {
+            yyjson_mut_val *json_array = JSONUtils::CreateArray(doc);
+            yyjson_mut_doc_set_root(doc, json_array);
+            
+            while (auto chunk = result.Fetch()) {
+                for (idx_t i = 0; i < chunk->size(); i++) {
+                    yyjson_mut_val *json_row = JSONUtils::CreateObject(doc);
+                    
+                    for (idx_t col = 0; col < chunk->ColumnCount(); col++) {
+                        const string &column_name = result.names[col];
+                        Value cell_value = chunk->GetValue(col, i);
+                        
+                        yyjson_mut_val *json_value = JSONUtils::ValueToJSON(doc, cell_value);
+                        yyjson_mut_obj_add(json_row, yyjson_mut_strcpy(doc, column_name.c_str()), json_value);
+                    }
+                    
+                    JSONUtils::ArrayAdd(doc, json_array, json_row);
+                }
+            }
+            
+            string json_str = JSONUtils::Serialize(doc);
+            JSONUtils::FreeDocument(doc);
+            return json_str;
+            
+        } catch (...) {
+            JSONUtils::FreeDocument(doc);
+            throw;
+        }
         
     } else if (format == "csv") {
         // Convert to CSV (similar to TableResourceProvider)

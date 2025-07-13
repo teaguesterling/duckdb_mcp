@@ -1,6 +1,7 @@
 #include "server/tool_handlers.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/string_util.hpp"
+#include "json_utils.hpp"
 
 namespace duckdb {
 
