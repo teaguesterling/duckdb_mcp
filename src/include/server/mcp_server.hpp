@@ -70,6 +70,7 @@ public:
     bool Start();
     void Stop();
     bool IsRunning() const { return running.load(); }
+    void SetRunning(bool state) { running.store(state); }
     
     // Server information
     string GetStatus() const;

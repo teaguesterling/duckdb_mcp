@@ -506,13 +506,14 @@ static void MCPServerStartFunction(DataChunk &args, ExpressionState &state, Vect
                 bool foreground_mode = foreground_env && (strcmp(foreground_env, "1") == 0);
                 
                 if (foreground_mode) {
-                    // Foreground mode: take over process completely (never return)
+                    // Foreground mode: handle connection directly without background thread
                     MCPServer server(server_config);
-                    if (server.Start()) {
-                        server.RunMainLoop(); // Blocks forever
+                    server.SetRunning(true); // Mark as running without starting background thread
+                    try {
+                        server.RunMainLoop(); // Blocks forever (should never return)
                         result_data[i] = StringVector::AddString(result, "ERROR: MCP server unexpectedly returned");
-                    } else {
-                        result_data[i] = StringVector::AddString(result, "ERROR: Failed to start MCP server");
+                    } catch (const std::exception &e) {
+                        result_data[i] = StringVector::AddString(result, "ERROR: " + string(e.what()));
                     }
                 } else {
                     // Background mode: use server manager (standard pattern)
