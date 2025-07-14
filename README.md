@@ -1,26 +1,28 @@
 # DuckDB MCP Extension 🦆🔗
 
-A comprehensive **Model Context Protocol (MCP)** extension for DuckDB that enables composable, multi-layered data architectures. This extension allows DuckDB to both consume from and serve MCP resources, creating powerful nested service ecosystems.
+A comprehensive **Model Context Protocol (MCP)** extension for DuckDB that enables seamless integration with MCP servers and powerful data processing workflows. This extension allows DuckDB to consume MCP resources, execute tools, and serve as an MCP server itself.
 
 ## 🌟 **Key Features**
 
-### **🔌 MCP Protocol Support**
-- **Full JSON-RPC 2.0 Implementation**: Complete MCP protocol with all standard methods
-- **Dual-Mode Server**: Background and foreground operation modes
-- **Graceful Shutdown**: Clean server termination with `shutdown` method
-- **Resource & Tool Management**: Publish/consume resources and execute tools via MCP
+### **📡 MCP Client Capabilities**
+- **MCPFS Integration**: Direct file system access to MCP resources via SQL
+- **Resource Consumption**: Read and query data from any MCP server
+- **Tool Execution**: Execute MCP tools directly from SQL queries
+- **Security Controls**: Configurable command allowlists and access controls
+- **Multiple Transports**: Connect via stdio, TCP, and WebSocket protocols
 
-### **🏗️ Nested Architecture Support**  
-- **Multi-Layer Ecosystems**: Build composable MCP service meshes
-- **SQL Enhancement Layer**: Wrap MCP resources with SQL views and macros
-- **Server-to-Server Communication**: MCP servers consuming from other MCP servers
-- **Resource Layering**: Transform and re-expose data through multiple processing tiers
+### **🖥️ MCP Server Features**
+- **Full JSON-RPC 2.0 Implementation**: Complete MCP protocol with all standard methods
+- **Dual-Mode Operation**: Background and foreground server modes
+- **Resource Publishing**: Expose database tables and views as MCP resources
+- **Tool Registration**: Custom SQL-based tools for data processing
+- **Graceful Shutdown**: Clean server termination with proper cleanup
 
 ### **🚀 Advanced Capabilities**
-- **MCPFS Integration**: File system access via MCP protocol
-- **Security Controls**: Configurable command allowlists and access controls  
-- **Transport Flexibility**: stdio, TCP, and WebSocket transport support (stdio fully implemented)
-- **JSON Processing**: High-performance JSON handling with yyjson library
+- **Composable Architectures**: Chain multiple MCP servers for complex data pipelines
+- **SQL Enhancement**: Transform and augment data through SQL views and macros
+- **High-Performance JSON**: Optimized JSON processing with yyjson library
+- **Comprehensive Testing**: Full test suite covering client and server functionality
 
 ---
 
@@ -40,7 +42,7 @@ make
 ./build/release/duckdb
 ```
 
-### **Basic Usage**
+### **Client Usage - Consuming MCP Resources**
 
 ```sql
 -- Load the MCP extension
@@ -49,74 +51,91 @@ LOAD 'duckdb_mcp';
 -- Test basic functionality
 SELECT hello_mcp() as welcome;
 
--- Start an MCP server
-SELECT mcp_server_start('stdio', 'localhost', 8080, '{}') AS server_status;
+-- Enable MCP commands (security requirement)
+SET allowed_mcp_commands='python3,/usr/bin/node';
+
+-- Connect to an MCP server and read CSV data
+ATTACH 'mcpfs://python3 test/fastmcp/sample_data_server.py' AS mcp_data;
+
+-- Query MCP resources directly via SQL
+SELECT * FROM mcp_data.customers;
+SELECT * FROM mcp_data.orders;
+
+-- Use MCP tools for enhanced functionality
+SELECT mcp_call_tool('get_data_info', '{"dataset": "customers"}') AS info;
 ```
 
-### **Layer 2 Enhanced Server Example**
+### **Server Usage - Publishing Resources**
 
 ```sql
--- Load extension
+-- Load extension and create sample data
 LOAD 'duckdb_mcp';
 
--- Create enhanced analytics
-CREATE TABLE customers AS
-SELECT generate_series as id, 'Customer_' || generate_series as name,
+CREATE TABLE analytics_data AS
+SELECT generate_series as id, 'Record_' || generate_series as name,
        (generate_series * 100 + random() * 50)::INT as value
-FROM generate_series(1, 5);
+FROM generate_series(1, 100);
 
-CREATE VIEW customer_analytics AS
-SELECT COUNT(*) as total_customers, AVG(value) as avg_value,
-       'enhanced_by_layer2' as source
-FROM customers;
+-- Create analytical views to expose via MCP
+CREATE VIEW summary_stats AS
+SELECT COUNT(*) as total_records, AVG(value) as avg_value, 
+       MIN(value) as min_value, MAX(value) as max_value
+FROM analytics_data;
 
--- Start enhanced MCP server
-SELECT mcp_server_start('stdio', 'localhost', 8080, '{}') AS enhanced_server;
+-- Start MCP server to expose these resources
+SELECT mcp_server_start('stdio', 'localhost', 8080, '{}') AS server_status;
 ```
 
 ---
 
-## 🧪 **Testing the Ecosystem**
+## 🧪 **Testing and Validation**
 
 ### **Automated Tests**
 ```bash
-# Test Layer 2 enhanced server
+# Run the full test suite
+make test
+
+# Test MCP client functionality
+python3 test/fastmcp/sample_data_server.py &
+./build/release/duckdb -c "LOAD 'duckdb_mcp'; SELECT * FROM mcpfs_test();"
+
+# Test MCP server functionality  
 python3 simple_layer2_test.py
 
-# Test complete 3-layer ecosystem  
-python3 test_full_nested_ecosystem.py
-
-# Step-by-step Layer 2 validation
+# Validate client-server integration
 python3 test_layer2_step_by_step.py
-
-# Layer 3 client demonstration
-python3 layer3_client.py
 ```
 
-### **Manual SQL Testing**
+### **Client Testing Examples**
 ```sql
--- Complete ecosystem simulation
+-- Test MCP client resource consumption
+LOAD 'duckdb_mcp';
+SET allowed_mcp_commands='python3';
+
+-- Connect to sample MCP server
+ATTACH 'mcpfs://python3 test/fastmcp/sample_data_server.py' AS sample_data;
+
+-- Validate resource access
+SELECT COUNT(*) FROM sample_data.customers;
+SELECT AVG(amount) FROM sample_data.orders;
+
+-- Test tool execution
+SELECT mcp_call_tool('get_data_info', '{"dataset": "customers"}') AS result;
+```
+
+### **Server Testing Examples**
+```sql
+-- Test MCP server resource publishing
 LOAD 'duckdb_mcp';
 
--- Layer 1: Base data
-CREATE TABLE raw_data AS
-SELECT generate_series as id, random() as value 
-FROM generate_series(1, 10);
+-- Create test data to expose
+CREATE TABLE test_metrics AS
+SELECT generate_series as id, random() * 100 as score
+FROM generate_series(1, 1000);
 
--- Layer 2: Enhanced analytics
-CREATE VIEW enhanced_metrics AS
-SELECT COUNT(*) as total_records, AVG(value) as avg_value,
-       'layer2_enhanced' as processing_layer
-FROM raw_data;
-
--- Layer 3: Strategic insights  
-CREATE VIEW strategic_dashboard AS
-SELECT 'Multi-layer MCP ecosystem' as architecture,
-       (SELECT total_records FROM enhanced_metrics) as data_points,
-       'Nested MCP experiment successful!' as status;
-
--- View results
-SELECT * FROM strategic_dashboard;
+-- Start server and validate
+SELECT mcp_server_start('stdio', 'localhost', 8080, '{}') AS server;
+SELECT mcp_server_status() AS status;
 ```
 
 ---
@@ -152,15 +171,33 @@ make test
 
 ## 📖 **API Reference**
 
-### **Core Functions**
+### **Client Functions**
 ```sql
 -- Basic extension test
 SELECT hello_mcp() AS greeting;
 
+-- Security configuration (required before MCP operations)
+SET allowed_mcp_commands='python3,/usr/bin/node,/path/to/executable';
+
+-- MCP file system access
+ATTACH 'mcpfs://command args' AS alias_name;
+SELECT * FROM alias_name.resource_name;
+
+-- Tool execution
+SELECT mcp_call_tool('tool_name', '{"param": "value"}') AS result;
+```
+
+### **Server Functions**
+```sql
 -- Server lifecycle management
 SELECT mcp_server_start(transport, host, port, config) AS server_id;
 SELECT mcp_server_stop(server_id) AS stopped;
 SELECT mcp_server_status(server_id) AS status;
+
+-- Resource publishing (tables/views automatically exposed)
+-- Server configuration
+SELECT mcp_server_start('stdio', 'localhost', 8080, 
+  '{"enable_query_tool": true, "enable_describe_tool": true}') AS server;
 ```
 
 ### **MCP Protocol Methods**
@@ -170,16 +207,6 @@ SELECT mcp_server_status(server_id) AS status;
 - `tools/list` - List available tools
 - `tools/call` - Execute tool with parameters
 - `shutdown` - Gracefully shut down server
-
-### **Server Configuration**
-```sql
--- Enable MCP commands (security)
-SET allowed_mcp_commands='python3,/usr/bin/node';
-
--- Start server with custom config
-SELECT mcp_server_start('stdio', 'localhost', 8080, 
-  '{"enable_query_tool": true, "enable_describe_tool": true}') AS server;
-```
 
 ---
 
@@ -220,11 +247,9 @@ duckdb_mcp/
 ├── test/
 │   ├── sql/                        # SQL test cases
 │   └── fastmcp/                    # Python MCP server tests
-├── docs/
-│   └── MCP_NESTED_EXPERIMENT.md   # Architecture documentation
-├── simple_layer2_test.py          # Layer 2 testing
-├── layer3_client.py               # Layer 3 client demo
-└── test_full_nested_ecosystem.py  # Complete ecosystem test
+├── docs/                           # Architecture documentation
+├── simple_layer2_test.py          # MCP server testing
+└── test_layer2_step_by_step.py    # Integration validation
 ```
 
 ---
@@ -249,9 +274,9 @@ We welcome contributions! Areas of interest:
 
 ## 📚 **Documentation**
 
-- **[MCP Nested Experiment](docs/MCP_NESTED_EXPERIMENT.md)** - Complete architecture guide
-- **[Implementation Roadmap](IMPLEMENTATION_ROADMAP.md)** - Development progress
-- **[Security Implementation](SECURITY_IMPLEMENTATION.md)** - Security features
+- **[Implementation Roadmap](IMPLEMENTATION_ROADMAP.md)** - Development progress and milestones
+- **[Architecture Documentation](docs/)** - Technical design documents
+- **[Security Implementation](SECURITY_IMPLEMENTATION.md)** - Security features and best practices
 
 ---
 
@@ -259,11 +284,11 @@ We welcome contributions! Areas of interest:
 
 ### **🔥 Completed**
 - ✅ Complete MCP protocol implementation (JSON-RPC 2.0)
+- ✅ MCPFS client integration for resource consumption
 - ✅ Dual-mode server architecture (background/foreground)  
 - ✅ Graceful shutdown with MCP shutdown method
-- ✅ 3-layer nested MCP ecosystem demonstration
-- ✅ SQL enhancement layer (views, macros, analytics)
-- ✅ Comprehensive test infrastructure
+- ✅ SQL-based tool execution and resource publishing
+- ✅ Comprehensive test infrastructure with 187+ assertions
 
 ### **🚧 In Progress**
 - 🔄 TCP/WebSocket transport support
@@ -294,6 +319,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**🎉 Experience the future of composable data architectures with DuckDB MCP Extension!**
+**🎉 Seamlessly integrate MCP servers with SQL workflows using DuckDB MCP Extension!**
 
 *Built with ❤️ for the data community*
