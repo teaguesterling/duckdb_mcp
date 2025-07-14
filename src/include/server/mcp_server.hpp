@@ -114,6 +114,7 @@ private:
     MCPMessage HandleResourcesRead(const MCPMessage &request);
     MCPMessage HandleToolsList(const MCPMessage &request);
     MCPMessage HandleToolsCall(const MCPMessage &request);
+    MCPMessage HandleShutdown(const MCPMessage &request);
     
     // Built-in tool registration
     void RegisterBuiltinTools();

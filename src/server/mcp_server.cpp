@@ -228,6 +228,11 @@ void MCPServer::HandleConnection(unique_ptr<MCPTransport> transport) {
                 auto response = HandleRequest(request);
                 transport->Send(response);
                 requests_served.fetch_add(1);
+                
+                // If this was a shutdown request, break out of the loop
+                if (request.method == MCPMethods::SHUTDOWN) {
+                    break;
+                }
             } catch (const std::exception &e) {
                 // Log error and continue
                 break;
@@ -258,6 +263,8 @@ MCPMessage MCPServer::HandleRequest(const MCPMessage &request) {
             return HandleToolsList(request);
         } else if (request.method == MCPMethods::TOOLS_CALL) {
             return HandleToolsCall(request);
+        } else if (request.method == MCPMethods::SHUTDOWN) {
+            return HandleShutdown(request);
         } else {
             return CreateErrorResponse(request.id, MCPErrorCodes::METHOD_NOT_FOUND, 
                                      "Method not found: " + request.method);
@@ -417,6 +424,18 @@ MCPMessage MCPServer::HandleToolsCall(const MCPMessage &request) {
                 {"text", call_result.result}
             })
         })}
+    });
+    
+    return MCPMessage::CreateResponse(result, request.id);
+}
+
+MCPMessage MCPServer::HandleShutdown(const MCPMessage &request) {
+    // Gracefully shut down the server
+    running = false;
+    
+    Value result = Value::STRUCT({
+        {"status", Value("shutting down")},
+        {"message", Value("Server shutdown initiated")}
     });
     
     return MCPMessage::CreateResponse(result, request.id);

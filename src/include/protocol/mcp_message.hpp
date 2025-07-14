@@ -91,6 +91,9 @@ namespace MCPMethods {
     
     // Ping
     constexpr const char* PING = "ping";
+    
+    // Server control
+    constexpr const char* SHUTDOWN = "shutdown";
 }
 
 // Common MCP error codes
