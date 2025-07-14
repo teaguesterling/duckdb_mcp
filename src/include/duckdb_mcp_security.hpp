@@ -5,6 +5,7 @@
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/storage/storage_extension.hpp"
+#include "duckdb/common/unordered_map.hpp"
 
 namespace duckdb {
 
@@ -65,17 +66,34 @@ private:
 
 //! Structured MCP connection parameters
 struct MCPConnectionParams {
-    string command;
-    vector<string> args;
-    string working_dir;
-    string transport = "stdio";
+    string command;                    // Command path or URL
+    vector<string> args;              // Command arguments
+    string working_dir;               // Current working directory
+    string transport = "stdio";       // Transport type (stdio, tcp, websocket)
+    unordered_map<string, string> env; // Environment variables
+    
+    // Configuration file parameters
+    string config_file_path;          // Path to .mcp.json file
+    string server_name;               // Server name in .mcp.json
     
     bool IsValid() const {
-        return !command.empty() && (transport == "stdio" || transport == "tcp");
+        // For config file mode, we need config_file_path and server_name
+        if (!config_file_path.empty()) {
+            return !server_name.empty();
+        }
+        // For direct mode, we need command and valid transport
+        return !command.empty() && (transport == "stdio" || transport == "tcp" || transport == "websocket");
+    }
+    
+    bool IsConfigFileMode() const {
+        return !config_file_path.empty() && !server_name.empty();
     }
 };
 
 //! Parse structured ATTACH parameters from AttachInfo
 MCPConnectionParams ParseMCPAttachParams(const class AttachInfo &info);
+
+//! Parse .mcp.json configuration file and extract server parameters
+MCPConnectionParams ParseMCPConfigFile(const string &config_file_path, const string &server_name);
 
 } // namespace duckdb

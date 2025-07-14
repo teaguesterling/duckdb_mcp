@@ -82,6 +82,7 @@ shared_ptr<MCPConnection> MCPStorageExtension::CreateMCPConnection(const AttachI
     transport_config.command_path = params.command;
     transport_config.arguments = params.args;
     transport_config.working_directory = params.working_dir;
+    transport_config.environment = params.env;
     
     // Parse additional legacy options for backward compatibility
     if (info.options.find("timeout") != info.options.end()) {

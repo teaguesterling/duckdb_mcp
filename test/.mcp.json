@@ -1,0 +1,29 @@
+{
+  "mcpServers": {
+    "sample_data": {
+      "command": "python3",
+      "args": ["test/fastmcp/sample_data_server.py"],
+      "cwd": "/mnt/aux-data/teague/Projects/duckdb_mcp",
+      "env": {
+        "PYTHONPATH": "/usr/local/lib/python3.8/site-packages",
+        "MCP_DEBUG": "1"
+      }
+    },
+    "local_analyzer": {
+      "command": "/usr/bin/python3",
+      "args": ["/opt/mcp/analyzers/data_analyzer.py", "--mode", "interactive"],
+      "cwd": "/opt/mcp/analyzers",
+      "env": {
+        "DATA_PATH": "/data/datasets",
+        "CACHE_DIR": "/tmp/mcp_cache"
+      }
+    },
+    "remote_api": {
+      "command": "http://localhost:3000/mcp",
+      "transport": "tcp",
+      "env": {
+        "API_KEY": "${MCP_API_KEY}"
+      }
+    }
+  }
+}

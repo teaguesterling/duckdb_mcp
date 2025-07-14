@@ -5,6 +5,8 @@ A comprehensive **Model Context Protocol (MCP)** extension for DuckDB that enabl
 ## 🌟 **Key Features**
 
 ### **📡 MCP Client Capabilities**
+- **Structured ATTACH Syntax**: Clean parameter separation with TRANSPORT, ARGS, CWD, ENV
+- **MCP Config File Support**: Direct .mcp.json integration with FROM_CONFIG_FILE
 - **MCPFS Integration**: Direct file system access to MCP resources via SQL
 - **Resource Consumption**: Read and query data from any MCP server
 - **Tool Execution**: Execute MCP tools directly from SQL queries
@@ -52,17 +54,36 @@ LOAD 'duckdb_mcp';
 SELECT hello_mcp() as welcome;
 
 -- Enable MCP commands (security requirement)
-SET allowed_mcp_commands='python3,/usr/bin/node';
+SET allowed_mcp_commands='/usr/bin/python3,python3';
 
--- Connect to an MCP server and read CSV data
-ATTACH 'mcpfs://python3 test/fastmcp/sample_data_server.py' AS mcp_data;
+-- Connect using structured parameters (recommended)
+ATTACH 'python3' AS base_layer (
+    TYPE mcp, 
+    TRANSPORT stdio, 
+    ARGS ['test/fastmcp/sample_data_server.py'],
+    CWD '/current/working/directory',
+    ENV {'PYTHONPATH': '/usr/local/lib/python3.8/site-packages', 'MCP_DEBUG': '1'}
+);
 
--- Query MCP resources directly via SQL
-SELECT * FROM mcp_data.customers;
-SELECT * FROM mcp_data.orders;
+-- Or connect using .mcp.json config file
+ATTACH 'sample_data' AS configured_server (
+    TYPE mcp, 
+    FROM_CONFIG_FILE '/current/dir/.mcp.json'
+);
 
--- Use MCP tools for enhanced functionality
-SELECT mcp_call_tool('get_data_info', '{"dataset": "customers"}') AS info;
+-- Legacy format still supported
+ATTACH 'stdio://python3 test/fastmcp/sample_data_server.py' AS legacy_server (TYPE mcp);
+
+-- Verify connection
+SHOW DATABASES;
+
+-- Query MCP resources through file functions
+SELECT * FROM read_csv('mcp://base_layer/file:///customers.csv');
+SELECT * FROM read_csv('mcp://base_layer/file:///orders.csv');
+
+-- Use MCP client functions directly
+SELECT mcp_list_resources('base_layer') AS available_resources;
+SELECT mcp_call_tool('base_layer', 'get_data_info', '{"dataset": "customers"}') AS info;
 ```
 
 ### **Server Usage - Publishing Resources**
@@ -110,17 +131,29 @@ python3 test_layer2_step_by_step.py
 ```sql
 -- Test MCP client resource consumption
 LOAD 'duckdb_mcp';
-SET allowed_mcp_commands='python3';
+SET allowed_mcp_commands='/usr/bin/python3,python3';
 
--- Connect to sample MCP server
-ATTACH 'mcpfs://python3 test/fastmcp/sample_data_server.py' AS sample_data;
+-- Connect using structured parameters
+ATTACH 'python3' AS sample_data (
+    TYPE mcp,
+    TRANSPORT stdio,
+    ARGS ['test/fastmcp/sample_data_server.py'],
+    ENV {'MCP_DEBUG': '1'}
+);
+
+-- Or connect using config file
+ATTACH 'sample_data' AS configured_data (
+    TYPE mcp,
+    FROM_CONFIG_FILE 'test/.mcp.json'
+);
 
 -- Validate resource access
-SELECT COUNT(*) FROM sample_data.customers;
-SELECT AVG(amount) FROM sample_data.orders;
+SELECT COUNT(*) FROM read_csv('mcp://sample_data/file:///customers.csv');
+SELECT AVG(amount) FROM read_csv('mcp://sample_data/file:///orders.csv');
 
--- Test tool execution
-SELECT mcp_call_tool('get_data_info', '{"dataset": "customers"}') AS result;
+-- Test MCP functions
+SELECT mcp_list_resources('sample_data') AS resources;
+SELECT mcp_call_tool('sample_data', 'get_data_info', '{"dataset": "customers"}') AS result;
 ```
 
 ### **Server Testing Examples**
@@ -177,14 +210,33 @@ make test
 SELECT hello_mcp() AS greeting;
 
 -- Security configuration (required before MCP operations)
-SET allowed_mcp_commands='python3,/usr/bin/node,/path/to/executable';
+SET allowed_mcp_commands='/usr/bin/python3,python3,/usr/bin/node';
 
--- MCP file system access
-ATTACH 'mcpfs://command args' AS alias_name;
-SELECT * FROM alias_name.resource_name;
+-- Connect using structured parameters (recommended)
+ATTACH 'command_or_url' AS server_name (
+    TYPE mcp,
+    TRANSPORT stdio,                    -- stdio, tcp, websocket
+    ARGS ['arg1', 'arg2'],             -- Command arguments
+    CWD '/working/directory',          -- Working directory
+    ENV {'VAR': 'value'}               -- Environment variables
+);
 
--- Tool execution
-SELECT mcp_call_tool('tool_name', '{"param": "value"}') AS result;
+-- Connect using .mcp.json config file
+ATTACH 'server_name' AS alias (
+    TYPE mcp,
+    FROM_CONFIG_FILE '/path/to/.mcp.json'
+);
+
+-- Legacy format (still supported)
+ATTACH 'stdio://command args' AS server_name (TYPE mcp);
+
+-- Resource access through file functions
+SELECT * FROM read_csv('mcp://server_name/file:///data.csv');
+
+-- Direct MCP functions
+SELECT mcp_list_resources('server_name') AS resources;
+SELECT mcp_call_tool('server_name', 'tool_name', '{"param": "value"}') AS result;
+SELECT mcp_get_resource('server_name', 'resource_uri') AS content;
 ```
 
 ### **Server Functions**
@@ -213,19 +265,21 @@ SELECT mcp_server_start('stdio', 'localhost', 8080,
 ## 🌍 **Use Cases**
 
 ### **🏢 Enterprise Data Architecture**
-- **Data Warehouse Federation**: Connect multiple data sources via MCP
-- **API Composition**: Combine and enhance multiple APIs  
-- **Service Mesh Analytics**: Distributed SQL computation across services
+- **Standardized MCP Integration**: Use .mcp.json configs for consistent server connections
+- **Data Warehouse Federation**: Connect multiple data sources via MCP with environment-specific settings
+- **API Composition**: Combine and enhance multiple APIs with proper credential management
+- **Service Mesh Analytics**: Distributed SQL computation across services with working directory isolation
 
 ### **🔄 Data Pipeline Orchestration** 
-- **ETL Workflows**: Chain MCP servers for data transformation
-- **Multi-Tenant Platforms**: Isolated data processing per tenant
-- **Real-Time Analytics**: Stream processing with MCP integration
+- **ETL Workflows**: Chain MCP servers with structured parameters for reliable data transformation
+- **Multi-Tenant Platforms**: Isolated data processing per tenant using CWD and ENV parameters
+- **Real-Time Analytics**: Stream processing with MCP integration and transport flexibility
+- **Configuration Management**: Centralized .mcp.json files for development, staging, and production environments
 
 ### **🤖 AI/ML Integration**
-- **Model Serving**: Expose ML models via MCP protocol
-- **Feature Engineering**: SQL-based feature transformation layers
-- **Data Preparation**: Multi-stage data cleaning and enhancement
+- **Model Serving**: Expose ML models via MCP protocol with proper Python path and environment setup
+- **Feature Engineering**: SQL-based feature transformation layers with configurable working directories
+- **Data Preparation**: Multi-stage data cleaning and enhancement using structured server parameters
 
 ---
 
@@ -284,6 +338,8 @@ We welcome contributions! Areas of interest:
 
 ### **🔥 Completed**
 - ✅ Complete MCP protocol implementation (JSON-RPC 2.0)
+- ✅ Structured ATTACH syntax with TRANSPORT, ARGS, CWD, ENV parameters
+- ✅ .mcp.json configuration file support with FROM_CONFIG_FILE
 - ✅ MCPFS client integration for resource consumption
 - ✅ Dual-mode server architecture (background/foreground)  
 - ✅ Graceful shutdown with MCP shutdown method
