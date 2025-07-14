@@ -1,0 +1,59 @@
+# name: test/sql/mcp_server_functionality.test
+# description: Test MCP server functionality and lifecycle
+# group: [duckdb_mcp]
+
+# Load the MCP extension
+require duckdb_mcp
+
+statement ok
+LOAD duckdb_mcp;
+
+# Test server startup function exists
+query I
+SELECT hello_mcp();
+----
+Hello from DuckDB MCP!
+
+# Test server configuration and data setup
+statement ok
+CREATE TABLE test_server_data AS
+SELECT 
+    generate_series as id,
+    'TestRecord_' || generate_series as name,
+    (generate_series * 10) as value
+FROM generate_series(1, 3);
+
+# Verify test data was created
+query III
+SELECT * FROM test_server_data ORDER BY id;
+----
+1	TestRecord_1	10
+2	TestRecord_2	20
+3	TestRecord_3	30
+
+# Test server startup (background mode)
+# Note: This will start a server and return immediately
+statement ok
+SELECT mcp_server_start('stdio', 'localhost', 8080, '{}') AS server_result;
+
+# Test that we can create enhanced views while server is running
+statement ok
+CREATE VIEW server_analytics AS
+SELECT 
+    COUNT(*) as total_records,
+    AVG(value) as avg_value,
+    'enhanced_by_server_test' as source
+FROM test_server_data;
+
+# Verify enhanced view works
+query IRI
+SELECT * FROM server_analytics;
+----
+3	20.0	enhanced_by_server_test
+
+# Clean up
+statement ok
+DROP VIEW server_analytics;
+
+statement ok
+DROP TABLE test_server_data;

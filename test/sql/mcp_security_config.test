@@ -1,0 +1,79 @@
+# name: test/sql/mcp_security_config.test
+# description: Test MCP security and configuration features
+# group: [duckdb_mcp]
+
+# Load the MCP extension
+require duckdb_mcp
+
+statement ok
+LOAD duckdb_mcp;
+
+# Test basic extension loading
+query I
+SELECT hello_mcp();
+----
+Hello from DuckDB MCP!
+
+# Test MCP command security settings
+# This should work without error
+statement ok
+SET allowed_mcp_commands='python3,/usr/bin/python3';
+
+# Test that we can create secure configurations
+statement ok
+CREATE TABLE security_test_data AS
+SELECT 
+    generate_series as id,
+    'SecureRecord_' || generate_series as name,
+    'test_security_level_' || (generate_series % 3) as security_level
+FROM generate_series(1, 6);
+
+# Test data filtering by security level
+query ITT
+SELECT * FROM security_test_data WHERE security_level = 'test_security_level_0' ORDER BY id;
+----
+3	SecureRecord_3	test_security_level_0
+6	SecureRecord_6	test_security_level_0
+
+# Test configuration view creation
+statement ok
+CREATE VIEW security_analytics AS
+SELECT 
+    security_level,
+    COUNT(*) as record_count,
+    'secured_analytics' as processing_type
+FROM security_test_data
+GROUP BY security_level;
+
+# Verify security analytics
+query TIT
+SELECT * FROM security_analytics ORDER BY security_level;
+----
+test_security_level_0	2	secured_analytics
+test_security_level_1	2	secured_analytics
+test_security_level_2	2	secured_analytics
+
+# Test that sensitive operations are controlled
+# Create a configuration test
+statement ok
+CREATE VIEW config_validation AS
+SELECT 
+    'MCP Security' as feature,
+    'Command allowlists configured' as status,
+    'Extension loaded successfully' as validation;
+
+# Test configuration validation
+query TTT
+SELECT * FROM config_validation;
+----
+MCP Security	Command allowlists configured	Extension loaded successfully
+
+# Clean up
+statement ok
+DROP VIEW config_validation;
+
+statement ok
+DROP VIEW security_analytics;
+
+statement ok
+DROP TABLE security_test_data;

@@ -1,0 +1,104 @@
+# name: test/sql/mcp_enhanced_analytics.test  
+# description: Test Layer 2 enhanced analytics capabilities
+# group: [duckdb_mcp]
+
+# Load the MCP extension
+require duckdb_mcp
+
+statement ok
+LOAD duckdb_mcp;
+
+# === Layer 1 Simulation: Base Data ===
+statement ok
+CREATE TABLE layer1_customers AS
+SELECT 
+    generate_series as customer_id,
+    'Customer_' || generate_series as name,
+    (generate_series * 50 + 100) as annual_value,
+    CASE WHEN generate_series % 2 = 0 THEN 'Premium' ELSE 'Standard' END as tier
+FROM generate_series(1, 4);
+
+# Test base data creation
+query IITI
+SELECT * FROM layer1_customers ORDER BY customer_id;
+----
+1	Customer_1	150	Standard
+2	Customer_2	200	Premium
+3	Customer_3	250	Standard
+4	Customer_4	300	Premium
+
+# === Layer 2 Enhancement: SQL Analytics ===
+statement ok
+CREATE VIEW layer2_customer_analytics AS
+SELECT 
+    tier,
+    COUNT(*) as customer_count,
+    AVG(annual_value) as avg_annual_value,
+    SUM(annual_value) as total_value,
+    'layer2_enhanced' as analysis_source
+FROM layer1_customers
+GROUP BY tier;
+
+# Test enhanced analytics view
+query TIRRI
+SELECT * FROM layer2_customer_analytics ORDER BY tier;
+----
+Premium	2	250.0	500	layer2_enhanced
+Standard	2	200.0	400	layer2_enhanced
+
+# === Layer 3 Strategic: Business Intelligence ===
+statement ok
+CREATE VIEW layer3_strategic_insights AS
+SELECT 
+    'strategic_analysis' as insight_type,
+    'Customer base: ' || (SELECT SUM(customer_count) FROM layer2_customer_analytics) || ' total' as insight_1,
+    'Premium segment represents ' || 
+        ROUND(100.0 * (SELECT customer_count FROM layer2_customer_analytics WHERE tier = 'Premium') / 
+              (SELECT SUM(customer_count) FROM layer2_customer_analytics), 1) || '%' as insight_2,
+    'layer3_strategic' as analysis_level
+FROM layer2_customer_analytics LIMIT 1;
+
+# Test strategic insights
+query TTTT
+SELECT * FROM layer3_strategic_insights;
+----
+strategic_analysis	Customer base: 4 total	Premium segment represents 50.0%	layer3_strategic
+
+# === Ecosystem Validation ===
+statement ok
+CREATE VIEW ecosystem_summary AS
+SELECT 
+    'Layer 1' as layer,
+    'Base data (customers table)' as functionality,
+    (SELECT COUNT(*) FROM layer1_customers) as record_count
+UNION ALL
+SELECT 
+    'Layer 2',
+    'Enhanced analytics (aggregated views)',
+    (SELECT COUNT(*) FROM layer2_customer_analytics)
+UNION ALL
+SELECT 
+    'Layer 3', 
+    'Strategic insights (business intelligence)',
+    (SELECT COUNT(*) FROM layer3_strategic_insights);
+
+# Test complete ecosystem
+query TTI
+SELECT * FROM ecosystem_summary ORDER BY layer;
+----
+Layer 1	Base data (customers table)	4
+Layer 2	Enhanced analytics (aggregated views)	2
+Layer 3	Strategic insights (business intelligence)	1
+
+# Clean up
+statement ok
+DROP VIEW ecosystem_summary;
+
+statement ok
+DROP VIEW layer3_strategic_insights;
+
+statement ok
+DROP VIEW layer2_customer_analytics;
+
+statement ok
+DROP TABLE layer1_customers;
