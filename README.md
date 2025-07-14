@@ -56,13 +56,13 @@ SELECT hello_mcp() as welcome;
 -- Enable MCP commands (security requirement)
 SET allowed_mcp_commands='/usr/bin/python3,python3';
 
--- Connect using structured parameters (recommended)
+-- Connect using structured parameters with JSON (recommended)
 ATTACH 'python3' AS base_layer (
     TYPE mcp, 
-    TRANSPORT stdio, 
-    ARGS ['test/fastmcp/sample_data_server.py'],
+    TRANSPORT 'stdio', 
+    ARGS '["test/fastmcp/sample_data_server.py"]',
     CWD '/current/working/directory',
-    ENV {'PYTHONPATH': '/usr/local/lib/python3.8/site-packages', 'MCP_DEBUG': '1'}
+    ENV '{"PYTHONPATH": "/usr/local/lib/python3.8/site-packages", "MCP_DEBUG": "1"}'
 );
 
 -- Or connect using .mcp.json config file
@@ -133,12 +133,12 @@ python3 test_layer2_step_by_step.py
 LOAD 'duckdb_mcp';
 SET allowed_mcp_commands='/usr/bin/python3,python3';
 
--- Connect using structured parameters
+-- Connect using structured parameters with JSON
 ATTACH 'python3' AS sample_data (
     TYPE mcp,
-    TRANSPORT stdio,
-    ARGS ['test/fastmcp/sample_data_server.py'],
-    ENV {'MCP_DEBUG': '1'}
+    TRANSPORT 'stdio',
+    ARGS '["test/fastmcp/sample_data_server.py"]',
+    ENV '{"MCP_DEBUG": "1"}'
 );
 
 -- Or connect using config file
@@ -212,13 +212,13 @@ SELECT hello_mcp() AS greeting;
 -- Security configuration (required before MCP operations)
 SET allowed_mcp_commands='/usr/bin/python3,python3,/usr/bin/node';
 
--- Connect using structured parameters (recommended)
+-- Connect using structured parameters with JSON (recommended)
 ATTACH 'command_or_url' AS server_name (
     TYPE mcp,
-    TRANSPORT stdio,                    -- stdio, tcp, websocket
-    ARGS ['arg1', 'arg2'],             -- Command arguments
-    CWD '/working/directory',          -- Working directory
-    ENV {'VAR': 'value'}               -- Environment variables
+    TRANSPORT 'stdio',                    -- stdio, tcp, websocket
+    ARGS '["arg1", "arg2"]',             -- Command arguments as JSON array
+    CWD '/working/directory',            -- Working directory
+    ENV '{"VAR": "value"}'               -- Environment variables as JSON object
 );
 
 -- Connect using .mcp.json config file

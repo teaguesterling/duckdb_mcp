@@ -3,11 +3,11 @@ cmake  -DEXTENSION_STATIC_BUILD=1 -DDUCKDB_EXTENSION_CONFIGS='/mnt/aux-data/teag
 -- Running vcpkg install
 warning: Embedding `vcpkg-configuration` in a manifest file is an EXPERIMENTAL feature.
 All requested packages are currently installed.
-All requested installations completed successfully in: 46 us
+All requested installations completed successfully in: 42 us
 -- Running vcpkg install - done
 -- git hash a0e210194e, version v1.3.1-dev44, extension folder a0e210194e
 -- Extensions will be deployed to: /mnt/aux-data/teague/Projects/duckdb_mcp/build/release/repository
--- Load extension 'duckdb_mcp' from '/mnt/aux-data/teague/Projects/duckdb_mcp' @ c53ccf9
+-- Load extension 'duckdb_mcp' from '/mnt/aux-data/teague/Projects/duckdb_mcp' @ c6cba8b
 -- Load extension 'json' from '/mnt/aux-data/teague/Projects/duckdb_mcp/duckdb/extensions' @ a0e210194e
 -- Load extension 'core_functions' from '/mnt/aux-data/teague/Projects/duckdb_mcp/duckdb/extensions' @ a0e210194e
 -- Load extension 'parquet' from '/mnt/aux-data/teague/Projects/duckdb_mcp/duckdb/extensions' @ a0e210194e
@@ -23,8 +23,8 @@ CMake Deprecation Warning at /mnt/aux-data/teague/Projects/duckdb_mcp/CMakeLists
 
 -- Extensions linked into DuckDB: [duckdb_mcp, json, core_functions, parquet, jemalloc]
 -- Tests loaded for extensions: [duckdb_mcp]
--- Configuring done (1.9s)
--- Generating done (0.7s)
+-- Configuring done (1.8s)
+-- Generating done (0.6s)
 -- Build files have been written to: /mnt/aux-data/teague/Projects/duckdb_mcp/build/release
 cmake --build build/release --config Release
 gmake[1]: Entering directory '/mnt/aux-data/teague/Projects/duckdb_mcp/build/release'
@@ -203,17 +203,23 @@ gmake[1]: Entering directory '/mnt/aux-data/teague/Projects/duckdb_mcp/build/rel
 [ 70%] Built target duckdb_mcp_extension
 [ 70%] Built target duckdb_static
 [ 70%] Built target loadable_extension_optimizer_demo_loadable_extension
-[ 71%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/protocol/mcp_http_transport.cpp.o
-[ 71%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/protocol/mcp_connection.cpp.o
-[ 71%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/client/mcp_storage_extension.cpp.o
-[ 71%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/client/mcp_transaction_manager.cpp.o
-[ 71%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/catalog/mcp_catalog.cpp.o
-[ 71%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/catalog/mcp_schema_entry.cpp.o
-[ 71%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/server/mcp_server.cpp.o
-[ 72%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/server/resource_providers.cpp.o
-[ 72%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/server/tool_handlers.cpp.o
-[ 72%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/server/stdio_server_transport.cpp.o
-[ 72%] Linking CXX shared library duckdb_mcp.duckdb_extension
+[ 71%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/duckdb_mcp_security.cpp.o
+[ 71%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/json_utils.cpp.o
+[ 71%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/mcpfs/mcp_path.cpp.o
+[ 71%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/mcpfs/mcp_file_system.cpp.o
+[ 71%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/protocol/mcp_message.cpp.o
+[ 71%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/protocol/mcp_transport.cpp.o
+[ 72%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/protocol/mcp_http_transport.cpp.o
+[ 72%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/protocol/mcp_connection.cpp.o
+[ 72%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/client/mcp_storage_extension.cpp.o
+[ 72%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/client/mcp_transaction_manager.cpp.o
+[ 72%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/catalog/mcp_catalog.cpp.o
+[ 72%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/catalog/mcp_schema_entry.cpp.o
+[ 72%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/server/mcp_server.cpp.o
+[ 73%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/server/resource_providers.cpp.o
+[ 73%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/server/tool_handlers.cpp.o
+[ 73%] Building CXX object extension/duckdb_mcp/CMakeFiles/duckdb_mcp_loadable_extension.dir/src/server/stdio_server_transport.cpp.o
+[ 73%] Linking CXX shared library duckdb_mcp.duckdb_extension
 [ 73%] Built target duckdb_mcp_loadable_extension
 [ 73%] Linking CXX shared library json.duckdb_extension
 [ 77%] Built target json_loadable_extension

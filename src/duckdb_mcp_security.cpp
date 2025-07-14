@@ -46,11 +46,6 @@ bool MCPSecurityConfig::IsCommandAllowed(const string &command_path) const {
         return false;
     }
     
-    // Security: Only allow absolute paths to prevent relative path attacks
-    if (!command_path.empty() && command_path[0] != '/') {
-        return false;
-    }
-    
     // Security: Ensure this is an executable path only (no arguments)
     // The command_path should not contain spaces or argument separators
     if (StringUtil::Contains(command_path, " ") || 
@@ -60,10 +55,23 @@ bool MCPSecurityConfig::IsCommandAllowed(const string &command_path) const {
         return false;
     }
     
-    // Check against allowlist (exact match required)
+    // Check against allowlist
     for (const auto &allowed : allowed_commands) {
+        // Exact match
         if (command_path == allowed) {
             return true;
+        }
+        
+        // If the allowed path is absolute and command is relative,
+        // check if the command matches the basename of the allowed path
+        if (allowed[0] == '/' && command_path[0] != '/') {
+            auto last_slash = allowed.find_last_of('/');
+            if (last_slash != string::npos) {
+                string basename = allowed.substr(last_slash + 1);
+                if (command_path == basename) {
+                    return true;
+                }
+            }
         }
     }
     
@@ -154,7 +162,7 @@ MCPConnectionParams ParseMCPAttachParams(const AttachInfo &info) {
         }
     }
     
-    // Try structured parameters (new format)
+    // Try structured parameters with JSON parsing (new format)
     if (info.options.find("TRANSPORT") != info.options.end() || 
         info.options.find("ARGS") != info.options.end() ||
         info.options.find("CWD") != info.options.end() ||
@@ -163,7 +171,7 @@ MCPConnectionParams ParseMCPAttachParams(const AttachInfo &info) {
         // The path is used literally as command or URL
         params.command = info.path;
         
-        // Parse TRANSPORT parameter
+        // Parse TRANSPORT parameter (simple string)
         if (info.options.find("TRANSPORT") != info.options.end()) {
             auto transport_value = info.options.at("TRANSPORT");
             if (!transport_value.IsNull()) {
@@ -171,20 +179,40 @@ MCPConnectionParams ParseMCPAttachParams(const AttachInfo &info) {
             }
         }
         
-        // Parse ARGS parameter
+        // Parse ARGS parameter (JSON array or fall back to simple string)
         if (info.options.find("ARGS") != info.options.end()) {
             auto args_value = info.options.at("ARGS");
-            if (!args_value.IsNull() && args_value.type().id() == LogicalTypeId::LIST) {
-                auto &list_values = ListValue::GetChildren(args_value);
-                for (const auto &arg : list_values) {
-                    if (!arg.IsNull()) {
-                        params.args.push_back(arg.ToString());
+            if (!args_value.IsNull()) {
+                string args_str = args_value.ToString();
+                
+                // Check if it starts with '[' - JSON array format
+                if (args_str.length() > 0 && args_str[0] == '[') {
+                    // Parse as JSON array
+                    yyjson_doc *doc = yyjson_read(args_str.c_str(), args_str.length(), 0);
+                    if (doc) {
+                        yyjson_val *root = yyjson_doc_get_root(doc);
+                        if (yyjson_is_arr(root)) {
+                            size_t idx, max;
+                            yyjson_val *arg;
+                            yyjson_arr_foreach(root, idx, max, arg) {
+                                if (yyjson_is_str(arg)) {
+                                    params.args.push_back(yyjson_get_str(arg));
+                                }
+                            }
+                        }
+                        yyjson_doc_free(doc);
+                    } else {
+                        throw InvalidInputException("Invalid JSON in ARGS parameter: " + args_str);
                     }
+                } else {
+                    // Future: bash-style parsing would go here
+                    // For now, treat as single argument
+                    params.args.push_back(args_str);
                 }
             }
         }
         
-        // Parse CWD parameter
+        // Parse CWD parameter (simple string)
         if (info.options.find("CWD") != info.options.end()) {
             auto cwd_value = info.options.at("CWD");
             if (!cwd_value.IsNull()) {
@@ -192,16 +220,39 @@ MCPConnectionParams ParseMCPAttachParams(const AttachInfo &info) {
             }
         }
         
-        // Parse ENV parameter
+        // Parse ENV parameter (JSON object or fall back to simple string)
         if (info.options.find("ENV") != info.options.end()) {
             auto env_value = info.options.at("ENV");
-            if (!env_value.IsNull() && env_value.type().id() == LogicalTypeId::STRUCT) {
-                auto &struct_values = StructValue::GetChildren(env_value);
-                for (size_t i = 0; i < struct_values.size(); i++) {
-                    auto &key = StructType::GetChildName(env_value.type(), i);
-                    auto &value = struct_values[i];
-                    if (!value.IsNull()) {
-                        params.env[key] = value.ToString();
+            if (!env_value.IsNull()) {
+                string env_str = env_value.ToString();
+                
+                // Check if it starts with '{' - JSON object format
+                if (env_str.length() > 0 && env_str[0] == '{') {
+                    // Parse as JSON object
+                    yyjson_doc *doc = yyjson_read(env_str.c_str(), env_str.length(), 0);
+                    if (doc) {
+                        yyjson_val *root = yyjson_doc_get_root(doc);
+                        if (yyjson_is_obj(root)) {
+                            size_t idx, max;
+                            yyjson_val *key, *val;
+                            yyjson_obj_foreach(root, idx, max, key, val) {
+                                if (yyjson_is_str(key) && yyjson_is_str(val)) {
+                                    params.env[yyjson_get_str(key)] = yyjson_get_str(val);
+                                }
+                            }
+                        }
+                        yyjson_doc_free(doc);
+                    } else {
+                        throw InvalidInputException("Invalid JSON in ENV parameter: " + env_str);
+                    }
+                } else {
+                    // Future: bash-style parsing would go here (KEY=value KEY2=value2)
+                    // For now, treat as single environment variable
+                    auto equals_pos = env_str.find('=');
+                    if (equals_pos != string::npos) {
+                        string key = env_str.substr(0, equals_pos);
+                        string value = env_str.substr(equals_pos + 1);
+                        params.env[key] = value;
                     }
                 }
             }
