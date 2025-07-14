@@ -20,10 +20,10 @@ def test_structured_attach():
     
     sql_script = '''
 LOAD 'duckdb_mcp';
-SET allowed_mcp_commands='/usr/bin/python3,python3';
+SET allowed_mcp_commands='./venv/bin/python';
 
 -- Test JSON-based structured ATTACH syntax
-ATTACH 'python3' AS test_server (
+ATTACH './venv/bin/python' AS test_server (
     TYPE mcp,
     TRANSPORT 'stdio',
     ARGS '["test/fastmcp/sample_data_server.py"]',
@@ -66,7 +66,7 @@ SELECT mcp_list_resources('test_server') AS resources;
     
     sql_script_config = '''
 LOAD 'duckdb_mcp';
-SET allowed_mcp_commands='/usr/bin/python3,python3';
+SET allowed_mcp_commands='./venv/bin/python';
 
 -- Test config file ATTACH syntax
 ATTACH 'sample_data' AS config_server (
@@ -109,10 +109,10 @@ SELECT mcp_list_resources('config_server') AS resources;
     
     sql_script_simple = '''
 LOAD 'duckdb_mcp';
-SET allowed_mcp_commands='/usr/bin/python3,python3';
+SET allowed_mcp_commands='./venv/bin/python';
 
 -- Test simple string parameters (fallback mode)
-ATTACH 'python3' AS simple_server (
+ATTACH './venv/bin/python' AS simple_server (
     TYPE mcp,
     TRANSPORT 'stdio',
     ARGS 'test/fastmcp/sample_data_server.py'
@@ -153,10 +153,10 @@ SELECT mcp_list_resources('simple_server') AS resources;
     
     sql_script_resources = '''
 LOAD 'duckdb_mcp';
-SET allowed_mcp_commands='/usr/bin/python3,python3';
+SET allowed_mcp_commands='./venv/bin/python';
 
 -- Connect with JSON-based structured syntax
-ATTACH 'python3' AS resource_server (
+ATTACH './venv/bin/python' AS resource_server (
     TYPE mcp,
     TRANSPORT 'stdio',
     ARGS '["test/fastmcp/sample_data_server.py"]',

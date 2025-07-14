@@ -42,6 +42,9 @@ public:
     //! Check if servers are locked
     bool AreServersLocked() const { return servers_locked; }
     
+    //! Check if commands are locked (immutable once set)
+    bool AreCommandsLocked() const { return commands_locked; }
+    
     //! Check if serving is disabled
     bool IsServingDisabled() const { return serving_disabled; }
     
@@ -52,12 +55,13 @@ public:
     void ValidateAttachSecurity(const string &command, const vector<string> &args) const;
 
 private:
-    MCPSecurityConfig() : servers_locked(false), serving_disabled(false), server_file("./.mcp.json") {}
+    MCPSecurityConfig() : servers_locked(false), commands_locked(false), serving_disabled(false), server_file("./.mcp.json") {}
     
     vector<string> allowed_commands;
     vector<string> allowed_urls;
     string server_file;
     bool servers_locked;
+    bool commands_locked;
     bool serving_disabled;
     
     //! Parse colon or space delimited string into vector

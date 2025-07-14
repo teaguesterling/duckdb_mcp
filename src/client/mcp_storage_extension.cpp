@@ -60,17 +60,13 @@ unique_ptr<TransactionManager> MCPStorageExtension::MCPStorageTransactionManager
 }
 
 shared_ptr<MCPConnection> MCPStorageExtension::CreateMCPConnection(const AttachInfo &info) {
-    // Parse structured parameters from ATTACH statement
+    // Parse structured parameters from ATTACH statement (includes security validation)
     auto params = ParseMCPAttachParams(info);
     
     // Validate parameters
     if (!params.IsValid()) {
         throw InvalidInputException("Invalid MCP connection parameters. Required: command");
     }
-    
-    // Security validation
-    auto &security = MCPSecurityConfig::GetInstance();
-    security.ValidateAttachSecurity(params.command, params.args);
     
     // Only stdio transport supported for now
     if (params.transport != "stdio") {

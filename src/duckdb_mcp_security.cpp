@@ -15,7 +15,17 @@ void MCPSecurityConfig::SetAllowedCommands(const string &commands) {
     if (servers_locked) {
         throw InvalidInputException("Cannot modify MCP settings: servers are locked");
     }
+    if (commands_locked) {
+        throw InvalidInputException("Cannot modify allowed MCP commands: commands are immutable once set for security");
+    }
+    
+    // Parse and set commands
     allowed_commands = ParseDelimitedString(commands, ':');
+    
+    // Lock commands immediately after first setting (security requirement)
+    if (!allowed_commands.empty()) {
+        commands_locked = true;
+    }
 }
 
 void MCPSecurityConfig::SetAllowedUrls(const string &urls) {
@@ -64,7 +74,8 @@ bool MCPSecurityConfig::IsCommandAllowed(const string &command_path) const {
         
         // If the allowed path is absolute and command is relative,
         // check if the command matches the basename of the allowed path
-        if (allowed[0] == '/' && command_path[0] != '/') {
+        if (allowed.length() > 0 && allowed[0] == '/' && 
+            (command_path.empty() || command_path[0] != '/')) {
             auto last_slash = allowed.find_last_of('/');
             if (last_slash != string::npos) {
                 string basename = allowed.substr(last_slash + 1);
@@ -99,9 +110,20 @@ void MCPSecurityConfig::ValidateAttachSecurity(const string &command, const vect
         throw InvalidInputException("Cannot attach MCP servers: servers are locked");
     }
     
+    // Check if any commands are configured at all
+    if (allowed_commands.empty()) {
+        throw InvalidInputException("No MCP commands are allowed. Set allowed_mcp_commands setting first. Example: SET allowed_mcp_commands='python3:/usr/bin/python3'");
+    }
+    
     if (!IsCommandAllowed(command)) {
-        throw InvalidInputException("MCP command not allowed: " + command + 
-            ". Add to allowed_mcp_commands setting to enable.");
+        // Build helpful error message showing what's allowed
+        string allowed_list = "";
+        for (size_t i = 0; i < allowed_commands.size(); i++) {
+            if (i > 0) allowed_list += ", ";
+            allowed_list += "'" + allowed_commands[i] + "'";
+        }
+        throw InvalidInputException("MCP command '" + command + "' not allowed. Allowed commands: " + allowed_list + 
+            ". Cannot modify allowed_mcp_commands after first use (security requirement).");
     }
     
     // Additional validation for command arguments
@@ -264,6 +286,10 @@ MCPConnectionParams ParseMCPAttachParams(const AttachInfo &info) {
         params.transport = "stdio";
     }
     
+    // CRITICAL: Validate security immediately after parsing (before any connection attempts)
+    auto &security = MCPSecurityConfig::GetInstance();
+    security.ValidateAttachSecurity(params.command, params.args);
+    
     return params;
 }
 
@@ -364,6 +390,10 @@ MCPConnectionParams ParseMCPConfigFile(const string &config_file_path, const str
     } catch (const std::exception &e) {
         throw IOException("Error parsing MCP config file '" + config_file_path + "': " + string(e.what()));
     }
+    
+    // CRITICAL: Validate security for config file parameters
+    auto &security = MCPSecurityConfig::GetInstance();
+    security.ValidateAttachSecurity(params.command, params.args);
     
     return params;
 }
