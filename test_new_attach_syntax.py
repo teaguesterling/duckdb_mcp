@@ -12,7 +12,7 @@ from pathlib import Path
 def test_structured_attach():
     """Test the new structured ATTACH syntax"""
     
-    print("🚀 Testing New Structured ATTACH Syntax")
+    print("🚀 Testing JSON-Based ATTACH Syntax")
     print("=" * 50)
     
     # Test 1: Basic structured syntax with JSON
@@ -104,26 +104,30 @@ SELECT mcp_list_resources('config_server') AS resources;
     except Exception as e:
         print(f"❌ Config file syntax test ERROR: {e}")
     
-    # Test 3: Legacy compatibility
-    print("\n3️⃣ Testing legacy stdio:// syntax compatibility...")
+    # Test 3: Simple parameter fallback
+    print("\n3️⃣ Testing simple parameter fallback...")
     
-    sql_script_legacy = '''
+    sql_script_simple = '''
 LOAD 'duckdb_mcp';
 SET allowed_mcp_commands='/usr/bin/python3,python3';
 
--- Test legacy ATTACH syntax
-ATTACH 'stdio://python3 test/fastmcp/sample_data_server.py' AS legacy_server (TYPE mcp);
+-- Test simple string parameters (fallback mode)
+ATTACH 'python3' AS simple_server (
+    TYPE mcp,
+    TRANSPORT 'stdio',
+    ARGS 'test/fastmcp/sample_data_server.py'
+);
 
 -- Verify connection
 SHOW DATABASES;
 
 -- List resources
-SELECT mcp_list_resources('legacy_server') AS resources;
+SELECT mcp_list_resources('simple_server') AS resources;
 '''
     
     try:
         result = subprocess.run(
-            ['./build/release/duckdb', '-c', sql_script_legacy],
+            ['./build/release/duckdb', '-c', sql_script_simple],
             capture_output=True,
             text=True,
             timeout=30
@@ -135,14 +139,14 @@ SELECT mcp_list_resources('legacy_server') AS resources;
             print(f"Errors: {result.stderr}")
             
         if result.returncode == 0:
-            print("✅ Legacy compatibility test PASSED")
+            print("✅ Simple parameter test PASSED")
         else:
-            print("❌ Legacy compatibility test FAILED")
+            print("❌ Simple parameter test FAILED")
             
     except subprocess.TimeoutExpired:
-        print("⏰ Legacy compatibility test TIMED OUT")
+        print("⏰ Simple parameter test TIMED OUT")
     except Exception as e:
-        print(f"❌ Legacy compatibility test ERROR: {e}")
+        print(f"❌ Simple parameter test ERROR: {e}")
     
     # Test 4: Resource access with new syntax
     print("\n4️⃣ Testing resource access with JSON syntax...")
@@ -188,7 +192,7 @@ SELECT mcp_call_tool('resource_server', 'get_data_info', '{"dataset": "customers
         print(f"❌ Resource access test ERROR: {e}")
     
     print("\n" + "=" * 50)
-    print("🎯 New ATTACH Syntax Testing Complete!")
+    print("🎯 JSON-Based ATTACH Syntax Testing Complete!")
 
 if __name__ == "__main__":
     test_structured_attach()

@@ -5,7 +5,7 @@ A comprehensive **Model Context Protocol (MCP)** extension for DuckDB that enabl
 ## 🌟 **Key Features**
 
 ### **📡 MCP Client Capabilities**
-- **Structured ATTACH Syntax**: Clean parameter separation with TRANSPORT, ARGS, CWD, ENV
+- **JSON-Based ATTACH Syntax**: Clean structured parameters with type safety
 - **MCP Config File Support**: Direct .mcp.json integration with FROM_CONFIG_FILE
 - **MCPFS Integration**: Direct file system access to MCP resources via SQL
 - **Resource Consumption**: Read and query data from any MCP server
@@ -71,9 +71,6 @@ ATTACH 'sample_data' AS configured_server (
     FROM_CONFIG_FILE '/current/dir/.mcp.json'
 );
 
--- Legacy format still supported
-ATTACH 'stdio://python3 test/fastmcp/sample_data_server.py' AS legacy_server (TYPE mcp);
-
 -- Verify connection
 SHOW DATABASES;
 
@@ -116,9 +113,8 @@ SELECT mcp_server_start('stdio', 'localhost', 8080, '{}') AS server_status;
 # Run the full test suite
 make test
 
-# Test MCP client functionality
-python3 test/fastmcp/sample_data_server.py &
-./build/release/duckdb -c "LOAD 'duckdb_mcp'; SELECT * FROM mcpfs_test();"
+# Test new JSON-based ATTACH syntax
+python3 test_new_attach_syntax.py
 
 # Test MCP server functionality  
 python3 simple_layer2_test.py
@@ -226,9 +222,6 @@ ATTACH 'server_name' AS alias (
     TYPE mcp,
     FROM_CONFIG_FILE '/path/to/.mcp.json'
 );
-
--- Legacy format (still supported)
-ATTACH 'stdio://command args' AS server_name (TYPE mcp);
 
 -- Resource access through file functions
 SELECT * FROM read_csv('mcp://server_name/file:///data.csv');
@@ -338,7 +331,7 @@ We welcome contributions! Areas of interest:
 
 ### **🔥 Completed**
 - ✅ Complete MCP protocol implementation (JSON-RPC 2.0)
-- ✅ Structured ATTACH syntax with TRANSPORT, ARGS, CWD, ENV parameters
+- ✅ JSON-based ATTACH syntax with structured parameters
 - ✅ .mcp.json configuration file support with FROM_CONFIG_FILE
 - ✅ MCPFS client integration for resource consumption
 - ✅ Dual-mode server architecture (background/foreground)  
@@ -352,6 +345,7 @@ We welcome contributions! Areas of interest:
 - 🔄 Resource streaming for large datasets
 
 ### **📋 Planned**
+- 📅 Bash-style parameter parsing (ARGS 'arg1 arg2' syntax)
 - 📅 Authentication and authorization framework
 - 📅 Configuration management system
 - 📅 Container orchestration integration  

@@ -258,26 +258,6 @@ MCPConnectionParams ParseMCPAttachParams(const AttachInfo &info) {
             }
         }
     }
-    // Fallback to legacy stdio:// format for backward compatibility
-    else if (StringUtil::StartsWith(StringUtil::Lower(info.path), "stdio://")) {
-        string command_line = info.path.substr(8); // Remove "stdio://"
-        if (!command_line.empty()) {
-            // Parse command line into executable and arguments
-            stringstream ss(command_line);
-            string token;
-            vector<string> tokens;
-            while (ss >> token) {
-                tokens.push_back(token);
-            }
-            
-            if (!tokens.empty()) {
-                params.command = tokens[0];
-                for (size_t i = 1; i < tokens.size(); i++) {
-                    params.args.push_back(tokens[i]);
-                }
-            }
-        }
-    }
     else {
         // Default: use path as literal command for stdio transport
         params.command = info.path;
