@@ -10,12 +10,32 @@ import logging
 from typing import Any
 from mcp.server import Server
 
-# Set up logging to stderr so we can see it while testing
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='[MCP-SERVER] %(asctime)s - %(levelname)s - %(message)s',
-    stream=sys.stderr
-)
+# Set up logging to both stderr and file for debugging
+import os
+
+# Create log file in absolute path to this directory  
+log_file = '/mnt/aux-data/teague/Projects/duckdb_mcp/mcp_server.log'
+
+# Configure logging
+logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
+
+# File handler
+file_handler = logging.FileHandler(log_file, mode='w')  # Overwrite each time
+file_handler.setLevel(logging.DEBUG)
+file_formatter = logging.Formatter('[MCP-SERVER-FILE] %(asctime)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(file_formatter)
+logger.addHandler(file_handler)
+
+# Stderr handler
+stderr_handler = logging.StreamHandler(sys.stderr)
+stderr_handler.setLevel(logging.DEBUG) 
+stderr_formatter = logging.Formatter('[MCP-SERVER] %(asctime)s - %(levelname)s - %(message)s')
+stderr_handler.setFormatter(stderr_formatter)
+logger.addHandler(stderr_handler)
+
+# Log the file location for debugging
+logger.info(f"MCP Server logging to file: {log_file}")
 from mcp.types import (
     Resource,
     Tool,
@@ -154,7 +174,10 @@ def main():
     from mcp.server.stdio import stdio_server
     
     async def main_async():
+        logging.info("Starting MCP server with stdio transport")
+        logging.info("Waiting for client connections...")
         async with stdio_server() as (read_stream, write_stream):
+            logging.info("Client connected, starting server.run()")
             await server.run(
                 read_stream,
                 write_stream,

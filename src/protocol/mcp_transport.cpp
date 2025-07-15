@@ -152,10 +152,24 @@ bool StdioTransport::StartProcess() {
         }
         args.push_back(nullptr);
         
+        // Debug: Log what we're about to execute
+        fprintf(stderr, "[MCP-EXEC-DEBUG] Executing command: %s\n", config.command_path.c_str());
+        fprintf(stderr, "[MCP-EXEC-DEBUG] Working directory: %s\n", config.working_directory.c_str());
+        fprintf(stderr, "[MCP-EXEC-DEBUG] Arguments:\n");
+        for (size_t i = 0; i < args.size() - 1; i++) {
+            fprintf(stderr, "[MCP-EXEC-DEBUG]   [%zu]: %s\n", i, args[i]);
+        }
+        fprintf(stderr, "[MCP-EXEC-DEBUG] Environment variables:\n");
+        for (const auto &env_pair : config.environment) {
+            fprintf(stderr, "[MCP-EXEC-DEBUG]   %s=%s\n", env_pair.first.c_str(), env_pair.second.c_str());
+        }
+        
         // Execute command
         execvp(config.command_path.c_str(), args.data());
         
-        // If we get here, exec failed
+        // If we get here, exec failed - log the error
+        int exec_errno = errno;
+        fprintf(stderr, "[MCP-EXEC-DEBUG] execvp failed: %s (errno: %d)\n", strerror(exec_errno), exec_errno);
         exit(1);
     }
     
@@ -175,6 +189,24 @@ bool StdioTransport::StartProcess() {
     fcntl(stdout_fd, F_SETFL, O_NONBLOCK);
     fcntl(stderr_fd, F_SETFL, O_NONBLOCK);
     
+    // Give the child process a moment to start and potentially fail
+    usleep(100000); // 100ms
+    
+    // Check if process is still running (if it failed quickly, it might be dead)
+    if (!IsProcessRunning()) {
+        fprintf(stderr, "[MCP-EXEC-DEBUG] Child process died immediately after fork\n");
+        
+        // Try to read any stderr output from failed child
+        char error_buffer[1024];
+        ssize_t error_bytes = read(stderr_fd, error_buffer, sizeof(error_buffer) - 1);
+        if (error_bytes > 0) {
+            error_buffer[error_bytes] = '\0';
+            fprintf(stderr, "[MCP-EXEC-DEBUG] Child stderr: %s\n", error_buffer);
+        }
+        return false;
+    }
+    
+    fprintf(stderr, "[MCP-EXEC-DEBUG] Child process started successfully (pid: %d)\n", process_pid);
     return true;
 }
 
