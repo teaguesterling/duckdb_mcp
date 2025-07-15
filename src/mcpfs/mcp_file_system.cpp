@@ -3,6 +3,7 @@
 #include "client/mcp_storage_extension.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/string_util.hpp"
+#include "duckdb/common/open_file_info.hpp"
 
 namespace duckdb {
 
@@ -147,8 +148,8 @@ int64_t MCPFileSystem::Read(FileHandle &handle, void *buffer, int64_t nr_bytes) 
     int64_t available = static_cast<int64_t>(mcp_handle.resource_content.length()) - mcp_handle.current_position;
     int64_t to_read = std::min(nr_bytes, available);
     
-    memcpy(buffer, mcp_handle.resource_content.data() + mcp_handle.current_position, to_read);
-    mcp_handle.current_position += to_read;
+    memcpy(buffer, mcp_handle.resource_content.data() + mcp_handle.current_position, static_cast<size_t>(to_read));
+    mcp_handle.current_position += static_cast<idx_t>(to_read);
     
     return to_read;
 }
@@ -168,11 +169,11 @@ void MCPFileSystem::Read(FileHandle &handle, void *buffer, int64_t nr_bytes, idx
         throw IOException("Read location beyond file size");
     }
     
-    int64_t available = static_cast<int64_t>(mcp_handle.resource_content.length()) - location;
+    int64_t available = static_cast<int64_t>(mcp_handle.resource_content.length()) - static_cast<int64_t>(location);
     int64_t to_read = std::min(nr_bytes, available);
     
     if (to_read > 0) {
-        memcpy(buffer, mcp_handle.resource_content.data() + location, to_read);
+        memcpy(buffer, mcp_handle.resource_content.data() + location, static_cast<size_t>(to_read));
     }
     
     if (to_read < nr_bytes) {
@@ -231,7 +232,7 @@ void MCPFileSystem::Seek(FileHandle &handle, idx_t location) {
         throw IOException("Seek location beyond file size");
     }
     
-    mcp_handle.current_position = location;
+    mcp_handle.current_position = static_cast<idx_t>(location);
 }
 
 void MCPFileSystem::Reset(FileHandle &handle) {
@@ -284,8 +285,7 @@ vector<OpenFileInfo> MCPFileSystem::Glob(const string &path, FileOpener *opener)
         
         // For exact path matching, first check if the specific resource exists
         if (connection->ResourceExists(parsed_path.resource_uri)) {
-            OpenFileInfo info;
-            info.path = path;  // Use the original path as requested
+            OpenFileInfo info(path);  // Use the original path as requested
             results.push_back(info);
         } else {
             // List all resources and filter by pattern
@@ -297,8 +297,7 @@ vector<OpenFileInfo> MCPFileSystem::Glob(const string &path, FileOpener *opener)
                 // Simple pattern matching - would implement proper glob matching
                 if (StringUtil::Contains(resource.uri, parsed_path.resource_uri) ||
                     StringUtil::Contains(full_path, path)) {
-                    OpenFileInfo info;
-                    info.path = full_path;
+                    OpenFileInfo info(full_path);
                     // Note: OpenFileInfo doesn't have a size field
                     // Size information would need to be stored in extended_info if needed
                     results.push_back(info);
