@@ -106,6 +106,144 @@ SELECT mcp_server_start('stdio', 'localhost', 8080, '{}') AS server_status;
 
 ---
 
+## 📋 **Detailed Examples**
+
+### **Tool Execution Examples**
+
+**Data Analysis Tools:**
+```sql
+-- Get dataset information
+SELECT mcp_call_tool('data_server', 'get_data_info', '{"dataset": "customers"}') AS info;
+
+-- Validate data quality
+SELECT mcp_call_tool('data_server', 'validate_data', '{"table": "orders", "checks": ["nulls", "duplicates"]}') AS validation;
+
+-- Generate statistical summaries
+SELECT mcp_call_tool('analytics_server', 'summarize', '{"columns": ["amount", "quantity"], "groupby": "category"}') AS stats;
+```
+
+**File Processing Tools:**
+```sql
+-- Process CSV files
+SELECT mcp_call_tool('file_server', 'convert_format', '{"input": "data.csv", "output": "data.parquet", "format": "parquet"}') AS result;
+
+-- Data transformation pipeline
+SELECT mcp_call_tool('transform_server', 'apply_pipeline', '{"steps": ["clean", "normalize", "aggregate"], "config": {"output_format": "json"}}') AS transformed;
+```
+
+**API Integration Tools:**
+```sql
+-- External API calls through MCP
+SELECT mcp_call_tool('api_server', 'fetch_external', '{"endpoint": "https://api.example.com/data", "auth": "bearer_token"}') AS api_data;
+
+-- Data enrichment
+SELECT mcp_call_tool('enrichment_server', 'enrich_records', '{"source": "customers", "enrich_with": ["geography", "demographics"]}') AS enriched;
+```
+
+### **Resource Access Examples**
+
+**Direct File Access:**
+```sql
+-- CSV files with proper error handling
+SELECT * FROM read_csv('mcp://data_server/file:///raw_data/customers.csv') 
+WHERE customer_id IS NOT NULL;
+
+-- JSON data processing
+SELECT json_extract(content, '$.metadata') as metadata
+FROM read_text('mcp://data_server/file:///config/settings.json');
+
+-- Parquet files for analytics
+SELECT date_trunc('month', created_date) as month, SUM(amount) as total_sales
+FROM read_parquet('mcp://analytics_server/file:///warehouse/sales.parquet')
+GROUP BY month ORDER BY month;
+```
+
+**Dynamic Resource Discovery:**
+```sql
+-- List all available resources
+WITH resources AS (
+    SELECT json_extract_string(resource, '$.uri') as uri,
+           json_extract_string(resource, '$.name') as name,
+           json_extract_string(resource, '$.mimeType') as type
+    FROM (SELECT unnest(json_extract_string_array(mcp_list_resources('data_server'), '$[*]')) as resource)
+)
+SELECT uri, name, type FROM resources WHERE type LIKE '%csv%';
+
+-- Access resources dynamically based on discovery
+SELECT * FROM read_csv('mcp://data_server/' || uri) 
+FROM (SELECT 'file:///data/latest_export.csv' as uri);
+```
+
+**Complex Data Pipelines:**
+```sql
+-- Multi-stage data processing with MCP
+WITH raw_data AS (
+    SELECT * FROM read_csv('mcp://source_server/file:///raw/transactions.csv')
+),
+enriched_data AS (
+    SELECT *, json_extract(
+        mcp_call_tool('enrichment_server', 'geocode', json_object('address', billing_address))
+    , '$.coordinates') as coordinates
+    FROM raw_data
+),
+analytics_ready AS (
+    SELECT transaction_id, amount, coordinates,
+           json_extract_string(coordinates, '$.lat') as latitude,
+           json_extract_string(coordinates, '$.lng') as longitude
+    FROM enriched_data
+)
+SELECT * FROM analytics_ready;
+```
+
+### **Configuration Examples**
+
+**Development Environment:**
+```sql
+-- Local development with debug output
+ATTACH './venv/bin/python' AS dev_server (
+    TYPE mcp,
+    TRANSPORT 'stdio',
+    ARGS '["src/dev_server.py", "--debug", "--port", "8001"]',
+    CWD '/home/user/project',
+    ENV '{"PYTHONPATH": "./src", "LOG_LEVEL": "DEBUG", "DEV_MODE": "true"}'
+);
+```
+
+**Production Environment:**
+```sql
+-- Production with optimized settings
+ATTACH 'data_processor' AS prod_server (
+    TYPE mcp,
+    FROM_CONFIG_FILE '/etc/mcp/production.mcp.json'
+);
+```
+
+**Multi-Server Setup:**
+```sql
+-- Connect to multiple specialized servers
+SET allowed_mcp_commands='python3:/usr/bin/node:./scripts/launcher.sh';
+
+-- Data ingestion server
+ATTACH 'python3' AS ingestion (
+    TYPE mcp, ARGS '["services/ingestion_server.py"]',
+    ENV '{"PYTHONPATH": "/opt/services", "WORKER_COUNT": "4"}'
+);
+
+-- Analytics processing server  
+ATTACH '/usr/bin/node' AS analytics (
+    TYPE mcp, ARGS '["analytics/server.js", "--cluster"],
+    ENV '{"NODE_ENV": "production", "MEMORY_LIMIT": "8GB"}'
+);
+
+-- File transformation server
+ATTACH './scripts/launcher.sh' AS transform (
+    TYPE mcp, ARGS '["transform_service"],
+    CWD '/opt/transform'
+);
+```
+
+---
+
 ## 🧪 **Testing and Validation**
 
 ### **Automated Tests**
@@ -198,6 +336,40 @@ make test
 
 ---
 
+## 🔒 **Security Model**
+
+### **Command Allowlisting (Required)**
+Before connecting to any MCP servers, you **must** configure allowed commands for security:
+
+```sql
+-- Set allowed commands (colon-separated list)
+SET allowed_mcp_commands='python3:/usr/bin/python3:/usr/bin/node';
+
+-- OR individual commands
+SET allowed_mcp_commands='./launch_mcp_server.sh';
+```
+
+**Security Rules:**
+- ✅ **Allowlist Required**: No MCP connections allowed without explicit allowlist
+- ✅ **Immutable Once Set**: Cannot modify allowed commands after first use (prevents privilege escalation)
+- ✅ **Basename Matching**: Relative commands like `python3` match absolute paths like `/usr/bin/python3`
+- ✅ **Argument Validation**: Command arguments checked for dangerous characters (`..`, `|`, `;`, `&`, etc.)
+- ✅ **Path Isolation**: Working directories and environment variables properly isolated
+
+### **Error Messages**
+```sql
+-- If no allowlist configured
+ERROR: No MCP commands are allowed. Set allowed_mcp_commands setting first.
+
+-- If command not in allowlist  
+ERROR: MCP command 'untrusted_script' not allowed. Allowed commands: 'python3', './launch_server.sh'
+
+-- If trying to modify after use
+ERROR: Cannot modify allowed MCP commands: commands are immutable once set for security
+```
+
+---
+
 ## 📖 **API Reference**
 
 ### **Client Functions**
@@ -205,24 +377,55 @@ make test
 -- Basic extension test
 SELECT hello_mcp() AS greeting;
 
--- Security configuration (required before MCP operations)
-SET allowed_mcp_commands='/usr/bin/python3,python3,/usr/bin/node';
+-- Security configuration (REQUIRED before MCP operations)
+SET allowed_mcp_commands='python3:/usr/bin/python3:/usr/bin/node';
+```
 
--- Connect using structured parameters with JSON (recommended)
+### **JSON-Based ATTACH Syntax**
+
+**Structured Parameters (Recommended):**
+```sql
 ATTACH 'command_or_url' AS server_name (
     TYPE mcp,
-    TRANSPORT 'stdio',                    -- stdio, tcp, websocket
-    ARGS '["arg1", "arg2"]',             -- Command arguments as JSON array
-    CWD '/working/directory',            -- Working directory
-    ENV '{"VAR": "value"}'               -- Environment variables as JSON object
+    TRANSPORT 'stdio',                    -- Transport: stdio, tcp, websocket
+    ARGS '["arg1", "arg2"]',             -- JSON array: ["test/server.py", "--debug"]
+    CWD '/working/directory',            -- Working directory (optional)
+    ENV '{"VAR": "value", "DEBUG": "1"}' -- JSON object: {"PYTHONPATH": "/path", "DEBUG": "1"}
 );
+```
 
--- Connect using .mcp.json config file
+**JSON Format Requirements:**
+- **ARGS**: Must be valid JSON array starting with `[` (e.g., `'["server.py", "--verbose"]'`)
+- **ENV**: Must be valid JSON object starting with `{` (e.g., `'{"PATH": "/usr/bin", "DEBUG": "1"}'`)
+- **Fallback**: Non-JSON strings treated as single argument/environment variable
+
+**Config File Mode:**
+```sql
 ATTACH 'server_name' AS alias (
     TYPE mcp,
     FROM_CONFIG_FILE '/path/to/.mcp.json'
 );
+```
 
+**Sample .mcp.json Format:**
+```json
+{
+  "mcpServers": {
+    "sample_data": {
+      "command": "python3",
+      "args": ["test/fastmcp/sample_data_server.py"],
+      "cwd": "/mnt/aux-data/teague/Projects/duckdb_mcp",
+      "env": {
+        "PYTHONPATH": "/usr/local/lib/python3.8/site-packages",
+        "MCP_DEBUG": "1"
+      }
+    }
+  }
+}
+```
+
+### **Resource Access and Tool Execution**
+```sql
 -- Resource access through file functions
 SELECT * FROM read_csv('mcp://server_name/file:///data.csv');
 
@@ -252,6 +455,100 @@ SELECT mcp_server_start('stdio', 'localhost', 8080,
 - `tools/list` - List available tools
 - `tools/call` - Execute tool with parameters
 - `shutdown` - Gracefully shut down server
+
+---
+
+## 🛠️ **Troubleshooting**
+
+### **Common Connection Issues**
+
+**Problem: "No MCP commands are allowed"**
+```sql
+-- Solution: Set allowed commands first
+SET allowed_mcp_commands='python3:/usr/bin/python3';
+```
+
+**Problem: "MCP command 'script.py' not allowed"**
+```sql
+-- Solution: Add script to allowlist
+SET allowed_mcp_commands='python3:./script.py:/full/path/to/script.py';
+```
+
+**Problem: "Cannot modify allowed MCP commands: commands are immutable"**
+```sql
+-- Solution: Restart DuckDB session to reset security settings
+-- This is by design for security - once set, commands cannot be changed
+```
+
+### **JSON Parameter Issues**
+
+**Problem: "Invalid JSON in ARGS parameter"**
+```sql
+-- ❌ Wrong: ARGS 'arg1, arg2'
+-- ✅ Correct: 
+ARGS '["arg1", "arg2"]'
+```
+
+**Problem: "Invalid JSON in ENV parameter"**
+```sql
+-- ❌ Wrong: ENV 'KEY=value KEY2=value2'
+-- ✅ Correct:
+ENV '{"KEY": "value", "KEY2": "value2"}'
+```
+
+### **Process Execution Issues**
+
+**Problem: "Child process died immediately after fork"**
+- **Check command path**: Ensure command exists and is executable
+- **Check arguments**: Verify JSON array format in ARGS
+- **Check working directory**: Ensure CWD path exists
+- **Check environment**: Verify ENV JSON object format
+
+**Problem: "Timeout waiting for process response"**
+- **Server startup time**: Some MCP servers need time to initialize
+- **Python environment**: Use correct Python path with required libraries
+- **Virtual environment**: Activate venv before launching DuckDB
+
+### **Resource Access Issues**
+
+**Problem: "MCP server connection failed"**
+```sql
+-- Check server status
+SELECT mcp_list_resources('server_name') AS status;
+
+-- Verify ATTACH succeeded
+SHOW DATABASES;
+```
+
+**Problem: "Resource not found: file:///data.csv"**
+- **URI format**: Ensure proper MCP URI format `mcp://server_name/resource_uri`
+- **Server capabilities**: Check if server provides requested resource
+- **Path resolution**: Verify resource path relative to server working directory
+
+### **Development and Testing**
+
+**Debug Mode:**
+```sql
+-- Enable debug output in environment
+ENV '{"MCP_DEBUG": "1"}'
+```
+
+**Test Connection:**
+```sql
+-- Basic connectivity test
+SELECT mcp_list_resources('server_name') AS resources;
+
+-- Tool execution test  
+SELECT mcp_call_tool('server_name', 'get_data_info', '{}') AS result;
+```
+
+**Check Logs:**
+```bash
+# Check MCP server logs (if logging enabled)
+tail -f mcp_server.log
+
+# Check DuckDB debug output in stderr
+```
 
 ---
 
