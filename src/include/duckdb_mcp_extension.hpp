@@ -10,6 +10,7 @@ class DuckdbMcpExtension : public Extension {
 public:
     void Load(DuckDB &db) override;
     std::string Name() override { return "duckdb_mcp"; }
+    std::string Version() const override { return "1.0.0"; }
 };
 
 // Function declarations for any non-static functions if needed
