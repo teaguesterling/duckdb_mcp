@@ -74,12 +74,12 @@ class DuckDBMCPTester:
         
         sql = [
             "LOAD 'build/release/extension/duckdb_mcp/duckdb_mcp.duckdb_extension';",
-            "SELECT hello_mcp() AS greeting;"
+            "SELECT 'Extension loaded successfully' AS status;"
         ]
         
         result = self.run_sql(sql, "Basic Extension Loading")
         
-        if result['success'] and 'Hello from DuckDB MCP Extension' in result['stdout']:
+        if result['success'] and 'Extension loaded successfully' in result['stdout']:
             print("✅ Basic extension loading works")
             return True
         else:
@@ -264,7 +264,7 @@ class DuckDBMCPTester:
         
         sql = [
             "LOAD 'build/release/extension/duckdb_mcp/duckdb_mcp.duckdb_extension';",
-            # Test function signatures exist (without calling them)
+            # Test that extension loads without errors
             "SELECT 'Function availability test' AS test;"
         ]
         

@@ -20,13 +20,6 @@
 
 namespace duckdb {
 
-// Simple test function to verify extension loads
-static void HelloMCPFunction(DataChunk &args, ExpressionState &state, Vector &result) {
-    result.SetVectorType(VectorType::CONSTANT_VECTOR);
-    auto result_data = ConstantVector::GetData<string_t>(result);
-    result_data[0] = StringVector::AddString(result, "Hello from DuckDB MCP!");
-}
-
 // Get MCP resource content
 static void MCPGetResourceFunction(DataChunk &args, ExpressionState &state, Vector &result) {
     auto &server_vector = args.data[0];
@@ -751,10 +744,6 @@ void DuckdbMcpExtension::Load(DuckDB &db) {
     security.SetAllowedUrls("");
     security.SetServerFile("./.mcp.json");
     security.LockServers(false);
-    
-    // Register test function
-    auto hello_func = ScalarFunction("hello_mcp", {}, LogicalType::VARCHAR, HelloMCPFunction);
-    ExtensionUtil::RegisterFunction(*db.instance, hello_func);
     
     // Register MCP resource functions
     auto get_resource_func = ScalarFunction("mcp_get_resource", 

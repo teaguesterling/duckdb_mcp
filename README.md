@@ -50,9 +50,6 @@ make
 -- Load the MCP extension
 LOAD 'duckdb_mcp';
 
--- Test basic functionality
-SELECT hello_mcp() as welcome;
-
 -- Enable MCP commands (security requirement)
 SET allowed_mcp_commands='/usr/bin/python3,python3';
 
@@ -374,9 +371,6 @@ ERROR: Cannot modify allowed MCP commands: commands are immutable once set for s
 
 ### **Client Functions**
 ```sql
--- Basic extension test
-SELECT hello_mcp() AS greeting;
-
 -- Security configuration (REQUIRED before MCP operations)
 SET allowed_mcp_commands='python3:/usr/bin/python3:/usr/bin/node';
 ```
