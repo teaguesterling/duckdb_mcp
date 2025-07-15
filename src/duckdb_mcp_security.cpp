@@ -163,8 +163,8 @@ MCPConnectionParams ParseMCPAttachParams(const AttachInfo &info) {
     MCPConnectionParams params;
     
     // Check for config file mode first
-    if (info.options.find("FROM_CONFIG_FILE") != info.options.end()) {
-        auto config_file_value = info.options.at("FROM_CONFIG_FILE");
+    if (info.options.find("from_config_file") != info.options.end()) {
+        auto config_file_value = info.options.at("from_config_file");
         if (!config_file_value.IsNull()) {
             params.config_file_path = config_file_value.ToString();
             params.server_name = info.path; // The ATTACH path becomes the server name
@@ -173,8 +173,8 @@ MCPConnectionParams ParseMCPAttachParams(const AttachInfo &info) {
             auto config_params = ParseMCPConfigFile(params.config_file_path, params.server_name);
             
             // Override with any explicitly provided parameters
-            if (info.options.find("TRANSPORT") != info.options.end()) {
-                auto transport_value = info.options.at("TRANSPORT");
+            if (info.options.find("transport") != info.options.end()) {
+                auto transport_value = info.options.at("transport");
                 if (!transport_value.IsNull()) {
                     config_params.transport = transport_value.ToString();
                 }
@@ -184,28 +184,42 @@ MCPConnectionParams ParseMCPAttachParams(const AttachInfo &info) {
         }
     }
     
+    // Debug: Log all options found
+    fprintf(stderr, "[MCP-PARSE-DEBUG] Options found:\n");
+    for (const auto &opt : info.options) {
+        fprintf(stderr, "[MCP-PARSE-DEBUG]   %s = %s\n", opt.first.c_str(), opt.second.ToString().c_str());
+    }
+
     // Try structured parameters with JSON parsing (new format)
-    if (info.options.find("TRANSPORT") != info.options.end() || 
-        info.options.find("ARGS") != info.options.end() ||
-        info.options.find("CWD") != info.options.end() ||
-        info.options.find("ENV") != info.options.end()) {
+    // Note: DuckDB lowercases option names automatically
+    if (info.options.find("transport") != info.options.end() || 
+        info.options.find("args") != info.options.end() ||
+        info.options.find("cwd") != info.options.end() ||
+        info.options.find("env") != info.options.end()) {
         
         // The path is used literally as command or URL
         params.command = info.path;
         
         // Parse TRANSPORT parameter (simple string)
-        if (info.options.find("TRANSPORT") != info.options.end()) {
-            auto transport_value = info.options.at("TRANSPORT");
+        if (info.options.find("transport") != info.options.end()) {
+            auto transport_value = info.options.at("transport");
             if (!transport_value.IsNull()) {
                 params.transport = transport_value.ToString();
             }
         }
         
         // Parse ARGS parameter (JSON array or fall back to simple string)
-        if (info.options.find("ARGS") != info.options.end()) {
-            auto args_value = info.options.at("ARGS");
+        if (info.options.find("args") != info.options.end()) {
+            auto args_value = info.options.at("args");
             if (!args_value.IsNull()) {
                 string args_str = args_value.ToString();
+                
+                // Debug: Log the raw args string
+                fprintf(stderr, "[MCP-PARSE-DEBUG] Raw ARGS string: '%s'\n", args_str.c_str());
+                fprintf(stderr, "[MCP-PARSE-DEBUG] ARGS length: %zu\n", args_str.length());
+                if (args_str.length() > 0) {
+                    fprintf(stderr, "[MCP-PARSE-DEBUG] First char: '%c' (0x%02x)\n", args_str[0], (unsigned char)args_str[0]);
+                }
                 
                 // Check if it starts with '[' - JSON array format
                 if (args_str.length() > 0 && args_str[0] == '[') {
@@ -235,16 +249,16 @@ MCPConnectionParams ParseMCPAttachParams(const AttachInfo &info) {
         }
         
         // Parse CWD parameter (simple string)
-        if (info.options.find("CWD") != info.options.end()) {
-            auto cwd_value = info.options.at("CWD");
+        if (info.options.find("cwd") != info.options.end()) {
+            auto cwd_value = info.options.at("cwd");
             if (!cwd_value.IsNull()) {
                 params.working_dir = cwd_value.ToString();
             }
         }
         
         // Parse ENV parameter (JSON object or fall back to simple string)
-        if (info.options.find("ENV") != info.options.end()) {
-            auto env_value = info.options.at("ENV");
+        if (info.options.find("env") != info.options.end()) {
+            auto env_value = info.options.at("env");
             if (!env_value.IsNull()) {
                 string env_str = env_value.ToString();
                 
@@ -285,6 +299,15 @@ MCPConnectionParams ParseMCPAttachParams(const AttachInfo &info) {
         params.command = info.path;
         params.transport = "stdio";
     }
+    
+    // Debug: Log the parsed parameters
+    fprintf(stderr, "[MCP-PARSE-DEBUG] Parsed command: %s\n", params.command.c_str());
+    fprintf(stderr, "[MCP-PARSE-DEBUG] Parsed transport: %s\n", params.transport.c_str());
+    fprintf(stderr, "[MCP-PARSE-DEBUG] Parsed args count: %zu\n", params.args.size());
+    for (size_t i = 0; i < params.args.size(); i++) {
+        fprintf(stderr, "[MCP-PARSE-DEBUG] Arg[%zu]: %s\n", i, params.args[i].c_str());
+    }
+    fprintf(stderr, "[MCP-PARSE-DEBUG] Working dir: %s\n", params.working_dir.c_str());
     
     // CRITICAL: Validate security immediately after parsing (before any connection attempts)
     auto &security = MCPSecurityConfig::GetInstance();
