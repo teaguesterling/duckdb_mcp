@@ -4,6 +4,7 @@
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/common/open_file_info.hpp"
+#include "duckdb/common/types/timestamp.hpp"
 
 namespace duckdb {
 
@@ -210,10 +211,10 @@ int64_t MCPFileSystem::GetFileSize(FileHandle &handle) {
     return static_cast<int64_t>(mcp_handle.resource_content.length());
 }
 
-time_t MCPFileSystem::GetLastModifiedTime(FileHandle &handle) {
+timestamp_t MCPFileSystem::GetLastModifiedTime(FileHandle &handle) {
     // MCP resources don't have reliable modification times
     // Return current time as placeholder
-    return time(nullptr);
+    return Timestamp::GetCurrentTimestamp();
 }
 
 FileType MCPFileSystem::GetFileType(FileHandle &handle) {
