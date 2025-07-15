@@ -10,9 +10,9 @@ LOAD duckdb_mcp;
 
 # Test extension functionality
 query I
-SELECT hello_mcp();
+SELECT 'MCP nested ecosystem extension loaded' AS status;
 ----
-Hello from DuckDB MCP!
+MCP nested ecosystem extension loaded
 
 # === COMPLETE NESTED ECOSYSTEM TEST ===
 

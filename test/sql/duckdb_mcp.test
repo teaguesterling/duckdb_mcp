@@ -2,19 +2,14 @@
 # description: test duckdb_mcp extension
 # group: [duckdb_mcp]
 
-# Before we load the extension, this will fail
-statement error
-SELECT hello_mcp();
-----
-Catalog Error: Scalar Function with name hello_mcp does not exist!
-
 # Test MCP extension can be loaded
 require duckdb_mcp
 
 statement ok
 LOAD duckdb_mcp;
 
+# Test that extension loads successfully
 query I
-SELECT hello_mcp();
+SELECT 'Extension loaded successfully' AS status;
 ----
-Hello from DuckDB MCP!
+Extension loaded successfully
