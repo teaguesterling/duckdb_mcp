@@ -211,11 +211,20 @@ int64_t MCPFileSystem::GetFileSize(FileHandle &handle) {
     return static_cast<int64_t>(mcp_handle.resource_content.length());
 }
 
+// Handle both DuckDB versions - v1.3.2 uses time_t, newer versions use timestamp_t
+#if defined(DUCKDB_VERSION) && (DUCKDB_PATCH_VERSION >= 3)
 timestamp_t MCPFileSystem::GetLastModifiedTime(FileHandle &handle) {
     // MCP resources don't have reliable modification times
     // Return current time as placeholder
     return Timestamp::GetCurrentTimestamp();
 }
+#else
+time_t MCPFileSystem::GetLastModifiedTime(FileHandle &handle) {
+    // MCP resources don't have reliable modification times
+    // Return current time as placeholder
+    return time(nullptr);
+}
+#endif
 
 FileType MCPFileSystem::GetFileType(FileHandle &handle) {
     // All MCP resources are treated as regular files

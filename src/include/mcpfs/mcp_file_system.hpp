@@ -51,7 +51,12 @@ public:
     // File metadata operations
     bool FileExists(const string &filename, optional_ptr<FileOpener> opener = nullptr) override;
     int64_t GetFileSize(FileHandle &handle) override;
+    // Handle both DuckDB versions - v1.3.2 uses time_t, newer versions use timestamp_t
+#if defined(DUCKDB_VERSION) && (DUCKDB_PATCH_VERSION >= 3)
     timestamp_t GetLastModifiedTime(FileHandle &handle) override;
+#else
+    time_t GetLastModifiedTime(FileHandle &handle) override;
+#endif
     FileType GetFileType(FileHandle &handle) override;
 
     // Seeking operations
