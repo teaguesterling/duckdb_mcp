@@ -184,11 +184,6 @@ MCPConnectionParams ParseMCPAttachParams(const AttachInfo &info) {
         }
     }
     
-    // Debug: Log all options found
-    fprintf(stderr, "[MCP-PARSE-DEBUG] Options found:\n");
-    for (const auto &opt : info.options) {
-        fprintf(stderr, "[MCP-PARSE-DEBUG]   %s = %s\n", opt.first.c_str(), opt.second.ToString().c_str());
-    }
 
     // Try structured parameters with JSON parsing (new format)
     // Note: DuckDB lowercases option names automatically
@@ -214,12 +209,6 @@ MCPConnectionParams ParseMCPAttachParams(const AttachInfo &info) {
             if (!args_value.IsNull()) {
                 string args_str = args_value.ToString();
                 
-                // Debug: Log the raw args string
-                fprintf(stderr, "[MCP-PARSE-DEBUG] Raw ARGS string: '%s'\n", args_str.c_str());
-                fprintf(stderr, "[MCP-PARSE-DEBUG] ARGS length: %zu\n", args_str.length());
-                if (args_str.length() > 0) {
-                    fprintf(stderr, "[MCP-PARSE-DEBUG] First char: '%c' (0x%02x)\n", args_str[0], (unsigned char)args_str[0]);
-                }
                 
                 // Check if it starts with '[' - JSON array format
                 if (args_str.length() > 0 && args_str[0] == '[') {
@@ -300,14 +289,6 @@ MCPConnectionParams ParseMCPAttachParams(const AttachInfo &info) {
         params.transport = "stdio";
     }
     
-    // Debug: Log the parsed parameters
-    fprintf(stderr, "[MCP-PARSE-DEBUG] Parsed command: %s\n", params.command.c_str());
-    fprintf(stderr, "[MCP-PARSE-DEBUG] Parsed transport: %s\n", params.transport.c_str());
-    fprintf(stderr, "[MCP-PARSE-DEBUG] Parsed args count: %zu\n", params.args.size());
-    for (size_t i = 0; i < params.args.size(); i++) {
-        fprintf(stderr, "[MCP-PARSE-DEBUG] Arg[%zu]: %s\n", i, params.args[i].c_str());
-    }
-    fprintf(stderr, "[MCP-PARSE-DEBUG] Working dir: %s\n", params.working_dir.c_str());
     
     // CRITICAL: Validate security immediately after parsing (before any connection attempts)
     auto &security = MCPSecurityConfig::GetInstance();
