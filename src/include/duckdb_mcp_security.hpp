@@ -39,6 +39,9 @@ public:
     //! Check if a URL is allowed  
     bool IsUrlAllowed(const string &url) const;
     
+    //! Check if we're in permissive mode (no security settings configured)
+    bool IsPermissiveMode() const;
+    
     //! Check if servers are locked
     bool AreServersLocked() const { return servers_locked; }
     

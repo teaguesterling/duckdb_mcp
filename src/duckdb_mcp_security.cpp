@@ -51,7 +51,12 @@ void MCPSecurityConfig::SetServingDisabled(bool disabled) {
 }
 
 bool MCPSecurityConfig::IsCommandAllowed(const string &command_path) const {
-    // If no allowlist is configured, allow nothing (secure by default)
+    // If we're in permissive mode (no security settings configured), allow everything
+    if (IsPermissiveMode()) {
+        return true;
+    }
+    
+    // If no allowlist is configured but we're not in permissive mode, allow nothing (secure by default)
     if (allowed_commands.empty()) {
         return false;
     }
@@ -90,7 +95,12 @@ bool MCPSecurityConfig::IsCommandAllowed(const string &command_path) const {
 }
 
 bool MCPSecurityConfig::IsUrlAllowed(const string &url) const {
-    // If no allowlist is configured, allow nothing (secure by default)
+    // If we're in permissive mode (no security settings configured), allow everything
+    if (IsPermissiveMode()) {
+        return true;
+    }
+    
+    // If no allowlist is configured but we're not in permissive mode, allow nothing (secure by default)
     if (allowed_urls.empty()) {
         return false;
     }
@@ -105,9 +115,32 @@ bool MCPSecurityConfig::IsUrlAllowed(const string &url) const {
     return false;
 }
 
+bool MCPSecurityConfig::IsPermissiveMode() const {
+    // Permissive mode is when NO security settings have been configured
+    // (both commands and URLs are empty, and commands haven't been locked)
+    return allowed_commands.empty() && allowed_urls.empty() && !commands_locked;
+}
+
 void MCPSecurityConfig::ValidateAttachSecurity(const string &command, const vector<string> &args) const {
     if (servers_locked) {
         throw InvalidInputException("Cannot attach MCP servers: servers are locked");
+    }
+    
+    // If we're in permissive mode, skip security validation but still do basic safety checks
+    if (IsPermissiveMode()) {
+        // Basic safety checks even in permissive mode
+        for (const auto &arg : args) {
+            // Prevent dangerous arguments even in permissive mode
+            if (StringUtil::Contains(arg, "..") || 
+                StringUtil::Contains(arg, "|") ||
+                StringUtil::Contains(arg, ";") ||
+                StringUtil::Contains(arg, "&") ||
+                StringUtil::Contains(arg, "`") ||
+                StringUtil::Contains(arg, "$")) {
+                throw InvalidInputException("MCP argument contains potentially unsafe characters: " + arg);
+            }
+        }
+        return; // Allow in permissive mode
     }
     
     // Check if any commands are configured at all
