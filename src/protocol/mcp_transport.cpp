@@ -3,11 +3,13 @@
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/string_util.hpp"
 
+#ifndef _WIN32
 #include <sys/wait.h>
 #include <unistd.h>
 #include <signal.h>
 #include <fcntl.h>
 #include <poll.h>
+#endif
 
 namespace duckdb {
 
@@ -100,6 +102,10 @@ string StdioTransport::GetConnectionInfo() const {
 }
 
 bool StdioTransport::StartProcess() {
+#ifdef _WIN32
+    // Windows process creation not implemented yet
+    throw NotImplementedException("Stdio transport not supported on Windows yet");
+#else
     int stdin_pipe[2], stdout_pipe[2], stderr_pipe[2];
     
     // Create pipes
@@ -183,9 +189,13 @@ bool StdioTransport::StartProcess() {
     }
     
     return true;
+#endif
 }
 
 void StdioTransport::StopProcess() {
+#ifdef _WIN32
+    // Windows process termination not implemented yet
+#else
     if (process_pid > 0) {
         // Close file descriptors
         if (stdin_fd >= 0) {
@@ -210,9 +220,13 @@ void StdioTransport::StopProcess() {
         
         process_pid = -1;
     }
+#endif
 }
 
 bool StdioTransport::IsProcessRunning() const {
+#ifdef _WIN32
+    return false; // Windows process checking not implemented yet
+#else
     if (process_pid <= 0) {
         return false;
     }
@@ -221,9 +235,13 @@ bool StdioTransport::IsProcessRunning() const {
     int result = waitpid(process_pid, &status, WNOHANG);
     
     return result == 0; // Process is still running
+#endif
 }
 
 void StdioTransport::WriteToProcess(const string &data) {
+#ifdef _WIN32
+    throw NotImplementedException("Stdio transport not supported on Windows yet");
+#else
     if (stdin_fd < 0) {
         throw IOException("Process stdin not available");
     }
@@ -232,9 +250,13 @@ void StdioTransport::WriteToProcess(const string &data) {
     if (written != static_cast<ssize_t>(data.length())) {
         throw IOException("Failed to write to process stdin");
     }
+#endif
 }
 
 string StdioTransport::ReadFromProcess() {
+#ifdef _WIN32
+    throw NotImplementedException("Stdio transport not supported on Windows yet");
+#else
     if (stdout_fd < 0) {
         throw IOException("Process stdout not available");
     }
@@ -271,15 +293,20 @@ string StdioTransport::ReadFromProcess() {
     
     StringUtil::RTrim(result);
     return result;
+#endif
 }
 
 bool StdioTransport::WaitForData(int timeout_ms) {
+#ifdef _WIN32
+    return false; // Windows polling not implemented yet
+#else
     struct pollfd pfd;
     pfd.fd = stdout_fd;
     pfd.events = POLLIN;
     
     int result = poll(&pfd, 1, timeout_ms);
     return result > 0 && (pfd.revents & POLLIN);
+#endif
 }
 
 // TCP Transport placeholder implementations
