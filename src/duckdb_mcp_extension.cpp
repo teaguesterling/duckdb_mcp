@@ -2,7 +2,11 @@
 #include "duckdb_mcp_extension.hpp"
 #include "duckdb_mcp_config.hpp"
 #include "duckdb_mcp_security.hpp"
+#include "duckdb_mcp_logging.hpp"
+#include "yyjson.hpp"
 #include <cstdlib>
+
+using namespace duckdb_yyjson;
 #include "mcpfs/mcp_file_system.hpp"
 #include "client/mcp_storage_extension.hpp"
 #include "protocol/mcp_connection.hpp"
@@ -679,10 +683,76 @@ static void MCPPublishQueryFunction(DataChunk &args, ExpressionState &state, Vec
     }
 }
 
+// MCP diagnostics function
+static void MCPGetDiagnosticsFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+    result.SetVectorType(VectorType::FLAT_VECTOR);
+    auto result_data = FlatVector::GetData<string_t>(result);
+    auto &result_validity = FlatVector::Validity(result);
+    
+    try {
+        auto &logger = MCPLogger::GetInstance();
+        
+        // Create diagnostics JSON
+        yyjson_mut_doc *doc = yyjson_mut_doc_new(nullptr);
+        yyjson_mut_val *root = yyjson_mut_obj(doc);
+        yyjson_mut_doc_set_root(doc, root);
+        
+        // Log level
+        string level_str;
+        switch (logger.GetLogLevel()) {
+            case MCPLogLevel::TRACE: level_str = "trace"; break;
+            case MCPLogLevel::DEBUG: level_str = "debug"; break;
+            case MCPLogLevel::INFO:  level_str = "info"; break;
+            case MCPLogLevel::WARN:  level_str = "warn"; break;
+            case MCPLogLevel::ERROR: level_str = "error"; break;
+            case MCPLogLevel::OFF:   level_str = "off"; break;
+            default: level_str = "unknown"; break;
+        }
+        
+        yyjson_mut_obj_add_str(doc, root, "log_level", level_str.c_str());
+        yyjson_mut_obj_add_str(doc, root, "extension_version", "1.0.0");
+        yyjson_mut_obj_add_bool(doc, root, "logging_available", true);
+        
+        // Convert to string
+        const char *json_str = yyjson_mut_write(doc, 0, nullptr);
+        string json_result(json_str);
+        free((void*)json_str);
+        yyjson_mut_doc_free(doc);
+        
+        result_data[0] = StringVector::AddString(result, json_result);
+        
+    } catch (const std::exception &e) {
+        result_data[0] = StringVector::AddString(result, 
+            StringUtil::Format("{\"error\": \"Failed to get diagnostics: %s\"}", e.what()));
+    }
+}
+
 // Callback functions for MCP configuration settings
 static void SetAllowedMCPCommands(ClientContext &context, SetScope scope, Value &parameter) {
     auto &security = MCPSecurityConfig::GetInstance();
     security.SetAllowedCommands(parameter.ToString());
+}
+
+static void SetMCPLogLevel(ClientContext &context, SetScope scope, Value &parameter) {
+    auto level_str = parameter.ToString();
+    MCPLogLevel level = MCPLogLevel::WARN; // default
+    
+    if (level_str == "trace" || level_str == "TRACE") level = MCPLogLevel::TRACE;
+    else if (level_str == "debug" || level_str == "DEBUG") level = MCPLogLevel::DEBUG;
+    else if (level_str == "info" || level_str == "INFO") level = MCPLogLevel::INFO;
+    else if (level_str == "warn" || level_str == "WARN") level = MCPLogLevel::WARN;
+    else if (level_str == "error" || level_str == "ERROR") level = MCPLogLevel::ERROR;
+    else if (level_str == "off" || level_str == "OFF") level = MCPLogLevel::OFF;
+    
+    MCPLogger::GetInstance().SetLogLevel(level);
+}
+
+static void SetMCPLogFile(ClientContext &context, SetScope scope, Value &parameter) {
+    MCPLogger::GetInstance().SetLogFile(parameter.ToString());
+}
+
+static void SetMCPConsoleLogging(ClientContext &context, SetScope scope, Value &parameter) {
+    MCPLogger::GetInstance().EnableConsoleLogging(parameter.GetValue<bool>());
 }
 
 static void SetAllowedMCPUrls(ClientContext &context, SetScope scope, Value &parameter) {
@@ -736,6 +806,19 @@ void DuckdbMcpExtension::Load(DuckDB &db) {
     config.AddExtensionOption("mcp_disable_serving", 
         "Disable MCP server functionality entirely (client-only mode)", 
         LogicalType::BOOLEAN, Value(false), SetMCPDisableServing);
+    
+    // Register MCP logging configuration options
+    config.AddExtensionOption("mcp_log_level", 
+        "MCP logging level (trace, debug, info, warn, error, off)", 
+        LogicalType::VARCHAR, Value("warn"), SetMCPLogLevel);
+    
+    config.AddExtensionOption("mcp_log_file", 
+        "Path to MCP log file (empty for no file logging)", 
+        LogicalType::VARCHAR, Value(""), SetMCPLogFile);
+    
+    config.AddExtensionOption("mcp_console_logging", 
+        "Enable MCP logging to console/stderr", 
+        LogicalType::BOOLEAN, Value(false), SetMCPConsoleLogging);
     
     // Initialize default security settings
     auto &security = MCPSecurityConfig::GetInstance();
@@ -805,6 +888,11 @@ void DuckdbMcpExtension::Load(DuckDB &db) {
         {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::INTEGER}, 
         LogicalType::VARCHAR, MCPPublishQueryFunction);
     ExtensionUtil::RegisterFunction(*db.instance, publish_query_func);
+    
+    // Register MCP diagnostics functions
+    auto diagnostics_func = ScalarFunction("mcp_get_diagnostics", 
+        {}, LogicalType::JSON(), MCPGetDiagnosticsFunction);
+    ExtensionUtil::RegisterFunction(*db.instance, diagnostics_func);
 }
 
 extern "C" {

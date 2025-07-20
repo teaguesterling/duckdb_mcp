@@ -2,6 +2,7 @@
 #include "server/resource_providers.hpp"
 #include "server/tool_handlers.hpp"
 #include "server/stdio_server_transport.hpp"
+#include "duckdb_mcp_logging.hpp"
 #include "protocol/mcp_transport.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb_mcp_security.hpp"
