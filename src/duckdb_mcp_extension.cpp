@@ -11,6 +11,7 @@ using namespace duckdb_yyjson;
 #include "client/mcp_storage_extension.hpp"
 #include "protocol/mcp_connection.hpp"
 #include "protocol/mcp_message.hpp"
+#include "protocol/mcp_template.hpp"
 #include "server/mcp_server.hpp"
 #include "server/resource_providers.hpp"
 #include "server/tool_handlers.hpp"
@@ -777,6 +778,134 @@ static void SetMCPDisableServing(ClientContext &context, SetScope scope, Value &
     security.SetServingDisabled(disable);
 }
 
+// MCP Template Functions
+
+static void MCPRegisterTemplateFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+    auto &name_vector = args.data[0];
+    auto &description_vector = args.data[1];
+    auto &template_vector = args.data[2];
+    
+    result.SetVectorType(VectorType::FLAT_VECTOR);
+    auto result_data = FlatVector::GetData<string_t>(result);
+    auto &result_validity = FlatVector::Validity(result);
+    
+    for (idx_t i = 0; i < args.size(); i++) {
+        if (name_vector.GetValue(i).IsNull() || description_vector.GetValue(i).IsNull() ||
+            template_vector.GetValue(i).IsNull()) {
+            result_validity.SetInvalid(i);
+            continue;
+        }
+        
+        string name = name_vector.GetValue(i).ToString();
+        string description = description_vector.GetValue(i).ToString();
+        string template_content = template_vector.GetValue(i).ToString();
+        
+        try {
+            MCPTemplate template_def(name, description, template_content);
+            
+            auto &manager = MCPTemplateManager::GetInstance();
+            manager.RegisterTemplate(template_def);
+            
+            result_data[i] = StringVector::AddString(result, "Template registered: " + name);
+            
+        } catch (const std::exception &e) {
+            result_data[i] = StringVector::AddString(result, "Error: " + string(e.what()));
+        }
+    }
+}
+
+static void MCPListTemplatesFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+    result.SetVectorType(VectorType::FLAT_VECTOR);
+    auto result_data = FlatVector::GetData<string_t>(result);
+    auto &result_validity = FlatVector::Validity(result);
+    
+    try {
+        auto &manager = MCPTemplateManager::GetInstance();
+        auto templates = manager.ListTemplates();
+        
+        // Create JSON array of templates
+        yyjson_mut_doc *doc = yyjson_mut_doc_new(nullptr);
+        yyjson_mut_val *root = yyjson_mut_arr(doc);
+        yyjson_mut_doc_set_root(doc, root);
+        
+        for (const auto &template_def : templates) {
+            yyjson_mut_val *template_obj = yyjson_mut_obj(doc);
+            yyjson_mut_obj_add_str(doc, template_obj, "name", template_def.name.c_str());
+            yyjson_mut_obj_add_str(doc, template_obj, "description", template_def.description.c_str());
+            
+            // Add arguments array
+            yyjson_mut_val *args_arr = yyjson_mut_arr(doc);
+            for (const auto &arg : template_def.arguments) {
+                yyjson_mut_val *arg_obj = yyjson_mut_obj(doc);
+                yyjson_mut_obj_add_str(doc, arg_obj, "name", arg.name.c_str());
+                yyjson_mut_obj_add_str(doc, arg_obj, "description", arg.description.c_str());
+                yyjson_mut_obj_add_bool(doc, arg_obj, "required", arg.required);
+                yyjson_mut_arr_append(args_arr, arg_obj);
+            }
+            yyjson_mut_obj_add_val(doc, template_obj, "arguments", args_arr);
+            
+            yyjson_mut_arr_append(root, template_obj);
+        }
+        
+        const char *json = yyjson_mut_write(doc, 0, nullptr);
+        result_data[0] = StringVector::AddString(result, json);
+        
+        yyjson_mut_doc_free(doc);
+        
+    } catch (const std::exception &e) {
+        result_data[0] = StringVector::AddString(result, "Error: " + string(e.what()));
+    }
+}
+
+static void MCPRenderTemplateFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+    auto &name_vector = args.data[0];
+    auto &args_vector = args.data[1];
+    
+    result.SetVectorType(VectorType::FLAT_VECTOR);
+    auto result_data = FlatVector::GetData<string_t>(result);
+    auto &result_validity = FlatVector::Validity(result);
+    
+    for (idx_t i = 0; i < args.size(); i++) {
+        if (name_vector.GetValue(i).IsNull()) {
+            result_validity.SetInvalid(i);
+            continue;
+        }
+        
+        string name = name_vector.GetValue(i).ToString();
+        unordered_map<string, string> template_args;
+        
+        // Parse arguments JSON if provided
+        if (!args_vector.GetValue(i).IsNull()) {
+            string args_json = args_vector.GetValue(i).ToString();
+            
+            yyjson_doc *doc = yyjson_read(args_json.c_str(), args_json.length(), 0);
+            if (doc) {
+                yyjson_val *root = yyjson_doc_get_root(doc);
+                if (yyjson_is_obj(root)) {
+                    yyjson_obj_iter iter = yyjson_obj_iter_with(root);
+                    yyjson_val *key, *val;
+                    while ((key = yyjson_obj_iter_next(&iter))) {
+                        val = yyjson_obj_iter_get_val(key);
+                        if (yyjson_is_str(val)) {
+                            template_args[yyjson_get_str(key)] = yyjson_get_str(val);
+                        }
+                    }
+                }
+                yyjson_doc_free(doc);
+            }
+        }
+        
+        try {
+            auto &manager = MCPTemplateManager::GetInstance();
+            string rendered = manager.RenderTemplate(name, template_args);
+            result_data[i] = StringVector::AddString(result, rendered);
+            
+        } catch (const std::exception &e) {
+            result_data[i] = StringVector::AddString(result, "Error: " + string(e.what()));
+        }
+    }
+}
+
 void DuckdbMcpExtension::Load(DuckDB &db) {
     // Register MCPFS file system
     auto &fs = FileSystem::GetFileSystem(*db.instance);
@@ -888,6 +1017,21 @@ void DuckdbMcpExtension::Load(DuckDB &db) {
         {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::INTEGER}, 
         LogicalType::VARCHAR, MCPPublishQueryFunction);
     ExtensionUtil::RegisterFunction(*db.instance, publish_query_func);
+    
+    // Register MCP template functions
+    auto register_template_func = ScalarFunction("mcp_register_template",
+        {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR}, 
+        LogicalType::VARCHAR, MCPRegisterTemplateFunction);
+    ExtensionUtil::RegisterFunction(*db.instance, register_template_func);
+    
+    auto list_templates_func = ScalarFunction("mcp_list_templates",
+        {}, LogicalType::JSON(), MCPListTemplatesFunction);
+    ExtensionUtil::RegisterFunction(*db.instance, list_templates_func);
+    
+    auto render_template_func = ScalarFunction("mcp_render_template",
+        {LogicalType::VARCHAR, LogicalType::JSON()}, 
+        LogicalType::VARCHAR, MCPRenderTemplateFunction);
+    ExtensionUtil::RegisterFunction(*db.instance, render_template_func);
     
     // Register MCP diagnostics functions
     auto diagnostics_func = ScalarFunction("mcp_get_diagnostics", 

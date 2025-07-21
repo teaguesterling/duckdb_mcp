@@ -20,6 +20,7 @@ set(EXTENSION_SOURCES
   src/protocol/mcp_message.cpp
   src/protocol/mcp_transport.cpp
   src/protocol/mcp_connection.cpp
+  src/protocol/mcp_template.cpp
   src/client/mcp_storage_extension.cpp
   src/client/mcp_transaction_manager.cpp
   src/catalog/mcp_catalog.cpp
