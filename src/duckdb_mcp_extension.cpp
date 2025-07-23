@@ -779,16 +779,19 @@ static void SetMCPDisableServing(ClientContext &context, SetScope scope, Value &
     security.SetServingDisabled(disable);
 }
 
-// MCP Pagination Functions
+// MCP-Compliant Pagination Functions
 
-// List resources with pagination support
-static void MCPListResourcesPaginatedFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+// List resources with optional cursor (MCP-compliant)
+static void MCPListResourcesWithCursorFunction(DataChunk &args, ExpressionState &state, Vector &result) {
     auto &server_vector = args.data[0];
     auto &cursor_vector = args.data[1];
     
+    result.SetVectorType(VectorType::FLAT_VECTOR);
+    auto result_data = FlatVector::GetData<string_t>(result);
+    
     for (idx_t i = 0; i < args.size(); i++) {
         if (server_vector.GetValue(i).IsNull()) {
-            result.SetValue(i, Value::CreateValue<Value>(Value()));
+            result_data[i] = StringVector::AddString(result, "null");
             continue;
         }
         
@@ -796,40 +799,44 @@ static void MCPListResourcesPaginatedFunction(DataChunk &args, ExpressionState &
         string cursor = cursor_vector.GetValue(i).IsNull() ? "" : cursor_vector.GetValue(i).ToString();
         
         try {
-            // Get connection from registry
             auto connection = MCPConnectionRegistry::GetInstance().GetConnection(server_name);
             if (!connection) {
                 throw InvalidInputException("MCP server not attached: " + server_name);
             }
             
-            // Create pagination wrapper
-            MCPConnectionWithPagination paginated_conn(connection);
+            // Use tool call for pagination instead of modifying standard MCP methods
+            Value call_params = Value::STRUCT({
+                {"name", Value("list_resources_paginated")},
+                {"arguments", Value(cursor.empty() ? "{}" : "{\"cursor\": \"" + cursor + "\"}")}
+            });
             
-            // Execute paginated request
-            MCPPaginationParams params(cursor);
-            auto pagination_result = paginated_conn.ListResources(params);
+            // Send MCP tool call for pagination
+            auto response = connection->SendRequest(MCPMethods::TOOLS_CALL, call_params);
             
-            // Set result as struct value
-            result.SetValue(i, pagination_result.ToValue());
+            if (response.IsError()) {
+                throw IOException("MCP list resources failed: " + response.error.message);
+            }
             
-            MCP_LOG_DEBUG("PAGINATION", "Listed %llu resources from %s with cursor %s", 
-                         pagination_result.items.size(), server_name.c_str(), cursor.c_str());
+            // Return raw JSON response (same as existing functions)
+            result_data[i] = StringVector::AddString(result, response.result.ToString());
             
         } catch (const std::exception &e) {
-            MCP_LOG_ERROR("PAGINATION", "Resources pagination failed: %s", e.what());
-            result.SetValue(i, Value::CreateValue<Value>(Value()));
+            result_data[i] = StringVector::AddString(result, "{\"error\": \"" + string(e.what()) + "\"}");
         }
     }
 }
 
-// List prompts with pagination support
-static void MCPListPromptsPaginatedFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+// List tools with optional cursor (MCP-compliant)
+static void MCPListToolsWithCursorFunction(DataChunk &args, ExpressionState &state, Vector &result) {
     auto &server_vector = args.data[0];
     auto &cursor_vector = args.data[1];
     
+    result.SetVectorType(VectorType::FLAT_VECTOR);
+    auto result_data = FlatVector::GetData<string_t>(result);
+    
     for (idx_t i = 0; i < args.size(); i++) {
         if (server_vector.GetValue(i).IsNull()) {
-            result.SetValue(i, Value::CreateValue<Value>(Value()));
+            result_data[i] = StringVector::AddString(result, "null");
             continue;
         }
         
@@ -837,40 +844,44 @@ static void MCPListPromptsPaginatedFunction(DataChunk &args, ExpressionState &st
         string cursor = cursor_vector.GetValue(i).IsNull() ? "" : cursor_vector.GetValue(i).ToString();
         
         try {
-            // Get connection from registry
             auto connection = MCPConnectionRegistry::GetInstance().GetConnection(server_name);
             if (!connection) {
                 throw InvalidInputException("MCP server not attached: " + server_name);
             }
             
-            // Create pagination wrapper
-            MCPConnectionWithPagination paginated_conn(connection);
+            // Use tool call for pagination
+            Value call_params = Value::STRUCT({
+                {"name", Value("list_tools_paginated")},
+                {"arguments", Value(cursor.empty() ? "{}" : "{\"cursor\": \"" + cursor + "\"}")}
+            });
             
-            // Execute paginated request
-            MCPPaginationParams params(cursor);
-            auto pagination_result = paginated_conn.ListPrompts(params);
+            // Send MCP tool call for pagination
+            auto response = connection->SendRequest(MCPMethods::TOOLS_CALL, call_params);
             
-            // Set result as struct value
-            result.SetValue(i, pagination_result.ToValue());
+            if (response.IsError()) {
+                throw IOException("MCP list tools failed: " + response.error.message);
+            }
             
-            MCP_LOG_DEBUG("PAGINATION", "Listed %llu prompts from %s with cursor %s", 
-                         pagination_result.items.size(), server_name.c_str(), cursor.c_str());
+            // Return raw JSON response (same as existing functions)
+            result_data[i] = StringVector::AddString(result, response.result.ToString());
             
         } catch (const std::exception &e) {
-            MCP_LOG_ERROR("PAGINATION", "Prompts pagination failed: %s", e.what());
-            result.SetValue(i, Value::CreateValue<Value>(Value()));
+            result_data[i] = StringVector::AddString(result, "{\"error\": \"" + string(e.what()) + "\"}");
         }
     }
 }
 
-// List tools with pagination support
-static void MCPListToolsPaginatedFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+// List prompts with optional cursor (MCP-compliant)
+static void MCPListPromptsWithCursorFunction(DataChunk &args, ExpressionState &state, Vector &result) {
     auto &server_vector = args.data[0];
     auto &cursor_vector = args.data[1];
     
+    result.SetVectorType(VectorType::FLAT_VECTOR);
+    auto result_data = FlatVector::GetData<string_t>(result);
+    
     for (idx_t i = 0; i < args.size(); i++) {
         if (server_vector.GetValue(i).IsNull()) {
-            result.SetValue(i, Value::CreateValue<Value>(Value()));
+            result_data[i] = StringVector::AddString(result, "null");
             continue;
         }
         
@@ -878,28 +889,29 @@ static void MCPListToolsPaginatedFunction(DataChunk &args, ExpressionState &stat
         string cursor = cursor_vector.GetValue(i).IsNull() ? "" : cursor_vector.GetValue(i).ToString();
         
         try {
-            // Get connection from registry
             auto connection = MCPConnectionRegistry::GetInstance().GetConnection(server_name);
             if (!connection) {
                 throw InvalidInputException("MCP server not attached: " + server_name);
             }
             
-            // Create pagination wrapper
-            MCPConnectionWithPagination paginated_conn(connection);
+            // Use tool call for pagination
+            Value call_params = Value::STRUCT({
+                {"name", Value("list_prompts_paginated")},
+                {"arguments", Value(cursor.empty() ? "{}" : "{\"cursor\": \"" + cursor + "\"}")}
+            });
             
-            // Execute paginated request
-            MCPPaginationParams params(cursor);
-            auto pagination_result = paginated_conn.ListTools(params);
+            // Send MCP tool call for pagination
+            auto response = connection->SendRequest(MCPMethods::TOOLS_CALL, call_params);
             
-            // Set result as struct value
-            result.SetValue(i, pagination_result.ToValue());
+            if (response.IsError()) {
+                throw IOException("MCP list prompts failed: " + response.error.message);
+            }
             
-            MCP_LOG_DEBUG("PAGINATION", "Listed %llu tools from %s with cursor %s", 
-                         pagination_result.items.size(), server_name.c_str(), cursor.c_str());
+            // Return raw JSON response (same as existing functions)
+            result_data[i] = StringVector::AddString(result, response.result.ToString());
             
         } catch (const std::exception &e) {
-            MCP_LOG_ERROR("PAGINATION", "Tools pagination failed: %s", e.what());
-            result.SetValue(i, Value::CreateValue<Value>(Value()));
+            result_data[i] = StringVector::AddString(result, "{\"error\": \"" + string(e.what()) + "\"}");
         }
     }
 }
@@ -1088,23 +1100,34 @@ void DuckdbMcpExtension::Load(DuckDB &db) {
         {LogicalType::VARCHAR, LogicalType::VARCHAR}, LogicalType::JSON(), MCPGetResourceFunction);
     ExtensionUtil::RegisterFunction(*db.instance, get_resource_func);
     
-    auto list_resources_func = ScalarFunction("mcp_list_resources", 
+    // Create overloaded versions for list_resources (with and without cursor)
+    auto list_resources_func_simple = ScalarFunction("mcp_list_resources", 
         {LogicalType::VARCHAR}, LogicalType::JSON(), MCPListResourcesFunction);
-    ExtensionUtil::RegisterFunction(*db.instance, list_resources_func);
+    auto list_resources_func_cursor = ScalarFunction("mcp_list_resources", 
+        {LogicalType::VARCHAR, LogicalType::VARCHAR}, LogicalType::JSON(), MCPListResourcesWithCursorFunction);
+    
+    ExtensionUtil::RegisterFunction(*db.instance, list_resources_func_simple);
+    ExtensionUtil::RegisterFunction(*db.instance, list_resources_func_cursor);
     
     auto call_tool_func = ScalarFunction("mcp_call_tool", 
         {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR}, LogicalType::JSON(), MCPCallToolFunction);
     ExtensionUtil::RegisterFunction(*db.instance, call_tool_func);
     
-    // Register MCP tool functions
-    auto list_tools_func = ScalarFunction("mcp_list_tools", 
+    // Register MCP tool functions (with and without cursor)
+    auto list_tools_func_simple = ScalarFunction("mcp_list_tools", 
         {LogicalType::VARCHAR}, LogicalType::JSON(), MCPListToolsFunction);
-    ExtensionUtil::RegisterFunction(*db.instance, list_tools_func);
+    auto list_tools_func_cursor = ScalarFunction("mcp_list_tools", 
+        {LogicalType::VARCHAR, LogicalType::VARCHAR}, LogicalType::JSON(), MCPListToolsWithCursorFunction);
+    ExtensionUtil::RegisterFunction(*db.instance, list_tools_func_simple);
+    ExtensionUtil::RegisterFunction(*db.instance, list_tools_func_cursor);
     
-    // Register MCP prompt functions
-    auto list_prompts_func = ScalarFunction("mcp_list_prompts", 
+    // Register MCP prompt functions (with and without cursor)
+    auto list_prompts_func_simple = ScalarFunction("mcp_list_prompts", 
         {LogicalType::VARCHAR}, LogicalType::JSON(), MCPListPromptsFunction);
-    ExtensionUtil::RegisterFunction(*db.instance, list_prompts_func);
+    auto list_prompts_func_cursor = ScalarFunction("mcp_list_prompts", 
+        {LogicalType::VARCHAR, LogicalType::VARCHAR}, LogicalType::JSON(), MCPListPromptsWithCursorFunction);
+    ExtensionUtil::RegisterFunction(*db.instance, list_prompts_func_simple);
+    ExtensionUtil::RegisterFunction(*db.instance, list_prompts_func_cursor);
     
     auto get_prompt_func = ScalarFunction("mcp_get_prompt", 
         {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR}, LogicalType::JSON(), MCPGetPromptFunction);
@@ -1159,36 +1182,6 @@ void DuckdbMcpExtension::Load(DuckDB &db) {
         LogicalType::VARCHAR, MCPRenderPromptTemplateFunction);
     ExtensionUtil::RegisterFunction(*db.instance, render_prompt_template_func);
     
-    // Register MCP pagination functions
-    auto list_resources_paginated_func = ScalarFunction("mcp_list_resources_paginated",
-        {LogicalType::VARCHAR, LogicalType::VARCHAR}, 
-        LogicalType::STRUCT({
-            {"items", LogicalType::LIST(LogicalType::JSON())},
-            {"next_cursor", LogicalType::VARCHAR},
-            {"has_more_pages", LogicalType::BOOLEAN},
-            {"total_items", LogicalType::BIGINT}
-        }), MCPListResourcesPaginatedFunction);
-    ExtensionUtil::RegisterFunction(*db.instance, list_resources_paginated_func);
-    
-    auto list_prompts_paginated_func = ScalarFunction("mcp_list_prompts_paginated",
-        {LogicalType::VARCHAR, LogicalType::VARCHAR}, 
-        LogicalType::STRUCT({
-            {"items", LogicalType::LIST(LogicalType::JSON())},
-            {"next_cursor", LogicalType::VARCHAR},
-            {"has_more_pages", LogicalType::BOOLEAN},
-            {"total_items", LogicalType::BIGINT}
-        }), MCPListPromptsPaginatedFunction);
-    ExtensionUtil::RegisterFunction(*db.instance, list_prompts_paginated_func);
-    
-    auto list_tools_paginated_func = ScalarFunction("mcp_list_tools_paginated",
-        {LogicalType::VARCHAR, LogicalType::VARCHAR}, 
-        LogicalType::STRUCT({
-            {"items", LogicalType::LIST(LogicalType::JSON())},
-            {"next_cursor", LogicalType::VARCHAR},
-            {"has_more_pages", LogicalType::BOOLEAN},
-            {"total_items", LogicalType::BIGINT}
-        }), MCPListToolsPaginatedFunction);
-    ExtensionUtil::RegisterFunction(*db.instance, list_tools_paginated_func);
     
     // Register MCP diagnostics functions
     auto diagnostics_func = ScalarFunction("mcp_get_diagnostics", 
