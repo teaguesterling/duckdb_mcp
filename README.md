@@ -27,16 +27,55 @@ The DuckDB MCP Extension bridges SQL databases with MCP servers, enabling:
 
 ## Function Reference
 
+### Pagination Support
+
+The extension supports MCP-compliant cursor-based pagination for handling large datasets efficiently:
+
+- **Server-side pagination**: Reduces memory usage and network traffic by retrieving data in chunks
+- **Cursor-based navigation**: Uses opaque cursor tokens for reliable page navigation
+- **MCP specification compliance**: Implements pagination through standard MCP tool calls
+- **Automatic chunking**: Server determines optimal page sizes based on data characteristics
+
+#### Pagination Example
+
+```sql
+-- Navigate through all resources using recursive pagination
+WITH RECURSIVE pagination_flow AS (
+    SELECT 1 as page_num, mcp_list_resources('server', '') as result
+    UNION ALL
+    SELECT 
+        page_num + 1,
+        mcp_list_resources('server', json_extract(result, '$.nextCursor')) as result
+    FROM pagination_flow
+    WHERE json_extract(result, '$.nextCursor') IS NOT NULL 
+      AND page_num < 10
+)
+SELECT page_num, json_array_length(json_extract(result, '$.resources')) as items_count
+FROM pagination_flow ORDER BY page_num;
+```
+
 ### Client Functions
 
 | Function | Purpose | Limitations |
 |----------|---------|-------------|
-| `mcp_list_resources(server)` | List available resources on MCP server | Returns JSON array; limited by server capabilities |
+| `mcp_list_resources(server [, cursor])` | List available resources with optional pagination | Returns JSON; cursor enables server-side pagination |
+| `mcp_list_tools(server [, cursor])` | List available tools with optional pagination | Returns JSON; cursor enables server-side pagination |
+| `mcp_list_prompts(server [, cursor])` | List available prompts with optional pagination | Returns JSON; cursor enables server-side pagination |
 | `mcp_get_resource(server, uri)` | Retrieve specific resource content | Content size limited by available memory |
 | `mcp_call_tool(server, tool, args)` | Execute tool on MCP server | Tool availability depends on server implementation |
 | `read_csv('mcp://server/uri')` | Read CSV via MCP | Standard CSV limitations apply; requires file access |
 | `read_parquet('mcp://server/uri')` | Read Parquet via MCP | Parquet format limitations; network latency impact |
 | `read_json('mcp://server/uri')` | Read JSON via MCP | JSON parsing limitations; memory constraints |
+
+### Prompt Template Functions
+
+| Function | Purpose | Limitations |
+|----------|---------|-------------|
+| `mcp_register_prompt_template(name, desc, content)` | Register reusable prompt template locally | Template stored in memory only |
+| `mcp_list_prompt_templates()` | List all registered prompt templates | Returns JSON; local templates only |
+| `mcp_render_prompt_template(name, args_json)` | Render prompt template with parameters | Requires valid JSON arguments |
+| `mcp_list_prompts(server)` | List prompts from MCP server | Depends on server capabilities |
+| `mcp_get_prompt(server, name, args)` | Retrieve and render server prompt | Network latency; server availability |
 
 ### Server Functions
 
@@ -73,6 +112,16 @@ SELECT * FROM read_csv('mcp://data_server/file:///data.csv');
 
 -- Execute tools
 SELECT mcp_call_tool('data_server', 'process_data', '{"table": "sales"}');
+
+-- Use prompt templates
+SELECT mcp_register_prompt_template('query_tmpl', 'Reusable query', 'SELECT {cols} FROM {table} WHERE {filter}');
+SELECT mcp_render_prompt_template('query_tmpl', '{"cols": "*", "table": "sales", "filter": "date > ''2024-01-01''"}');
+
+-- Use cursor-based pagination for large datasets
+SELECT mcp_list_resources('data_server', '') as first_page;
+WITH first_page AS (SELECT mcp_list_resources('data_server', '') as result)
+SELECT mcp_list_resources('data_server', json_extract(result, '$.nextCursor')) as second_page
+FROM first_page WHERE json_extract(result, '$.nextCursor') IS NOT NULL;
 ```
 
 ### Basic Server Usage
