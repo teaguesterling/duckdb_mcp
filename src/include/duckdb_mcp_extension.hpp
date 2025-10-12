@@ -8,7 +8,7 @@ namespace duckdb {
 
 class DuckdbMcpExtension : public Extension {
 public:
-    void Load(DuckDB &db) override;
+    void Load(ExtensionLoader &loader) override;
     std::string Name() override { return "duckdb_mcp"; }
     std::string Version() const override { return "1.0.0"; }
 };

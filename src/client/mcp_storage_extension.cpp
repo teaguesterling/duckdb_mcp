@@ -23,12 +23,12 @@ unique_ptr<StorageExtension> MCPStorageExtension::Create() {
     return result;
 }
 
-unique_ptr<Catalog> MCPStorageExtension::MCPStorageAttach(StorageExtensionInfo *storage_info,
+unique_ptr<Catalog> MCPStorageExtension::MCPStorageAttach(optional_ptr<StorageExtensionInfo> storage_info,
                                                          ClientContext &context,
                                                          AttachedDatabase &db,
                                                          const string &name,
                                                          AttachInfo &info,
-                                                         AccessMode access_mode) {
+                                                         AttachOptions &options) {
     
     // Create MCP connection from attach info
     auto mcp_connection = CreateMCPConnection(info);
@@ -52,7 +52,7 @@ unique_ptr<Catalog> MCPStorageExtension::MCPStorageAttach(StorageExtensionInfo *
     return std::move(catalog);
 }
 
-unique_ptr<TransactionManager> MCPStorageExtension::MCPStorageTransactionManager(StorageExtensionInfo *storage_info,
+unique_ptr<TransactionManager> MCPStorageExtension::MCPStorageTransactionManager(optional_ptr<StorageExtensionInfo> storage_info,
                                                                                  AttachedDatabase &db,
                                                                                  Catalog &catalog) {
     // MCP is read-only, use minimal transaction manager

@@ -20,7 +20,6 @@ using namespace duckdb_yyjson;
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/common/enums/set_scope.hpp"
 #include "duckdb/function/scalar_function.hpp"
-#include "duckdb/main/extension_util.hpp"
 #include "duckdb/main/database.hpp"
 #include "duckdb/main/config.hpp"
 
@@ -779,6 +778,7 @@ static void SetMCPDisableServing(ClientContext &context, SetScope scope, Value &
     security.SetServingDisabled(disable);
 }
 
+<<<<<<< HEAD
 // MCP-Compliant Pagination Functions
 
 // List resources with optional cursor (MCP-compliant)
@@ -1044,13 +1044,15 @@ static void MCPRenderPromptTemplateFunction(DataChunk &args, ExpressionState &st
     }
 }
 
-void DuckdbMcpExtension::Load(DuckDB &db) {
+static void LoadInternal(ExtensionLoader &loader) {
+    auto &db = loader.GetDatabaseInstance();
+    
     // Register MCPFS file system
-    auto &fs = FileSystem::GetFileSystem(*db.instance);
+    auto &fs = FileSystem::GetFileSystem(db);
     fs.RegisterSubSystem(make_uniq<MCPFileSystem>());
     
     // Register MCP storage extension for ATTACH support
-    auto &config = DBConfig::GetConfig(*db.instance);
+    auto &config = DBConfig::GetConfig(db);
     config.storage_extensions["mcp"] = MCPStorageExtension::Create();
     
     // Register MCP configuration options
@@ -1098,7 +1100,7 @@ void DuckdbMcpExtension::Load(DuckDB &db) {
     // Register MCP resource functions
     auto get_resource_func = ScalarFunction("mcp_get_resource", 
         {LogicalType::VARCHAR, LogicalType::VARCHAR}, LogicalType::JSON(), MCPGetResourceFunction);
-    ExtensionUtil::RegisterFunction(*db.instance, get_resource_func);
+    loader.RegisterFunction(get_resource_func);
     
     // Create overloaded versions for list_resources (with and without cursor)
     auto list_resources_func_simple = ScalarFunction("mcp_list_resources", 
@@ -1106,95 +1108,99 @@ void DuckdbMcpExtension::Load(DuckDB &db) {
     auto list_resources_func_cursor = ScalarFunction("mcp_list_resources", 
         {LogicalType::VARCHAR, LogicalType::VARCHAR}, LogicalType::JSON(), MCPListResourcesWithCursorFunction);
     
-    ExtensionUtil::RegisterFunction(*db.instance, list_resources_func_simple);
-    ExtensionUtil::RegisterFunction(*db.instance, list_resources_func_cursor);
+    loader.RegisterFunction(list_resources_func_simple);
+    loader.RegisterFunction(list_resources_func_cursor);
     
     auto call_tool_func = ScalarFunction("mcp_call_tool", 
         {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR}, LogicalType::JSON(), MCPCallToolFunction);
-    ExtensionUtil::RegisterFunction(*db.instance, call_tool_func);
+    loader.RegisterFunction(call_tool_func);
     
     // Register MCP tool functions (with and without cursor)
     auto list_tools_func_simple = ScalarFunction("mcp_list_tools", 
         {LogicalType::VARCHAR}, LogicalType::JSON(), MCPListToolsFunction);
     auto list_tools_func_cursor = ScalarFunction("mcp_list_tools", 
         {LogicalType::VARCHAR, LogicalType::VARCHAR}, LogicalType::JSON(), MCPListToolsWithCursorFunction);
-    ExtensionUtil::RegisterFunction(*db.instance, list_tools_func_simple);
-    ExtensionUtil::RegisterFunction(*db.instance, list_tools_func_cursor);
+    loader.RegisterFunction(list_tools_func_simple);
+    loader.RegisterFunction(list_tools_func_cursor);
     
     // Register MCP prompt functions (with and without cursor)
     auto list_prompts_func_simple = ScalarFunction("mcp_list_prompts", 
         {LogicalType::VARCHAR}, LogicalType::JSON(), MCPListPromptsFunction);
     auto list_prompts_func_cursor = ScalarFunction("mcp_list_prompts", 
         {LogicalType::VARCHAR, LogicalType::VARCHAR}, LogicalType::JSON(), MCPListPromptsWithCursorFunction);
-    ExtensionUtil::RegisterFunction(*db.instance, list_prompts_func_simple);
-    ExtensionUtil::RegisterFunction(*db.instance, list_prompts_func_cursor);
+    loader.RegisterFunction(list_prompts_func_simple);
+    loader.RegisterFunction(list_prompts_func_cursor);
     
     auto get_prompt_func = ScalarFunction("mcp_get_prompt", 
         {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR}, LogicalType::JSON(), MCPGetPromptFunction);
-    ExtensionUtil::RegisterFunction(*db.instance, get_prompt_func);
+    loader.RegisterFunction(get_prompt_func);
     
     // Register MCP connection management functions
     auto reconnect_func = ScalarFunction("mcp_reconnect_server", 
         {LogicalType::VARCHAR}, LogicalType::VARCHAR, MCPReconnectServerFunction);
-    ExtensionUtil::RegisterFunction(*db.instance, reconnect_func);
+    loader.RegisterFunction(reconnect_func);
     
     auto health_func = ScalarFunction("mcp_server_health", 
         {LogicalType::VARCHAR}, LogicalType::VARCHAR, MCPServerHealthFunction);
-    ExtensionUtil::RegisterFunction(*db.instance, health_func);
+    loader.RegisterFunction(health_func);
     
     // Register MCP server functions
     auto server_start_func = ScalarFunction("mcp_server_start", 
         {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::INTEGER, LogicalType::VARCHAR}, 
         LogicalType::VARCHAR, MCPServerStartFunction);
-    ExtensionUtil::RegisterFunction(*db.instance, server_start_func);
+    loader.RegisterFunction(server_start_func);
     
     auto server_stop_func = ScalarFunction("mcp_server_stop", 
         {}, LogicalType::VARCHAR, MCPServerStopFunction);
-    ExtensionUtil::RegisterFunction(*db.instance, server_stop_func);
+    loader.RegisterFunction(server_stop_func);
     
     auto server_status_func = ScalarFunction("mcp_server_status", 
         {}, LogicalType::VARCHAR, MCPServerStatusFunction);
-    ExtensionUtil::RegisterFunction(*db.instance, server_status_func);
+    loader.RegisterFunction(server_status_func);
     
     // Register resource publishing functions
     auto publish_table_func = ScalarFunction("mcp_publish_table", 
         {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR}, 
         LogicalType::VARCHAR, MCPPublishTableFunction);
-    ExtensionUtil::RegisterFunction(*db.instance, publish_table_func);
+    loader.RegisterFunction(publish_table_func);
     
     auto publish_query_func = ScalarFunction("mcp_publish_query", 
         {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::INTEGER}, 
         LogicalType::VARCHAR, MCPPublishQueryFunction);
-    ExtensionUtil::RegisterFunction(*db.instance, publish_query_func);
+    loader.RegisterFunction(publish_query_func);
     
     // Register MCP template functions
     auto register_prompt_template_func = ScalarFunction("mcp_register_prompt_template",
         {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR}, 
         LogicalType::VARCHAR, MCPRegisterPromptTemplateFunction);
-    ExtensionUtil::RegisterFunction(*db.instance, register_prompt_template_func);
+    loader.RegisterFunction(register_prompt_template_func);
     
     auto list_prompt_templates_func = ScalarFunction("mcp_list_prompt_templates",
         {}, LogicalType::JSON(), MCPListPromptTemplatesFunction);
-    ExtensionUtil::RegisterFunction(*db.instance, list_prompt_templates_func);
+    loader.RegisterFunction(list_prompt_templates_func);
     
     auto render_prompt_template_func = ScalarFunction("mcp_render_prompt_template",
         {LogicalType::VARCHAR, LogicalType::JSON()}, 
         LogicalType::VARCHAR, MCPRenderPromptTemplateFunction);
-    ExtensionUtil::RegisterFunction(*db.instance, render_prompt_template_func);
+    loader.RegisterFunction(render_prompt_template_func);
     
     
     // Register MCP diagnostics functions
     auto diagnostics_func = ScalarFunction("mcp_get_diagnostics", 
         {}, LogicalType::JSON(), MCPGetDiagnosticsFunction);
-    ExtensionUtil::RegisterFunction(*db.instance, diagnostics_func);
+    loader.RegisterFunction(diagnostics_func);
+}
+
+void DuckdbMcpExtension::Load(ExtensionLoader &loader) {
+    LoadInternal(loader);
 }
 
 extern "C" {
 
-DUCKDB_EXTENSION_API void duckdb_mcp_init(duckdb::DatabaseInstance &db) {
-    duckdb::DuckDB db_wrapper(db);
-    db_wrapper.LoadExtension<DuckdbMcpExtension>();
+DUCKDB_CPP_EXTENSION_ENTRY(duckdb_mcp, loader) {
+    duckdb::LoadInternal(loader);
 }
+
 
 DUCKDB_EXTENSION_API const char *duckdb_mcp_version() {
     return duckdb::DuckDB::LibraryVersion();
