@@ -27,4 +27,3 @@ jobs:
       duckdb_version: v1.4.1
       ci_tools_version: v1.4.1
       extension_name: duckdb_mcp
-      exclude_archs: 'linux_arm64;windows_amd64'
