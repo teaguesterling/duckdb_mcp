@@ -13,12 +13,15 @@ set(EXTENSION_SOURCES
   src/duckdb_mcp_extension.cpp
   src/duckdb_mcp_config.cpp
   src/duckdb_mcp_security.cpp
+  src/duckdb_mcp_logging.cpp
   src/json_utils.cpp
   src/mcpfs/mcp_path.cpp
   src/mcpfs/mcp_file_system.cpp
   src/protocol/mcp_message.cpp
   src/protocol/mcp_transport.cpp
   src/protocol/mcp_connection.cpp
+  src/protocol/mcp_template.cpp
+  src/protocol/mcp_pagination.cpp
   src/client/mcp_storage_extension.cpp
   src/client/mcp_transaction_manager.cpp
   src/catalog/mcp_catalog.cpp

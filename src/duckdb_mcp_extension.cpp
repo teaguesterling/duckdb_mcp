@@ -2,11 +2,17 @@
 #include "duckdb_mcp_extension.hpp"
 #include "duckdb_mcp_config.hpp"
 #include "duckdb_mcp_security.hpp"
+#include "duckdb_mcp_logging.hpp"
+#include "yyjson.hpp"
 #include <cstdlib>
+
+using namespace duckdb_yyjson;
 #include "mcpfs/mcp_file_system.hpp"
 #include "client/mcp_storage_extension.hpp"
 #include "protocol/mcp_connection.hpp"
 #include "protocol/mcp_message.hpp"
+#include "protocol/mcp_template.hpp"
+#include "protocol/mcp_pagination.hpp"
 #include "server/mcp_server.hpp"
 #include "server/resource_providers.hpp"
 #include "server/tool_handlers.hpp"
@@ -678,10 +684,76 @@ static void MCPPublishQueryFunction(DataChunk &args, ExpressionState &state, Vec
     }
 }
 
+// MCP diagnostics function
+static void MCPGetDiagnosticsFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+    result.SetVectorType(VectorType::FLAT_VECTOR);
+    auto result_data = FlatVector::GetData<string_t>(result);
+    auto &result_validity = FlatVector::Validity(result);
+    
+    try {
+        auto &logger = MCPLogger::GetInstance();
+        
+        // Create diagnostics JSON
+        yyjson_mut_doc *doc = yyjson_mut_doc_new(nullptr);
+        yyjson_mut_val *root = yyjson_mut_obj(doc);
+        yyjson_mut_doc_set_root(doc, root);
+        
+        // Log level
+        string level_str;
+        switch (logger.GetLogLevel()) {
+            case MCPLogLevel::TRACE: level_str = "trace"; break;
+            case MCPLogLevel::DEBUG: level_str = "debug"; break;
+            case MCPLogLevel::INFO:  level_str = "info"; break;
+            case MCPLogLevel::WARN:  level_str = "warn"; break;
+            case MCPLogLevel::ERROR: level_str = "error"; break;
+            case MCPLogLevel::OFF:   level_str = "off"; break;
+            default: level_str = "unknown"; break;
+        }
+        
+        yyjson_mut_obj_add_str(doc, root, "log_level", level_str.c_str());
+        yyjson_mut_obj_add_str(doc, root, "extension_version", "1.0.0");
+        yyjson_mut_obj_add_bool(doc, root, "logging_available", true);
+        
+        // Convert to string
+        const char *json_str = yyjson_mut_write(doc, 0, nullptr);
+        string json_result(json_str);
+        free((void*)json_str);
+        yyjson_mut_doc_free(doc);
+        
+        result_data[0] = StringVector::AddString(result, json_result);
+        
+    } catch (const std::exception &e) {
+        result_data[0] = StringVector::AddString(result, 
+            StringUtil::Format("{\"error\": \"Failed to get diagnostics: %s\"}", e.what()));
+    }
+}
+
 // Callback functions for MCP configuration settings
 static void SetAllowedMCPCommands(ClientContext &context, SetScope scope, Value &parameter) {
     auto &security = MCPSecurityConfig::GetInstance();
     security.SetAllowedCommands(parameter.ToString());
+}
+
+static void SetMCPLogLevel(ClientContext &context, SetScope scope, Value &parameter) {
+    auto level_str = parameter.ToString();
+    MCPLogLevel level = MCPLogLevel::WARN; // default
+    
+    if (level_str == "trace" || level_str == "TRACE") level = MCPLogLevel::TRACE;
+    else if (level_str == "debug" || level_str == "DEBUG") level = MCPLogLevel::DEBUG;
+    else if (level_str == "info" || level_str == "INFO") level = MCPLogLevel::INFO;
+    else if (level_str == "warn" || level_str == "WARN") level = MCPLogLevel::WARN;
+    else if (level_str == "error" || level_str == "ERROR") level = MCPLogLevel::ERROR;
+    else if (level_str == "off" || level_str == "OFF") level = MCPLogLevel::OFF;
+    
+    MCPLogger::GetInstance().SetLogLevel(level);
+}
+
+static void SetMCPLogFile(ClientContext &context, SetScope scope, Value &parameter) {
+    MCPLogger::GetInstance().SetLogFile(parameter.ToString());
+}
+
+static void SetMCPConsoleLogging(ClientContext &context, SetScope scope, Value &parameter) {
+    MCPLogger::GetInstance().EnableConsoleLogging(parameter.GetValue<bool>());
 }
 
 static void SetAllowedMCPUrls(ClientContext &context, SetScope scope, Value &parameter) {
@@ -704,6 +776,271 @@ static void SetMCPDisableServing(ClientContext &context, SetScope scope, Value &
     auto &security = MCPSecurityConfig::GetInstance();
     bool disable = parameter.GetValue<bool>();
     security.SetServingDisabled(disable);
+}
+
+// MCP-Compliant Pagination Functions
+
+// List resources with optional cursor (MCP-compliant)
+static void MCPListResourcesWithCursorFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+    auto &server_vector = args.data[0];
+    auto &cursor_vector = args.data[1];
+    
+    result.SetVectorType(VectorType::FLAT_VECTOR);
+    auto result_data = FlatVector::GetData<string_t>(result);
+    
+    for (idx_t i = 0; i < args.size(); i++) {
+        if (server_vector.GetValue(i).IsNull()) {
+            result_data[i] = StringVector::AddString(result, "null");
+            continue;
+        }
+        
+        string server_name = server_vector.GetValue(i).ToString();
+        string cursor = cursor_vector.GetValue(i).IsNull() ? "" : cursor_vector.GetValue(i).ToString();
+        
+        try {
+            auto connection = MCPConnectionRegistry::GetInstance().GetConnection(server_name);
+            if (!connection) {
+                throw InvalidInputException("MCP server not attached: " + server_name);
+            }
+            
+            // Use tool call for pagination instead of modifying standard MCP methods
+            Value call_params = Value::STRUCT({
+                {"name", Value("list_resources_paginated")},
+                {"arguments", Value(cursor.empty() ? "{}" : "{\"cursor\": \"" + cursor + "\"}")}
+            });
+            
+            // Send MCP tool call for pagination
+            auto response = connection->SendRequest(MCPMethods::TOOLS_CALL, call_params);
+            
+            if (response.IsError()) {
+                throw IOException("MCP list resources failed: " + response.error.message);
+            }
+            
+            // Return raw JSON response (same as existing functions)
+            result_data[i] = StringVector::AddString(result, response.result.ToString());
+            
+        } catch (const std::exception &e) {
+            result_data[i] = StringVector::AddString(result, "{\"error\": \"" + string(e.what()) + "\"}");
+        }
+    }
+}
+
+// List tools with optional cursor (MCP-compliant)
+static void MCPListToolsWithCursorFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+    auto &server_vector = args.data[0];
+    auto &cursor_vector = args.data[1];
+    
+    result.SetVectorType(VectorType::FLAT_VECTOR);
+    auto result_data = FlatVector::GetData<string_t>(result);
+    
+    for (idx_t i = 0; i < args.size(); i++) {
+        if (server_vector.GetValue(i).IsNull()) {
+            result_data[i] = StringVector::AddString(result, "null");
+            continue;
+        }
+        
+        string server_name = server_vector.GetValue(i).ToString();
+        string cursor = cursor_vector.GetValue(i).IsNull() ? "" : cursor_vector.GetValue(i).ToString();
+        
+        try {
+            auto connection = MCPConnectionRegistry::GetInstance().GetConnection(server_name);
+            if (!connection) {
+                throw InvalidInputException("MCP server not attached: " + server_name);
+            }
+            
+            // Use tool call for pagination
+            Value call_params = Value::STRUCT({
+                {"name", Value("list_tools_paginated")},
+                {"arguments", Value(cursor.empty() ? "{}" : "{\"cursor\": \"" + cursor + "\"}")}
+            });
+            
+            // Send MCP tool call for pagination
+            auto response = connection->SendRequest(MCPMethods::TOOLS_CALL, call_params);
+            
+            if (response.IsError()) {
+                throw IOException("MCP list tools failed: " + response.error.message);
+            }
+            
+            // Return raw JSON response (same as existing functions)
+            result_data[i] = StringVector::AddString(result, response.result.ToString());
+            
+        } catch (const std::exception &e) {
+            result_data[i] = StringVector::AddString(result, "{\"error\": \"" + string(e.what()) + "\"}");
+        }
+    }
+}
+
+// List prompts with optional cursor (MCP-compliant)
+static void MCPListPromptsWithCursorFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+    auto &server_vector = args.data[0];
+    auto &cursor_vector = args.data[1];
+    
+    result.SetVectorType(VectorType::FLAT_VECTOR);
+    auto result_data = FlatVector::GetData<string_t>(result);
+    
+    for (idx_t i = 0; i < args.size(); i++) {
+        if (server_vector.GetValue(i).IsNull()) {
+            result_data[i] = StringVector::AddString(result, "null");
+            continue;
+        }
+        
+        string server_name = server_vector.GetValue(i).ToString();
+        string cursor = cursor_vector.GetValue(i).IsNull() ? "" : cursor_vector.GetValue(i).ToString();
+        
+        try {
+            auto connection = MCPConnectionRegistry::GetInstance().GetConnection(server_name);
+            if (!connection) {
+                throw InvalidInputException("MCP server not attached: " + server_name);
+            }
+            
+            // Use tool call for pagination
+            Value call_params = Value::STRUCT({
+                {"name", Value("list_prompts_paginated")},
+                {"arguments", Value(cursor.empty() ? "{}" : "{\"cursor\": \"" + cursor + "\"}")}
+            });
+            
+            // Send MCP tool call for pagination
+            auto response = connection->SendRequest(MCPMethods::TOOLS_CALL, call_params);
+            
+            if (response.IsError()) {
+                throw IOException("MCP list prompts failed: " + response.error.message);
+            }
+            
+            // Return raw JSON response (same as existing functions)
+            result_data[i] = StringVector::AddString(result, response.result.ToString());
+            
+        } catch (const std::exception &e) {
+            result_data[i] = StringVector::AddString(result, "{\"error\": \"" + string(e.what()) + "\"}");
+        }
+    }
+}
+
+// MCP Template Functions
+
+static void MCPRegisterPromptTemplateFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+    auto &name_vector = args.data[0];
+    auto &description_vector = args.data[1];
+    auto &template_vector = args.data[2];
+    
+    result.SetVectorType(VectorType::FLAT_VECTOR);
+    auto result_data = FlatVector::GetData<string_t>(result);
+    auto &result_validity = FlatVector::Validity(result);
+    
+    for (idx_t i = 0; i < args.size(); i++) {
+        if (name_vector.GetValue(i).IsNull() || description_vector.GetValue(i).IsNull() ||
+            template_vector.GetValue(i).IsNull()) {
+            result_validity.SetInvalid(i);
+            continue;
+        }
+        
+        string name = name_vector.GetValue(i).ToString();
+        string description = description_vector.GetValue(i).ToString();
+        string template_content = template_vector.GetValue(i).ToString();
+        
+        try {
+            MCPTemplate template_def(name, description, template_content);
+            
+            auto &manager = MCPTemplateManager::GetInstance();
+            manager.RegisterTemplate(template_def);
+            
+            result_data[i] = StringVector::AddString(result, "Template registered: " + name);
+            
+        } catch (const std::exception &e) {
+            result_data[i] = StringVector::AddString(result, "Error: " + string(e.what()));
+        }
+    }
+}
+
+static void MCPListPromptTemplatesFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+    result.SetVectorType(VectorType::FLAT_VECTOR);
+    auto result_data = FlatVector::GetData<string_t>(result);
+    auto &result_validity = FlatVector::Validity(result);
+    
+    try {
+        auto &manager = MCPTemplateManager::GetInstance();
+        auto templates = manager.ListTemplates();
+        
+        // Create JSON array of templates
+        yyjson_mut_doc *doc = yyjson_mut_doc_new(nullptr);
+        yyjson_mut_val *root = yyjson_mut_arr(doc);
+        yyjson_mut_doc_set_root(doc, root);
+        
+        for (const auto &template_def : templates) {
+            yyjson_mut_val *template_obj = yyjson_mut_obj(doc);
+            yyjson_mut_obj_add_str(doc, template_obj, "name", template_def.name.c_str());
+            yyjson_mut_obj_add_str(doc, template_obj, "description", template_def.description.c_str());
+            
+            // Add arguments array
+            yyjson_mut_val *args_arr = yyjson_mut_arr(doc);
+            for (const auto &arg : template_def.arguments) {
+                yyjson_mut_val *arg_obj = yyjson_mut_obj(doc);
+                yyjson_mut_obj_add_str(doc, arg_obj, "name", arg.name.c_str());
+                yyjson_mut_obj_add_str(doc, arg_obj, "description", arg.description.c_str());
+                yyjson_mut_obj_add_bool(doc, arg_obj, "required", arg.required);
+                yyjson_mut_arr_append(args_arr, arg_obj);
+            }
+            yyjson_mut_obj_add_val(doc, template_obj, "arguments", args_arr);
+            
+            yyjson_mut_arr_append(root, template_obj);
+        }
+        
+        const char *json = yyjson_mut_write(doc, 0, nullptr);
+        result_data[0] = StringVector::AddString(result, json);
+        
+        yyjson_mut_doc_free(doc);
+        
+    } catch (const std::exception &e) {
+        result_data[0] = StringVector::AddString(result, "Error: " + string(e.what()));
+    }
+}
+
+static void MCPRenderPromptTemplateFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+    auto &name_vector = args.data[0];
+    auto &args_vector = args.data[1];
+    
+    result.SetVectorType(VectorType::FLAT_VECTOR);
+    auto result_data = FlatVector::GetData<string_t>(result);
+    auto &result_validity = FlatVector::Validity(result);
+    
+    for (idx_t i = 0; i < args.size(); i++) {
+        if (name_vector.GetValue(i).IsNull()) {
+            result_validity.SetInvalid(i);
+            continue;
+        }
+        
+        string name = name_vector.GetValue(i).ToString();
+        unordered_map<string, string> template_args;
+        
+        // Parse arguments JSON if provided
+        if (!args_vector.GetValue(i).IsNull()) {
+            string args_json = args_vector.GetValue(i).ToString();
+            
+            yyjson_doc *doc = yyjson_read(args_json.c_str(), args_json.length(), 0);
+            if (doc) {
+                yyjson_val *root = yyjson_doc_get_root(doc);
+                if (yyjson_is_obj(root)) {
+                    yyjson_obj_iter iter = yyjson_obj_iter_with(root);
+                    yyjson_val *key, *val;
+                    while ((key = yyjson_obj_iter_next(&iter))) {
+                        val = yyjson_obj_iter_get_val(key);
+                        if (yyjson_is_str(val)) {
+                            template_args[yyjson_get_str(key)] = yyjson_get_str(val);
+                        }
+                    }
+                }
+                yyjson_doc_free(doc);
+            }
+        }
+        
+        try {
+            auto &manager = MCPTemplateManager::GetInstance();
+            string rendered = manager.RenderTemplate(name, template_args);
+            result_data[i] = StringVector::AddString(result, rendered);
+            
+        } catch (const std::exception &e) {
+            result_data[i] = StringVector::AddString(result, "Error: " + string(e.what()));
+        }
+    }
 }
 
 static void LoadInternal(ExtensionLoader &loader) {
@@ -738,6 +1075,19 @@ static void LoadInternal(ExtensionLoader &loader) {
         "Disable MCP server functionality entirely (client-only mode)", 
         LogicalType::BOOLEAN, Value(false), SetMCPDisableServing);
     
+    // Register MCP logging configuration options
+    config.AddExtensionOption("mcp_log_level", 
+        "MCP logging level (trace, debug, info, warn, error, off)", 
+        LogicalType::VARCHAR, Value("warn"), SetMCPLogLevel);
+    
+    config.AddExtensionOption("mcp_log_file", 
+        "Path to MCP log file (empty for no file logging)", 
+        LogicalType::VARCHAR, Value(""), SetMCPLogFile);
+    
+    config.AddExtensionOption("mcp_console_logging", 
+        "Enable MCP logging to console/stderr", 
+        LogicalType::BOOLEAN, Value(false), SetMCPConsoleLogging);
+    
     // Initialize default security settings
     auto &security = MCPSecurityConfig::GetInstance();
     // Set secure defaults - no commands or URLs allowed initially
@@ -751,23 +1101,34 @@ static void LoadInternal(ExtensionLoader &loader) {
         {LogicalType::VARCHAR, LogicalType::VARCHAR}, LogicalType::JSON(), MCPGetResourceFunction);
     loader.RegisterFunction(get_resource_func);
     
-    auto list_resources_func = ScalarFunction("mcp_list_resources", 
+    // Create overloaded versions for list_resources (with and without cursor)
+    auto list_resources_func_simple = ScalarFunction("mcp_list_resources", 
         {LogicalType::VARCHAR}, LogicalType::JSON(), MCPListResourcesFunction);
-    loader.RegisterFunction(list_resources_func);
+    auto list_resources_func_cursor = ScalarFunction("mcp_list_resources", 
+        {LogicalType::VARCHAR, LogicalType::VARCHAR}, LogicalType::JSON(), MCPListResourcesWithCursorFunction);
+    
+    loader.RegisterFunction(list_resources_func_simple);
+    loader.RegisterFunction(list_resources_func_cursor);
     
     auto call_tool_func = ScalarFunction("mcp_call_tool", 
         {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR}, LogicalType::JSON(), MCPCallToolFunction);
     loader.RegisterFunction(call_tool_func);
     
-    // Register MCP tool functions
-    auto list_tools_func = ScalarFunction("mcp_list_tools", 
+    // Register MCP tool functions (with and without cursor)
+    auto list_tools_func_simple = ScalarFunction("mcp_list_tools", 
         {LogicalType::VARCHAR}, LogicalType::JSON(), MCPListToolsFunction);
-    loader.RegisterFunction(list_tools_func);
+    auto list_tools_func_cursor = ScalarFunction("mcp_list_tools", 
+        {LogicalType::VARCHAR, LogicalType::VARCHAR}, LogicalType::JSON(), MCPListToolsWithCursorFunction);
+    loader.RegisterFunction(list_tools_func_simple);
+    loader.RegisterFunction(list_tools_func_cursor);
     
-    // Register MCP prompt functions
-    auto list_prompts_func = ScalarFunction("mcp_list_prompts", 
+    // Register MCP prompt functions (with and without cursor)
+    auto list_prompts_func_simple = ScalarFunction("mcp_list_prompts", 
         {LogicalType::VARCHAR}, LogicalType::JSON(), MCPListPromptsFunction);
-    loader.RegisterFunction(list_prompts_func);
+    auto list_prompts_func_cursor = ScalarFunction("mcp_list_prompts", 
+        {LogicalType::VARCHAR, LogicalType::VARCHAR}, LogicalType::JSON(), MCPListPromptsWithCursorFunction);
+    loader.RegisterFunction(list_prompts_func_simple);
+    loader.RegisterFunction(list_prompts_func_cursor);
     
     auto get_prompt_func = ScalarFunction("mcp_get_prompt", 
         {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR}, LogicalType::JSON(), MCPGetPromptFunction);
@@ -806,6 +1167,27 @@ static void LoadInternal(ExtensionLoader &loader) {
         {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::INTEGER}, 
         LogicalType::VARCHAR, MCPPublishQueryFunction);
     loader.RegisterFunction(publish_query_func);
+    
+    // Register MCP template functions
+    auto register_prompt_template_func = ScalarFunction("mcp_register_prompt_template",
+        {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR}, 
+        LogicalType::VARCHAR, MCPRegisterPromptTemplateFunction);
+    loader.RegisterFunction(register_prompt_template_func);
+    
+    auto list_prompt_templates_func = ScalarFunction("mcp_list_prompt_templates",
+        {}, LogicalType::JSON(), MCPListPromptTemplatesFunction);
+    loader.RegisterFunction(list_prompt_templates_func);
+    
+    auto render_prompt_template_func = ScalarFunction("mcp_render_prompt_template",
+        {LogicalType::VARCHAR, LogicalType::JSON()}, 
+        LogicalType::VARCHAR, MCPRenderPromptTemplateFunction);
+    loader.RegisterFunction(render_prompt_template_func);
+    
+    
+    // Register MCP diagnostics functions
+    auto diagnostics_func = ScalarFunction("mcp_get_diagnostics", 
+        {}, LogicalType::JSON(), MCPGetDiagnosticsFunction);
+    loader.RegisterFunction(diagnostics_func);
 }
 
 void DuckdbMcpExtension::Load(ExtensionLoader &loader) {

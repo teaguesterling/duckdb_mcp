@@ -1,5 +1,6 @@
 #include "protocol/mcp_transport.hpp"
 #include "protocol/mcp_message.hpp"
+#include "duckdb_mcp_logging.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/string_util.hpp"
 
@@ -28,14 +29,19 @@ bool StdioTransport::Connect() {
     lock_guard<mutex> lock(io_mutex);
     
     if (connected) {
+        MCP_LOG_DEBUG("TRANSPORT", "Already connected to %s", config.command_path);
         return true;
     }
     
+    MCP_LOG_INFO("TRANSPORT", "Connecting to MCP server: %s", config.command_path);
+    
     if (!StartProcess()) {
+        MCP_LOG_ERROR("TRANSPORT", "Failed to start MCP server process: %s", config.command_path);
         return false;
     }
     
     connected = true;
+    MCP_LOG_INFO("TRANSPORT", "Successfully connected to MCP server: %s", config.command_path);
     return true;
 }
 
@@ -46,8 +52,10 @@ void StdioTransport::Disconnect() {
         return;
     }
     
+    MCP_LOG_INFO("TRANSPORT", "Disconnecting from MCP server: %s", config.command_path);
     StopProcess();
     connected = false;
+    MCP_LOG_DEBUG("TRANSPORT", "Disconnected from MCP server: %s", config.command_path);
 }
 
 bool StdioTransport::IsConnected() const {
@@ -56,26 +64,39 @@ bool StdioTransport::IsConnected() const {
 
 void StdioTransport::Send(const MCPMessage &message) {
     if (!IsConnected()) {
+        MCP_LOG_ERROR("TRANSPORT", "Attempted to send message when not connected to %s", config.command_path);
         throw IOException("Transport not connected");
     }
     
-    string json = message.ToJSON();
-    
-    
-    WriteToProcess(json + "\n");
+    try {
+        string json = message.ToJSON();
+        MCP_LOG_PROTOCOL(true, config.command_path, json);
+        
+        MCP_PERF_TIMER("mcp_send", config.command_path);
+        WriteToProcess(json + "\n");
+    } catch (const std::exception &e) {
+        MCP_LOG_ERROR("TRANSPORT", "Failed to send message to %s: %s", config.command_path, e.what());
+        throw;
+    }
 }
 
 MCPMessage StdioTransport::Receive() {
     if (!IsConnected()) {
+        MCP_LOG_ERROR("TRANSPORT", "Attempted to receive message when not connected to %s", config.command_path);
         throw IOException("Transport not connected");
     }
     
-    string response = ReadFromProcess();
-    
-    // Debug logging - TODO: remove this when issue is fixed  
-    // fprintf(stderr, "[MCP-DEBUG] Raw JSON response: %s\n", response.c_str());
-    
-    return MCPMessage::FromJSON(response);
+    try {
+        MCP_PERF_TIMER("mcp_receive", config.command_path);
+        string response = ReadFromProcess();
+        
+        MCP_LOG_PROTOCOL(false, config.command_path, response);
+        
+        return MCPMessage::FromJSON(response);
+    } catch (const std::exception &e) {
+        MCP_LOG_ERROR("TRANSPORT", "Failed to receive message from %s: %s", config.command_path, e.what());
+        throw;
+    }
 }
 
 MCPMessage StdioTransport::SendAndReceive(const MCPMessage &message) {
