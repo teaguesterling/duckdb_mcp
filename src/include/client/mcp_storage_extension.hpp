@@ -20,15 +20,15 @@ public:
     
 private:
     // Main attach function called when ATTACH ... (TYPE mcp) is executed
-    static unique_ptr<Catalog> MCPStorageAttach(StorageExtensionInfo *storage_info,
+    static unique_ptr<Catalog> MCPStorageAttach(optional_ptr<StorageExtensionInfo> storage_info,
                                                ClientContext &context,
                                                AttachedDatabase &db,
                                                const string &name,
                                                AttachInfo &info,
-                                               AccessMode access_mode);
-    
+                                               AttachOptions &options);
+
     // Transaction manager creator
-    static unique_ptr<TransactionManager> MCPStorageTransactionManager(StorageExtensionInfo *storage_info,
+    static unique_ptr<TransactionManager> MCPStorageTransactionManager(optional_ptr<StorageExtensionInfo> storage_info,
                                                                        AttachedDatabase &db,
                                                                        Catalog &catalog);
     
