@@ -4,7 +4,13 @@
 #include "duckdb/common/common.hpp"
 #include <iostream>
 #include <sstream>
+#ifndef _WIN32
 #include <unistd.h>
+#else
+// Windows doesn't have these constants, so define them
+#define STDIN_FILENO 0
+#define STDOUT_FILENO 1
+#endif
 
 namespace duckdb {
 

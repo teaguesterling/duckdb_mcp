@@ -2,23 +2,32 @@
 #include "protocol/mcp_message.hpp"
 #include "duckdb/common/exception.hpp"
 #include <iostream>
-#include <unistd.h>
-#include <poll.h>
 #include <thread>
 #include <chrono>
+#ifndef _WIN32
+#include <unistd.h>
+#include <poll.h>
 #include <fcntl.h>
+#endif
 
 namespace duckdb {
 
 FdServerTransport::FdServerTransport(int input_fd, int output_fd) 
     : input_fd(input_fd), output_fd(output_fd), owns_fds(false), connected(false) {
+#ifdef _WIN32
+    throw NotImplementedException("Server transport not supported on Windows yet");
+#endif
 }
 
 FdServerTransport::FdServerTransport(const string &input_path, const string &output_path) 
     : input_fd(-1), output_fd(-1), owns_fds(true), connected(false) {
+#ifdef _WIN32
+    throw NotImplementedException("Server transport not supported on Windows yet");
+#else
     if (!OpenFileDescriptors(input_path, output_path)) {
         throw IOException("Failed to open file descriptors: " + input_path + ", " + output_path);
     }
+#endif
 }
 
 FdServerTransport::~FdServerTransport() {
@@ -44,6 +53,7 @@ bool FdServerTransport::Connect() {
 void FdServerTransport::Disconnect() {
     lock_guard<mutex> lock(io_mutex);
     
+#ifndef _WIN32
     if (owns_fds) {
         if (input_fd >= 0 && input_fd != STDIN_FILENO) {
             close(input_fd);
@@ -52,6 +62,7 @@ void FdServerTransport::Disconnect() {
             close(output_fd);
         }
     }
+#endif
     
     input_fd = -1;
     output_fd = -1;
@@ -74,11 +85,15 @@ void FdServerTransport::Send(const MCPMessage &message) {
         WriteLine(json);
         
         // Flush output
+#ifndef _WIN32
         if (output_fd == STDOUT_FILENO) {
             std::cout.flush();
         } else {
             fsync(output_fd);
         }
+#else
+        std::cout.flush();
+#endif
     } catch (const std::exception &e) {
         throw IOException("Failed to send message: " + string(e.what()));
     }
@@ -131,6 +146,9 @@ string FdServerTransport::GetConnectionInfo() const {
 }
 
 string FdServerTransport::ReadLine() {
+#ifdef _WIN32
+    throw NotImplementedException("Server transport not supported on Windows yet");
+#else
     string line;
     char buffer[1024];
     
@@ -154,9 +172,13 @@ string FdServerTransport::ReadLine() {
     }
     
     return line;
+#endif
 }
 
 void FdServerTransport::WriteLine(const string &line) {
+#ifdef _WIN32
+    throw NotImplementedException("Server transport not supported on Windows yet");
+#else
     string output = line + "\n";
     
     if (output_fd == STDOUT_FILENO) {
@@ -167,9 +189,13 @@ void FdServerTransport::WriteLine(const string &line) {
             throw IOException("Failed to write to file descriptor");
         }
     }
+#endif
 }
 
 bool FdServerTransport::HasInputAvailable() {
+#ifdef _WIN32
+    return false; // Windows polling not implemented yet
+#else
     // Use poll to check if file descriptor has data available
     struct pollfd pfd;
     pfd.fd = input_fd;
@@ -177,9 +203,13 @@ bool FdServerTransport::HasInputAvailable() {
     
     int result = poll(&pfd, 1, 0); // Non-blocking poll
     return result > 0 && (pfd.revents & POLLIN);
+#endif
 }
 
 bool FdServerTransport::OpenFileDescriptors(const string &input_path, const string &output_path) {
+#ifdef _WIN32
+    return false; // Windows file descriptor opening not implemented yet
+#else
     // Open input file descriptor
     if (input_path == "/dev/stdin") {
         input_fd = STDIN_FILENO;
@@ -204,6 +234,7 @@ bool FdServerTransport::OpenFileDescriptors(const string &input_path, const stri
     }
     
     return true;
+#endif
 }
 
 } // namespace duckdb
