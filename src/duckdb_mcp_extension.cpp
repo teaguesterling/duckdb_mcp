@@ -778,7 +778,6 @@ static void SetMCPDisableServing(ClientContext &context, SetScope scope, Value &
     security.SetServingDisabled(disable);
 }
 
-<<<<<<< HEAD
 // MCP-Compliant Pagination Functions
 
 // List resources with optional cursor (MCP-compliant)
