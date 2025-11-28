@@ -1,0 +1,107 @@
+{
+  "description": "Test calls for Web API MCP server",
+  "calls": [
+    {
+      "name": "Initialize connection",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+          "protocolVersion": "2024-11-05",
+          "capabilities": {},
+          "clientInfo": {"name": "web-api-test", "version": "1.0"}
+        }
+      }
+    },
+    {
+      "section": "Remote Data",
+      "name": "Read CSV from URL",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 10,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT * FROM read_csv('https://raw.githubusercontent.com/datasets/covid-19/main/data/countries-aggregated.csv') LIMIT 5"}
+        }
+      }
+    },
+    {
+      "section": "JSON Schema",
+      "name": "Validate JSON",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 20,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT json_valid_schema('{\"id\": 1, \"name\": \"test\"}', '{\"type\": \"object\", \"required\": [\"id\", \"name\"]}') as is_valid"}
+        }
+      }
+    },
+    {
+      "name": "Invalid JSON",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 21,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT json_valid_schema('{\"id\": 1}', '{\"type\": \"object\", \"required\": [\"id\", \"name\"]}') as is_valid"}
+        }
+      }
+    },
+    {
+      "section": "JSONata",
+      "name": "Transform JSON",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 30,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT jsonata('$.name', '{\"name\": \"John\", \"age\": 30}') as extracted_name"}
+        }
+      }
+    },
+    {
+      "section": "URL Parsing",
+      "name": "Parse URL components",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 40,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT url_scheme('https://api.example.com:8080/v1/users?page=1') as scheme, url_host('https://api.example.com:8080/v1/users?page=1') as host, url_path('https://api.example.com:8080/v1/users?page=1') as path"}
+        }
+      }
+    },
+    {
+      "name": "Domain analysis",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 41,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT domain_suffix('www.example.co.uk') as suffix, domain_registered('www.example.co.uk') as registered"}
+        }
+      }
+    },
+    {
+      "section": "Helper Macros",
+      "name": "List available macros",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 50,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT macro_name, parameters FROM duckdb_macros() WHERE NOT internal"}
+        }
+      }
+    }
+  ]
+}

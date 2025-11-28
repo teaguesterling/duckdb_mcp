@@ -1,0 +1,131 @@
+{
+  "description": "Test calls for Developer MCP server",
+  "calls": [
+    {
+      "name": "Initialize connection",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+          "protocolVersion": "2024-11-05",
+          "capabilities": {},
+          "clientInfo": {"name": "developer-test", "version": "1.0"}
+        }
+      }
+    },
+    {
+      "section": "Fake Data Generation",
+      "name": "Generate fake user data",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 10,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT fake_first_name() as first, fake_last_name() as last, fake_email() as email"}
+        }
+      }
+    },
+    {
+      "name": "Generate fake company data",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 11,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT fake_company() as company, fake_job_title() as job, fake_phone() as phone"}
+        }
+      }
+    },
+    {
+      "name": "Generate UUID",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 12,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT fake_uuid() as uuid1, fake_uuid() as uuid2"}
+        }
+      }
+    },
+    {
+      "section": "Hash Functions",
+      "name": "SHA256 hash",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 20,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT sha256('hello world') as sha256_hash"}
+        }
+      }
+    },
+    {
+      "name": "Multiple hash algorithms",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 21,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT md5('test') as md5, sha1('test') as sha1, sha256('test') as sha256"}
+        }
+      }
+    },
+    {
+      "section": "Crypto Functions",
+      "name": "HMAC signature",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 30,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT encode(hmac('message', 'secret', 'sha256'), 'hex') as hmac_hex"}
+        }
+      }
+    },
+    {
+      "section": "Test Data Table",
+      "name": "Query generated test users",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 40,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT * FROM test_users LIMIT 5"}
+        }
+      }
+    },
+    {
+      "section": "Helper Macros",
+      "name": "Generate fake user via macro",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 50,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT * FROM fake_user()"}
+        }
+      }
+    },
+    {
+      "name": "List available macros",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 51,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT macro_name, parameters FROM duckdb_macros() WHERE NOT internal"}
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "duckdb-web": {
+      "command": "./launch-mcp.sh",
+      "cwd": "."
+    }
+  }
+}
