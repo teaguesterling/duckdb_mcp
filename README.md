@@ -87,6 +87,32 @@ FROM pagination_flow ORDER BY page_num;
 | `mcp_publish_table(table, uri, format)` | Publish table as resource | Static snapshot; no real-time updates |
 | `mcp_publish_query(sql, uri, format, interval)` | Publish query result | Refresh interval minimum 60 seconds |
 
+### Built-in Server Tools
+
+When running as an MCP server, DuckDB exposes these tools to clients:
+
+| Tool | Purpose | Default |
+|------|---------|---------|
+| `query` | Execute SQL SELECT queries | Enabled |
+| `describe` | Get table or query schema information | Enabled |
+| `list_tables` | List tables and views with metadata | Enabled |
+| `database_info` | Get database overview (schemas, tables, extensions) | Enabled |
+| `export` | Export query results to CSV/JSON/Parquet | Enabled |
+| `execute` | Run DDL/DML statements (CREATE, INSERT, etc.) | **Disabled** |
+
+Tools can be enabled/disabled via server configuration:
+
+```sql
+SELECT mcp_server_start('stdio', 'localhost', 0, '{
+    "enable_query_tool": true,
+    "enable_describe_tool": true,
+    "enable_list_tables_tool": true,
+    "enable_database_info_tool": true,
+    "enable_export_tool": true,
+    "enable_execute_tool": false
+}');
+```
+
 ## Quick Start
 
 ### Installation
@@ -237,9 +263,55 @@ python3 test/test_documented_features.py
 └─────────────────┘                    └─────────────────┘
 ```
 
+## Examples
+
+The `examples/` directory contains ready-to-use MCP server configurations:
+
+| Example | Description |
+|---------|-------------|
+| [01-simple](examples/01-simple/) | Minimal setup with empty in-memory database |
+| [02-configured](examples/02-configured/) | Custom configuration with persistent DB and env vars |
+| [03-with-data](examples/03-with-data/) | E-commerce schema with sample data and views |
+| [04-security](examples/04-security/) | Security features: query restrictions, read-only mode |
+| [05-custom-tools](examples/05-custom-tools/) | Domain-specific tools using DuckDB macros |
+| [06-comprehensive](examples/06-comprehensive/) | Full-featured SaaS app with modular SQL |
+
+Each example includes:
+- `launch-mcp.sh` - Entry point for MCP clients
+- `mcp.json` - Client configuration file
+- `init-mcp-db.sql` - Database initialization
+- `start-mcp-server.sql` - Server startup configuration
+- `test-calls.json` - Sample MCP requests for testing
+
+### Quick Start with Examples
+
+```bash
+# Run the simple example
+cd examples/01-simple
+./launch-mcp.sh
+
+# Or with a specific DuckDB binary
+DUCKDB=/path/to/duckdb ./launch-mcp.sh
+```
+
+### Using with Claude Desktop
+
+Add to your MCP client configuration:
+
+```json
+{
+  "mcpServers": {
+    "duckdb": {
+      "command": "/path/to/examples/01-simple/launch-mcp.sh"
+    }
+  }
+}
+```
+
 ## Support
 
 - **Documentation**: See `docs/` directory for technical details
+- **Examples**: See `examples/` directory for ready-to-use configurations
 - **Issues**: Report bugs and feature requests via GitHub issues
 - **Testing**: Comprehensive test suite in `test/` directory
 
