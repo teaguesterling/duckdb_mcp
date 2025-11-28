@@ -1,0 +1,278 @@
+{
+  "description": "Comprehensive test suite for all MCP server features",
+  "calls": [
+    {
+      "name": "Initialize connection",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+          "protocolVersion": "2024-11-05",
+          "capabilities": {},
+          "clientInfo": {"name": "comprehensive-test", "version": "1.0"}
+        }
+      }
+    },
+    {
+      "section": "Discovery",
+      "name": "List all tools",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 10,
+        "method": "tools/list",
+        "params": {}
+      }
+    },
+    {
+      "name": "List tables and views",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 11,
+        "method": "tools/call",
+        "params": {
+          "name": "list_tables",
+          "arguments": {"include_views": true}
+        }
+      }
+    },
+    {
+      "name": "Database info",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 12,
+        "method": "tools/call",
+        "params": {
+          "name": "database_info",
+          "arguments": {}
+        }
+      }
+    },
+    {
+      "section": "Schema",
+      "name": "Describe organizations table",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 20,
+        "method": "tools/call",
+        "params": {
+          "name": "describe",
+          "arguments": {"table": "organizations"}
+        }
+      }
+    },
+    {
+      "name": "Describe tasks table",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 21,
+        "method": "tools/call",
+        "params": {
+          "name": "describe",
+          "arguments": {"table": "tasks"}
+        }
+      }
+    },
+    {
+      "section": "Basic Queries",
+      "name": "List all organizations",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 30,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT * FROM organizations ORDER BY id"}
+        }
+      }
+    },
+    {
+      "name": "Organization summary view",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 31,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT * FROM org_summary ORDER BY org_id"}
+        }
+      }
+    },
+    {
+      "name": "Project health view",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 32,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT * FROM project_health ORDER BY completion_pct DESC"}
+        }
+      }
+    },
+    {
+      "name": "Task board view",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 33,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT * FROM task_board WHERE due_status IN ('overdue', 'due_today') ORDER BY due_date"}
+        }
+      }
+    },
+    {
+      "section": "Custom Macros (Tools)",
+      "name": "org_dashboard for Acme Corp",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 40,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT * FROM org_dashboard(1)"}
+        }
+      }
+    },
+    {
+      "name": "user_activity for Alice",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 41,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT * FROM user_activity(1)"}
+        }
+      }
+    },
+    {
+      "name": "user_tasks for Bob (all tasks)",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 42,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT * FROM user_tasks(2, NULL)"}
+        }
+      }
+    },
+    {
+      "name": "user_tasks for Bob (in_progress only)",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 43,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT * FROM user_tasks(2, 'in_progress')"}
+        }
+      }
+    },
+    {
+      "name": "project_status for Website Redesign",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 44,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT * FROM project_status(1)"}
+        }
+      }
+    },
+    {
+      "name": "task_search for high priority tasks",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 45,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT * FROM task_search(NULL, NULL, 'high', NULL)"}
+        }
+      }
+    },
+    {
+      "name": "task_search with text search",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 46,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT * FROM task_search('API', NULL, NULL, NULL)"}
+        }
+      }
+    },
+    {
+      "name": "overdue_tasks for Acme Corp",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 47,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT * FROM overdue_tasks(1)"}
+        }
+      }
+    },
+    {
+      "name": "productivity_metrics for June 2024",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 48,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT * FROM productivity_metrics(1, '2024-06-01', '2024-06-30')"}
+        }
+      }
+    },
+    {
+      "section": "Export",
+      "name": "Export organizations as CSV",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 50,
+        "method": "tools/call",
+        "params": {
+          "name": "export",
+          "arguments": {
+            "query": "SELECT id, name, slug, plan FROM organizations ORDER BY id",
+            "format": "csv"
+          }
+        }
+      }
+    },
+    {
+      "section": "Security Tests",
+      "name": "BLOCKED: Execute tool (disabled)",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 60,
+        "method": "tools/call",
+        "params": {
+          "name": "execute",
+          "arguments": {"statement": "CREATE TABLE hacked (id INT)"}
+        }
+      },
+      "expected": "error - tool not found"
+    },
+    {
+      "name": "BLOCKED: DROP in query",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 61,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "DROP TABLE organizations"}
+        }
+      },
+      "expected": "error - query denied"
+    }
+  ]
+}

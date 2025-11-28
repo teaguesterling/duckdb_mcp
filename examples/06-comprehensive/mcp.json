@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "duckdb-app": {
+      "command": "./launch-mcp.sh",
+      "env": {
+        "DUCKDB": "duckdb",
+        "DB_PATH": "",
+        "MEMORY_LIMIT": "2GB",
+        "THREADS": "4",
+        "READ_ONLY": "false",
+        "ENABLE_EXECUTE": "false"
+      }
+    }
+  }
+}

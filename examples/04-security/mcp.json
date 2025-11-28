@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "duckdb-secure": {
+      "command": "./launch-mcp.sh",
+      "env": {
+        "DUCKDB": "duckdb"
+      }
+    }
+  }
+}

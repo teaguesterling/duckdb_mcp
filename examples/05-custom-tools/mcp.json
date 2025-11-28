@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "duckdb-custom-tools": {
+      "command": "./launch-mcp.sh",
+      "env": {
+        "DUCKDB": "duckdb"
+      }
+    }
+  }
+}

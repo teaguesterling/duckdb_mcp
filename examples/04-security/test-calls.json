@@ -1,0 +1,146 @@
+{
+  "description": "Security test calls - demonstrates allowed and blocked operations",
+  "calls": [
+    {
+      "name": "Initialize",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+          "protocolVersion": "2024-11-05",
+          "capabilities": {},
+          "clientInfo": {"name": "security-test", "version": "1.0"}
+        }
+      }
+    },
+    {
+      "name": "List tools (execute should be missing)",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/list",
+        "params": {}
+      },
+      "note": "Verify that 'execute' and 'export' tools are not listed"
+    },
+    {
+      "name": "ALLOWED: Simple SELECT query",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {
+            "sql": "SELECT * FROM safe_user_summary"
+          }
+        }
+      },
+      "expected": "success"
+    },
+    {
+      "name": "ALLOWED: Aggregation query",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {
+            "sql": "SELECT balance_tier, COUNT(*) as count FROM safe_user_summary GROUP BY balance_tier"
+          }
+        }
+      },
+      "expected": "success"
+    },
+    {
+      "name": "ALLOWED: List tables",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 5,
+        "method": "tools/call",
+        "params": {
+          "name": "list_tables",
+          "arguments": {"include_views": true}
+        }
+      },
+      "expected": "success"
+    },
+    {
+      "name": "ALLOWED: Describe table",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 6,
+        "method": "tools/call",
+        "params": {
+          "name": "describe",
+          "arguments": {"table": "audit_log"}
+        }
+      },
+      "expected": "success"
+    },
+    {
+      "name": "BLOCKED: Execute tool (tool disabled)",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 7,
+        "method": "tools/call",
+        "params": {
+          "name": "execute",
+          "arguments": {
+            "statement": "CREATE TABLE hacked (id INT)"
+          }
+        }
+      },
+      "expected": "error - tool not found"
+    },
+    {
+      "name": "BLOCKED: Export tool (tool disabled)",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 8,
+        "method": "tools/call",
+        "params": {
+          "name": "export",
+          "arguments": {
+            "query": "SELECT * FROM sensitive_data",
+            "format": "csv",
+            "output": "/tmp/stolen_data.csv"
+          }
+        }
+      },
+      "expected": "error - tool not found"
+    },
+    {
+      "name": "BLOCKED: DROP in query (denied pattern)",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {
+            "sql": "DROP TABLE sensitive_data"
+          }
+        }
+      },
+      "expected": "error - query denied"
+    },
+    {
+      "name": "BLOCKED: COPY TO file (denied pattern)",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 10,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {
+            "sql": "COPY sensitive_data TO '/tmp/data.csv'"
+          }
+        }
+      },
+      "expected": "error - query denied"
+    }
+  ]
+}

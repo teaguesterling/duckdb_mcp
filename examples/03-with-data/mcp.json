@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "duckdb-ecommerce": {
+      "command": "./launch-mcp.sh",
+      "env": {
+        "DUCKDB": "duckdb"
+      }
+    }
+  }
+}
