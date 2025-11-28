@@ -7,3 +7,5 @@ testext
 test/python/__pycache__/
 .Rhistory
 make.out
+venv/
+*.log
