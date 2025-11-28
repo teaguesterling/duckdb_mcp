@@ -4,10 +4,23 @@ This folder contains Claude Code subagent definitions for working with the DuckD
 
 ## Available Agents
 
+### Core Agents
+
 | Agent | Description | Use Case |
 |-------|-------------|----------|
 | [duckdb-mcp-analyst](./duckdb-mcp-analyst.md) | Data analyst with direct DuckDB access through MCP | SQL analytics, reporting, insights |
 | [duckdb-mcp-explorer](./duckdb-mcp-explorer.md) | Data discovery and profiling specialist | File discovery, schema inference, data cataloging |
+
+### Specialized Agents
+
+These agents require additional community extensions. See [specialized/README.md](./specialized/README.md) for setup.
+
+| Agent | Description | Key Extensions |
+|-------|-------------|----------------|
+| [duckdb-mcp-devops](./specialized/duckdb-mcp-devops.md) | CI/CD, git history, test results | duck_tails, duck_hunt, yaml |
+| [duckdb-mcp-web](./specialized/duckdb-mcp-web.md) | APIs, web scraping, HTML/XML | webbed, http_client, netquack |
+| [duckdb-mcp-docs](./specialized/duckdb-mcp-docs.md) | Documentation analysis | markdown, yaml, fts |
+| [duckdb-mcp-developer](./specialized/duckdb-mcp-developer.md) | Code AST analysis, refactoring | sitting_duck, duck_tails, duck_hunt |
 
 ## Agent Capabilities
 
@@ -26,6 +39,34 @@ This folder contains Claude Code subagent definitions for working with the DuckD
 - Data quality quick checks
 - Remote source testing (HTTP, S3, databases)
 - Data catalog generation
+
+### duckdb-mcp-devops
+- Parse CI/CD logs (GitHub Actions, GitLab CI, Jenkins)
+- Analyze test results (pytest, Jest, Go, Cargo, JUnit)
+- Query git history with `git_log()`, `git_branches()`
+- Access files at any git revision via `git://` protocol
+- Process YAML configs (K8s, Docker, Helm)
+
+### duckdb-mcp-web
+- Query REST/GraphQL APIs from SQL
+- Parse HTML with XPath via `read_html()`
+- Process RSS/Atom feeds
+- URL/domain parsing and analysis
+- Google Sheets read/write
+
+### duckdb-mcp-docs
+- Parse markdown with hierarchy
+- Extract YAML frontmatter metadata
+- Full-text search with FTS index
+- Link validation and coverage audits
+- Content freshness tracking
+
+### duckdb-mcp-developer
+- Parse AST for 12+ languages via Tree-sitter
+- Analyze code complexity and structure
+- Map imports and dependencies
+- Correlate code changes with test failures
+- Find refactoring opportunities
 
 ## Usage with Claude Code
 
