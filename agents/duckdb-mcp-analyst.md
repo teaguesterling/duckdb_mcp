@@ -115,15 +115,40 @@ Always start by understanding the data landscape:
 
 ```
 Step 1: Get database overview
-→ Call database_info to see all databases, schemas, tables
+→ Call database_info to see all databases, schemas, tables, and loaded extensions
 
 Step 2: List relevant tables
 → Call list_tables with include_views=true to see everything available
 → Note row estimates to understand data scale
 
-Step 3: Describe key tables
+Step 3: Explore available files (if file-based analysis)
+→ Use glob() to discover data files: SELECT * FROM glob('data/**/*.csv')
+→ Check file structure with parse_path() and parse_filename()
+→ Preview file contents before loading
+
+Step 4: Describe key tables
 → Call describe for each table you'll query
 → Note column names, types, and nullability
+```
+
+#### File Discovery Example
+
+```sql
+-- Find all data files in a directory tree
+SELECT
+    file,
+    parse_dirpath(file) as folder,
+    parse_filename(file, true) as name,
+    regexp_extract(file, '\.([^.]+)$', 1) as extension
+FROM glob('/data/**/*.*')
+WHERE regexp_matches(file, '\.(csv|parquet|json)$')
+ORDER BY folder, name;
+
+-- Preview CSV structure before full load
+SELECT * FROM read_csv('data/sales.csv', max_rows=5);
+
+-- Check Parquet schema without loading data
+DESCRIBE SELECT * FROM 'data/events.parquet' LIMIT 0;
 ```
 
 ### 2. Exploration Phase
@@ -217,21 +242,84 @@ Data Quality Notes:
 
 ## DuckDB-Specific Features
 
+### File System Exploration
+
+Discover and explore files before querying:
+
+```sql
+-- List files matching a glob pattern
+SELECT * FROM glob('data/*.csv');
+SELECT * FROM glob('**/*.parquet');  -- Recursive search
+SELECT * FROM glob('/path/to/logs/2024-*.json');
+
+-- Parse path components
+SELECT parse_path('/data/sales/2024/q1/report.csv') as components;
+-- Returns: ['', 'data', 'sales', '2024', 'q1', 'report.csv']
+
+SELECT parse_dirname('/data/sales/report.csv') as dir;      -- 'sales'
+SELECT parse_dirpath('/data/sales/report.csv') as path;     -- '/data/sales'
+SELECT parse_filename('/data/sales/report.csv') as file;    -- 'report.csv'
+SELECT parse_filename('/data/sales/report.csv', true) as name; -- 'report' (no extension)
+
+-- Read file contents directly
+SELECT read_text('config.json') as content;
+SELECT read_blob('image.png') as binary_data;
+
+-- Combine glob with path parsing for file inventory
+SELECT
+    file,
+    parse_dirpath(file) as directory,
+    parse_filename(file) as filename,
+    parse_filename(file, true) as name_only
+FROM glob('data/**/*.csv');
+```
+
 ### File Format Support
 
 Query files directly without loading:
 ```sql
 -- CSV with auto-detection
 SELECT * FROM 'data/sales.csv';
+SELECT * FROM read_csv('data/sales.csv', header=true, auto_detect=true);
 
 -- Parquet (columnar, fast)
 SELECT * FROM 'data/events.parquet';
+SELECT * FROM read_parquet('data/events.parquet');
 
 -- JSON (including nested)
 SELECT * FROM 'data/logs.json';
+SELECT * FROM read_json('data/logs.json', auto_detect=true);
 
--- Multiple files with glob
+-- Multiple files with glob patterns
 SELECT * FROM 'data/sales_*.parquet';
+SELECT * FROM read_parquet('data/2024/**/*.parquet');
+
+-- Read from HTTP/HTTPS URLs
+SELECT * FROM 'https://example.com/data.csv';
+SELECT * FROM read_csv('https://raw.githubusercontent.com/user/repo/main/data.csv');
+```
+
+### Remote Data Sources
+
+Connect to external databases and cloud storage:
+
+```sql
+-- Attach SQLite database
+ATTACH 'local.db' AS sqlite_db (TYPE sqlite);
+SELECT * FROM sqlite_db.main.users;
+
+-- Attach PostgreSQL (requires postgres extension)
+ATTACH 'postgresql://user:pass@host:5432/db' AS pg (TYPE postgres);
+SELECT * FROM pg.public.customers;
+
+-- Attach MySQL (requires mysql extension)
+ATTACH 'mysql://user:pass@host:3306/db' AS mysql_db (TYPE mysql);
+
+-- Read from S3 (requires httpfs or aws extension)
+SELECT * FROM 's3://bucket/path/to/data.parquet';
+
+-- Read from Azure Blob Storage
+SELECT * FROM 'azure://container/path/to/data.csv';
 ```
 
 ### Advanced Analytical Functions
@@ -267,6 +355,42 @@ EXPLAIN ANALYZE SELECT ...;
 
 -- For large exports, use Parquet format
 -- More compact and faster than CSV for analytical queries
+```
+
+### Useful Extensions
+
+Load extensions for enhanced capabilities:
+
+```sql
+-- Check loaded extensions
+SELECT * FROM duckdb_extensions() WHERE loaded = true;
+
+-- Core extensions (usually auto-loaded)
+INSTALL httpfs; LOAD httpfs;    -- HTTP/S3/Azure file access
+INSTALL json; LOAD json;        -- JSON processing
+INSTALL parquet; LOAD parquet;  -- Parquet support
+
+-- Database connectors
+INSTALL postgres; LOAD postgres;  -- PostgreSQL access
+INSTALL mysql; LOAD mysql;        -- MySQL access
+INSTALL sqlite; LOAD sqlite;      -- SQLite access
+
+-- Community extensions (require allow_community_extensions=true)
+INSTALL excel FROM community; LOAD excel;       -- Excel file support
+INSTALL spatial FROM community; LOAD spatial;   -- Geospatial functions
+INSTALL fts FROM community; LOAD fts;           -- Full-text search
+```
+
+### Configuration for File Access
+
+```sql
+-- Check current settings
+SELECT * FROM duckdb_settings() WHERE name LIKE '%external%' OR name LIKE '%file%';
+
+-- Common settings (if you have permission to modify)
+SET enable_external_access = true;              -- Allow external file access
+SET allowed_directories = ['/data', '/exports']; -- Restrict to specific paths
+SET temp_directory = '/tmp/duckdb';             -- Set temp file location
 ```
 
 ## Pagination for Large Results

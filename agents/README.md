@@ -4,9 +4,28 @@ This folder contains Claude Code subagent definitions for working with the DuckD
 
 ## Available Agents
 
-| Agent | Description |
-|-------|-------------|
-| [duckdb-mcp-analyst](./duckdb-mcp-analyst.md) | Data analyst with direct DuckDB access through MCP |
+| Agent | Description | Use Case |
+|-------|-------------|----------|
+| [duckdb-mcp-analyst](./duckdb-mcp-analyst.md) | Data analyst with direct DuckDB access through MCP | SQL analytics, reporting, insights |
+| [duckdb-mcp-explorer](./duckdb-mcp-explorer.md) | Data discovery and profiling specialist | File discovery, schema inference, data cataloging |
+
+## Agent Capabilities
+
+### duckdb-mcp-analyst
+- Execute analytical SQL queries
+- Database and table discovery
+- Data profiling and quality checks
+- Export to CSV, JSON, Parquet
+- Window functions, CTEs, pivots
+- Remote data source access
+
+### duckdb-mcp-explorer
+- File system exploration with `glob()`
+- Path parsing (`parse_path`, `parse_dirname`, `parse_filename`)
+- Schema inference for CSV, Parquet, JSON
+- Data quality quick checks
+- Remote source testing (HTTP, S3, databases)
+- Data catalog generation
 
 ## Usage with Claude Code
 
@@ -65,6 +84,39 @@ Before using these agents, ensure your DuckDB MCP server is configured. See the 
    - `mcp__duckdb__list_tables` - Discover available tables
    - `mcp__duckdb__database_info` - Database overview
    - `mcp__duckdb__export` - Export query results
+
+## Key DuckDB Functions for Agents
+
+### File System Functions
+| Function | Purpose |
+|----------|---------|
+| `glob(pattern)` | List files matching a glob pattern |
+| `read_text(source)` | Read file content as text |
+| `read_blob(source)` | Read file content as binary |
+
+### Path Manipulation
+| Function | Purpose |
+|----------|---------|
+| `parse_path(path)` | Split path into list of components |
+| `parse_dirname(path)` | Extract directory name (last folder) |
+| `parse_dirpath(path)` | Extract directory path (without filename) |
+| `parse_filename(path, trim_ext)` | Extract filename, optionally without extension |
+
+### File Readers
+| Function | Formats |
+|----------|---------|
+| `read_csv()` | CSV, TSV, delimited files |
+| `read_parquet()` | Parquet columnar format |
+| `read_json()` | JSON, JSON Lines |
+| `read_csv_auto()` | CSV with auto-detection |
+
+### Remote Sources
+| Protocol | Example |
+|----------|---------|
+| HTTP/HTTPS | `'https://example.com/data.csv'` |
+| S3 | `'s3://bucket/path/file.parquet'` |
+| Azure | `'azure://container/path/file.csv'` |
+| GCS | `'gcs://bucket/path/file.json'` |
 
 ## Contributing
 
