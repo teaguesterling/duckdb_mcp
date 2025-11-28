@@ -547,4 +547,573 @@ string SQLToolHandler::SubstituteParameters(const string &template_sql, const Va
     return result;
 }
 
+//===--------------------------------------------------------------------===//
+// ListTablesToolHandler Implementation
+//===--------------------------------------------------------------------===//
+
+ListTablesToolHandler::ListTablesToolHandler(DatabaseInstance &db) : db_instance(db) {
+}
+
+CallToolResult ListTablesToolHandler::Execute(const Value &arguments) {
+    try {
+        // Extract parameters
+        bool include_views = false;
+        string schema_filter;
+        string database_filter;
+
+        if (arguments.type().id() == LogicalTypeId::STRUCT) {
+            auto &struct_values = StructValue::GetChildren(arguments);
+            for (size_t i = 0; i < struct_values.size(); i++) {
+                auto &key = StructType::GetChildName(arguments.type(), i);
+                if (key == "include_views") {
+                    include_views = struct_values[i].GetValue<bool>();
+                } else if (key == "schema") {
+                    schema_filter = struct_values[i].ToString();
+                } else if (key == "database") {
+                    database_filter = struct_values[i].ToString();
+                }
+            }
+        }
+
+        Connection conn(db_instance);
+
+        // Build query for tables
+        string tables_query = R"(
+            SELECT
+                database_name,
+                schema_name,
+                table_name,
+                estimated_size as row_count_estimate,
+                column_count,
+                'table' as type
+            FROM duckdb_tables()
+            WHERE NOT internal
+        )";
+
+        if (!schema_filter.empty()) {
+            tables_query += " AND schema_name = '" + schema_filter + "'";
+        }
+        if (!database_filter.empty()) {
+            tables_query += " AND database_name = '" + database_filter + "'";
+        }
+
+        string full_query = tables_query;
+
+        // Add views if requested
+        if (include_views) {
+            string views_query = R"(
+                SELECT
+                    database_name,
+                    schema_name,
+                    view_name as table_name,
+                    NULL as row_count_estimate,
+                    column_count,
+                    'view' as type
+                FROM duckdb_views()
+                WHERE NOT internal
+            )";
+
+            if (!schema_filter.empty()) {
+                views_query += " AND schema_name = '" + schema_filter + "'";
+            }
+            if (!database_filter.empty()) {
+                views_query += " AND database_name = '" + database_filter + "'";
+            }
+
+            full_query = "(" + tables_query + ") UNION ALL (" + views_query + ")";
+        }
+
+        full_query += " ORDER BY database_name, schema_name, table_name";
+
+        auto result = conn.Query(full_query);
+
+        if (result->HasError()) {
+            return CallToolResult::Error("Query error: " + result->GetError());
+        }
+
+        // Format as JSON
+        string json = "[";
+        bool first_row = true;
+
+        while (auto chunk = result->Fetch()) {
+            for (idx_t i = 0; i < chunk->size(); i++) {
+                if (!first_row) {
+                    json += ",";
+                }
+                first_row = false;
+
+                auto db_name = chunk->GetValue(0, i);
+                auto schema_name = chunk->GetValue(1, i);
+                auto table_name = chunk->GetValue(2, i);
+                auto row_count = chunk->GetValue(3, i);
+                auto col_count = chunk->GetValue(4, i);
+                auto obj_type = chunk->GetValue(5, i);
+
+                json += "{";
+                json += "\"database\":\"" + db_name.ToString() + "\",";
+                json += "\"schema\":\"" + schema_name.ToString() + "\",";
+                json += "\"name\":\"" + table_name.ToString() + "\",";
+                json += "\"type\":\"" + obj_type.ToString() + "\",";
+                if (row_count.IsNull()) {
+                    json += "\"row_count_estimate\":null,";
+                } else {
+                    json += "\"row_count_estimate\":" + row_count.ToString() + ",";
+                }
+                json += "\"column_count\":" + col_count.ToString();
+                json += "}";
+            }
+        }
+        json += "]";
+
+        return CallToolResult::Success(Value(json));
+
+    } catch (const std::exception &e) {
+        return CallToolResult::Error("List tables error: " + string(e.what()));
+    }
+}
+
+ToolInputSchema ListTablesToolHandler::GetInputSchema() const {
+    ToolInputSchema schema;
+    schema.type = "object";
+    schema.properties["include_views"] = Value("boolean");
+    schema.properties["schema"] = Value("string");
+    schema.properties["database"] = Value("string");
+    // No required fields - all are optional
+    return schema;
+}
+
+//===--------------------------------------------------------------------===//
+// DatabaseInfoToolHandler Implementation
+//===--------------------------------------------------------------------===//
+
+DatabaseInfoToolHandler::DatabaseInfoToolHandler(DatabaseInstance &db) : db_instance(db) {
+}
+
+CallToolResult DatabaseInfoToolHandler::Execute(const Value &arguments) {
+    try {
+        // Build comprehensive database info
+        string json = "{";
+
+        // Get databases info
+        json += "\"databases\":";
+        auto databases = GetDatabasesInfo();
+        json += databases.ToString();
+
+        // Get schemas info
+        json += ",\"schemas\":";
+        auto schemas = GetSchemasInfo();
+        json += schemas.ToString();
+
+        // Get tables summary
+        json += ",\"tables\":";
+        auto tables = GetTablesInfo();
+        json += tables.ToString();
+
+        // Get views summary
+        json += ",\"views\":";
+        auto views = GetViewsInfo();
+        json += views.ToString();
+
+        // Get extensions info
+        json += ",\"extensions\":";
+        auto extensions = GetExtensionsInfo();
+        json += extensions.ToString();
+
+        json += "}";
+
+        return CallToolResult::Success(Value(json));
+
+    } catch (const std::exception &e) {
+        return CallToolResult::Error("Database info error: " + string(e.what()));
+    }
+}
+
+ToolInputSchema DatabaseInfoToolHandler::GetInputSchema() const {
+    ToolInputSchema schema;
+    schema.type = "object";
+    // No parameters needed
+    return schema;
+}
+
+Value DatabaseInfoToolHandler::GetDatabasesInfo() const {
+    Connection conn(db_instance);
+    auto result = conn.Query(R"(
+        SELECT
+            database_name,
+            path,
+            type,
+            readonly,
+            NOT internal as user_attached
+        FROM duckdb_databases()
+        WHERE NOT internal OR database_name = 'memory'
+    )");
+
+    if (result->HasError()) {
+        return Value("[]");
+    }
+
+    string json = "[";
+    bool first = true;
+
+    while (auto chunk = result->Fetch()) {
+        for (idx_t i = 0; i < chunk->size(); i++) {
+            if (!first) json += ",";
+            first = false;
+
+            json += "{";
+            json += "\"name\":\"" + chunk->GetValue(0, i).ToString() + "\",";
+
+            auto path = chunk->GetValue(1, i);
+            if (path.IsNull()) {
+                json += "\"path\":null,";
+            } else {
+                json += "\"path\":\"" + path.ToString() + "\",";
+            }
+
+            json += "\"type\":\"" + chunk->GetValue(2, i).ToString() + "\",";
+            json += "\"readonly\":" + string(chunk->GetValue(3, i).GetValue<bool>() ? "true" : "false") + ",";
+            json += "\"user_attached\":" + string(chunk->GetValue(4, i).GetValue<bool>() ? "true" : "false");
+            json += "}";
+        }
+    }
+    json += "]";
+
+    return Value(json);
+}
+
+Value DatabaseInfoToolHandler::GetSchemasInfo() const {
+    Connection conn(db_instance);
+    auto result = conn.Query(R"(
+        SELECT
+            database_name,
+            schema_name,
+            NOT internal as user_schema
+        FROM duckdb_schemas()
+        WHERE NOT internal OR schema_name = 'main'
+    )");
+
+    if (result->HasError()) {
+        return Value("[]");
+    }
+
+    string json = "[";
+    bool first = true;
+
+    while (auto chunk = result->Fetch()) {
+        for (idx_t i = 0; i < chunk->size(); i++) {
+            if (!first) json += ",";
+            first = false;
+
+            json += "{";
+            json += "\"database\":\"" + chunk->GetValue(0, i).ToString() + "\",";
+            json += "\"name\":\"" + chunk->GetValue(1, i).ToString() + "\",";
+            json += "\"user_schema\":" + string(chunk->GetValue(2, i).GetValue<bool>() ? "true" : "false");
+            json += "}";
+        }
+    }
+    json += "]";
+
+    return Value(json);
+}
+
+Value DatabaseInfoToolHandler::GetTablesInfo() const {
+    Connection conn(db_instance);
+    auto result = conn.Query(R"(
+        SELECT
+            database_name,
+            schema_name,
+            table_name,
+            estimated_size as row_count_estimate,
+            column_count
+        FROM duckdb_tables()
+        WHERE NOT internal
+        ORDER BY database_name, schema_name, table_name
+    )");
+
+    if (result->HasError()) {
+        return Value("[]");
+    }
+
+    string json = "[";
+    bool first = true;
+
+    while (auto chunk = result->Fetch()) {
+        for (idx_t i = 0; i < chunk->size(); i++) {
+            if (!first) json += ",";
+            first = false;
+
+            json += "{";
+            json += "\"database\":\"" + chunk->GetValue(0, i).ToString() + "\",";
+            json += "\"schema\":\"" + chunk->GetValue(1, i).ToString() + "\",";
+            json += "\"name\":\"" + chunk->GetValue(2, i).ToString() + "\",";
+
+            auto row_count = chunk->GetValue(3, i);
+            if (row_count.IsNull()) {
+                json += "\"row_count_estimate\":null,";
+            } else {
+                json += "\"row_count_estimate\":" + row_count.ToString() + ",";
+            }
+
+            json += "\"column_count\":" + chunk->GetValue(4, i).ToString();
+            json += "}";
+        }
+    }
+    json += "]";
+
+    return Value(json);
+}
+
+Value DatabaseInfoToolHandler::GetViewsInfo() const {
+    Connection conn(db_instance);
+    auto result = conn.Query(R"(
+        SELECT
+            database_name,
+            schema_name,
+            view_name,
+            column_count
+        FROM duckdb_views()
+        WHERE NOT internal
+        ORDER BY database_name, schema_name, view_name
+    )");
+
+    if (result->HasError()) {
+        return Value("[]");
+    }
+
+    string json = "[";
+    bool first = true;
+
+    while (auto chunk = result->Fetch()) {
+        for (idx_t i = 0; i < chunk->size(); i++) {
+            if (!first) json += ",";
+            first = false;
+
+            json += "{";
+            json += "\"database\":\"" + chunk->GetValue(0, i).ToString() + "\",";
+            json += "\"schema\":\"" + chunk->GetValue(1, i).ToString() + "\",";
+            json += "\"name\":\"" + chunk->GetValue(2, i).ToString() + "\",";
+            json += "\"column_count\":" + chunk->GetValue(3, i).ToString();
+            json += "}";
+        }
+    }
+    json += "]";
+
+    return Value(json);
+}
+
+Value DatabaseInfoToolHandler::GetExtensionsInfo() const {
+    Connection conn(db_instance);
+    auto result = conn.Query(R"(
+        SELECT
+            extension_name,
+            loaded,
+            installed,
+            description,
+            extension_version
+        FROM duckdb_extensions()
+        WHERE loaded OR installed
+        ORDER BY extension_name
+    )");
+
+    if (result->HasError()) {
+        return Value("[]");
+    }
+
+    string json = "[";
+    bool first = true;
+
+    while (auto chunk = result->Fetch()) {
+        for (idx_t i = 0; i < chunk->size(); i++) {
+            if (!first) json += ",";
+            first = false;
+
+            json += "{";
+            json += "\"name\":\"" + chunk->GetValue(0, i).ToString() + "\",";
+            json += "\"loaded\":" + string(chunk->GetValue(1, i).GetValue<bool>() ? "true" : "false") + ",";
+            json += "\"installed\":" + string(chunk->GetValue(2, i).GetValue<bool>() ? "true" : "false") + ",";
+
+            auto desc = chunk->GetValue(3, i);
+            if (desc.IsNull()) {
+                json += "\"description\":null,";
+            } else {
+                // Escape quotes in description
+                string desc_str = desc.ToString();
+                string escaped;
+                for (char c : desc_str) {
+                    if (c == '"') escaped += "\\\"";
+                    else if (c == '\\') escaped += "\\\\";
+                    else escaped += c;
+                }
+                json += "\"description\":\"" + escaped + "\",";
+            }
+
+            auto version = chunk->GetValue(4, i);
+            if (version.IsNull()) {
+                json += "\"version\":null";
+            } else {
+                json += "\"version\":\"" + version.ToString() + "\"";
+            }
+            json += "}";
+        }
+    }
+    json += "]";
+
+    return Value(json);
+}
+
+//===--------------------------------------------------------------------===//
+// ExecuteToolHandler Implementation
+//===--------------------------------------------------------------------===//
+
+ExecuteToolHandler::ExecuteToolHandler(DatabaseInstance &db, bool allow_ddl, bool allow_dml)
+    : db_instance(db), allow_ddl(allow_ddl), allow_dml(allow_dml) {
+}
+
+CallToolResult ExecuteToolHandler::Execute(const Value &arguments) {
+    try {
+        // Extract parameters
+        if (arguments.type().id() != LogicalTypeId::STRUCT) {
+            return CallToolResult::Error("Invalid input: expected object with 'statement' field");
+        }
+
+        auto &struct_values = StructValue::GetChildren(arguments);
+        string statement;
+
+        for (size_t i = 0; i < struct_values.size(); i++) {
+            auto &key = StructType::GetChildName(arguments.type(), i);
+            if (key == "statement") {
+                statement = struct_values[i].ToString();
+            }
+        }
+
+        if (statement.empty()) {
+            return CallToolResult::Error("Statement is required");
+        }
+
+        Connection conn(db_instance);
+
+        // Use DuckDB's prepared statement to get the actual statement type
+        auto prepared = conn.Prepare(statement);
+        if (prepared->HasError()) {
+            return CallToolResult::Error("Parse error: " + prepared->GetError());
+        }
+
+        StatementType stmt_type = prepared->GetStatementType();
+
+        // Security check using the parsed statement type
+        if (!IsAllowedStatement(stmt_type)) {
+            string type_name = StatementTypeToString(stmt_type);
+            return CallToolResult::Error("Statement type '" + type_name + "' not allowed by server configuration");
+        }
+
+        // Execute the prepared statement
+        auto result = prepared->Execute();
+
+        if (result->HasError()) {
+            return CallToolResult::Error("Execution error: " + result->GetError());
+        }
+
+        // Build response based on statement type
+        string json = "{";
+        json += "\"success\":true,";
+        json += "\"statement_type\":\"" + StatementTypeToString(stmt_type) + "\",";
+
+        if (IsDMLStatement(stmt_type)) {
+            // For DML, try to get affected row count
+            // DuckDB returns this in the result for INSERT/UPDATE/DELETE
+            idx_t affected_rows = 0;
+            if (auto chunk = result->Fetch()) {
+                if (chunk->size() > 0 && chunk->ColumnCount() > 0) {
+                    auto val = chunk->GetValue(0, 0);
+                    if (!val.IsNull()) {
+                        affected_rows = val.GetValue<int64_t>();
+                    }
+                }
+            }
+            json += "\"affected_rows\":" + std::to_string(affected_rows);
+        } else {
+            // For DDL, just report success
+            json += "\"message\":\"Statement executed successfully\"";
+        }
+
+        json += "}";
+
+        return CallToolResult::Success(Value(json));
+
+    } catch (const std::exception &e) {
+        return CallToolResult::Error("Execute error: " + string(e.what()));
+    }
+}
+
+ToolInputSchema ExecuteToolHandler::GetInputSchema() const {
+    ToolInputSchema schema;
+    schema.type = "object";
+    schema.properties["statement"] = Value("string");
+    schema.required_fields = {"statement"};
+    return schema;
+}
+
+bool ExecuteToolHandler::IsDDLStatement(StatementType type) const {
+    switch (type) {
+        case StatementType::CREATE_STATEMENT:
+        case StatementType::DROP_STATEMENT:
+        case StatementType::ALTER_STATEMENT:
+        case StatementType::ATTACH_STATEMENT:
+        case StatementType::DETACH_STATEMENT:
+        case StatementType::LOAD_STATEMENT:
+        case StatementType::VACUUM_STATEMENT:
+        case StatementType::ANALYZE_STATEMENT:
+        case StatementType::VARIABLE_SET_STATEMENT:
+        case StatementType::SET_STATEMENT:
+        case StatementType::TRANSACTION_STATEMENT:
+        case StatementType::PRAGMA_STATEMENT:
+        case StatementType::COPY_DATABASE_STATEMENT:
+        case StatementType::UPDATE_EXTENSIONS_STATEMENT:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool ExecuteToolHandler::IsDMLStatement(StatementType type) const {
+    switch (type) {
+        case StatementType::INSERT_STATEMENT:
+        case StatementType::UPDATE_STATEMENT:
+        case StatementType::DELETE_STATEMENT:
+        case StatementType::MERGE_INTO_STATEMENT:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool ExecuteToolHandler::IsAllowedStatement(StatementType type) const {
+    // Block SELECT-like statements (should use 'query' tool instead)
+    if (type == StatementType::SELECT_STATEMENT) {
+        return false;
+    }
+
+    // Check DDL permissions
+    if (IsDDLStatement(type) && !allow_ddl) {
+        return false;
+    }
+
+    // Check DML permissions
+    if (IsDMLStatement(type) && !allow_dml) {
+        return false;
+    }
+
+    // Block other query-like statements that should use the query tool
+    switch (type) {
+        case StatementType::EXPLAIN_STATEMENT:
+        case StatementType::RELATION_STATEMENT:
+        case StatementType::CALL_STATEMENT:  // CALL can return results, use query tool
+            return false;
+        default:
+            break;
+    }
+
+    return true;
+}
+
 } // namespace duckdb

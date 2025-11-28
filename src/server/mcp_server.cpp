@@ -444,20 +444,37 @@ MCPMessage MCPServer::HandleShutdown(const MCPMessage &request) {
 
 void MCPServer::RegisterBuiltinTools() {
     if (config.enable_query_tool) {
-        auto query_tool = make_uniq<QueryToolHandler>(*config.db_instance, 
+        auto query_tool = make_uniq<QueryToolHandler>(*config.db_instance,
                                                        config.allowed_queries,
                                                        config.denied_queries);
         tool_registry.RegisterTool("query", std::move(query_tool));
     }
-    
+
     if (config.enable_describe_tool) {
         auto describe_tool = make_uniq<DescribeToolHandler>(*config.db_instance);
         tool_registry.RegisterTool("describe", std::move(describe_tool));
     }
-    
+
     if (config.enable_export_tool) {
         auto export_tool = make_uniq<ExportToolHandler>(*config.db_instance);
         tool_registry.RegisterTool("export", std::move(export_tool));
+    }
+
+    if (config.enable_list_tables_tool) {
+        auto list_tables_tool = make_uniq<ListTablesToolHandler>(*config.db_instance);
+        tool_registry.RegisterTool("list_tables", std::move(list_tables_tool));
+    }
+
+    if (config.enable_database_info_tool) {
+        auto database_info_tool = make_uniq<DatabaseInfoToolHandler>(*config.db_instance);
+        tool_registry.RegisterTool("database_info", std::move(database_info_tool));
+    }
+
+    if (config.enable_execute_tool) {
+        auto execute_tool = make_uniq<ExecuteToolHandler>(*config.db_instance,
+                                                           config.execute_allow_ddl,
+                                                           config.execute_allow_dml);
+        tool_registry.RegisterTool("execute", std::move(execute_tool));
     }
 }
 

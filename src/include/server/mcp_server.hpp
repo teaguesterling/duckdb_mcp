@@ -20,9 +20,19 @@ struct MCPServerConfig {
     string transport = "stdio";           // "stdio", "tcp", "websocket"
     string bind_address = "localhost";    // For TCP/WebSocket
     int port = 8080;                     // For TCP/WebSocket
-    bool enable_query_tool = true;       // Built-in query tool
-    bool enable_describe_tool = true;    // Built-in describe tool  
-    bool enable_export_tool = true;      // Built-in export tool
+
+    // Built-in tool configuration
+    bool enable_query_tool = true;       // Execute SQL queries (SELECT)
+    bool enable_describe_tool = true;    // Describe tables/queries
+    bool enable_export_tool = true;      // Export query results
+    bool enable_list_tables_tool = true; // List tables and views
+    bool enable_database_info_tool = true; // Database overview info
+    bool enable_execute_tool = false;    // Execute DDL/DML (disabled by default for safety)
+
+    // Execute tool granular control
+    bool execute_allow_ddl = true;       // Allow CREATE, DROP, ALTER, etc.
+    bool execute_allow_dml = true;       // Allow INSERT, UPDATE, DELETE
+
     vector<string> allowed_queries;      // SQL query allowlist (empty = all allowed)
     vector<string> denied_queries;       // SQL query denylist
     uint32_t max_connections = 10;       // Maximum concurrent connections

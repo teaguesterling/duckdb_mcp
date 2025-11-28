@@ -109,7 +109,7 @@ class SQLToolHandler : public ToolHandler {
 public:
     SQLToolHandler(const string &name, const string &description, const string &sql_template,
                   const ToolInputSchema &input_schema, DatabaseInstance &db);
-    
+
     CallToolResult Execute(const Value &arguments) override;
     string GetName() const override { return tool_name; }
     string GetDescription() const override { return tool_description; }
@@ -121,8 +121,72 @@ private:
     string sql_template;
     ToolInputSchema input_schema;
     DatabaseInstance &db_instance;
-    
+
     string SubstituteParameters(const string &template_sql, const Value &arguments) const;
+};
+
+// List tables tool handler - lists all tables (and optionally views) in the database
+class ListTablesToolHandler : public ToolHandler {
+public:
+    ListTablesToolHandler(DatabaseInstance &db);
+
+    CallToolResult Execute(const Value &arguments) override;
+    string GetName() const override { return "list_tables"; }
+    string GetDescription() const override {
+        return "List all tables in the database, optionally including views. "
+               "Returns table names, schemas, row counts, and column counts.";
+    }
+    ToolInputSchema GetInputSchema() const override;
+
+private:
+    DatabaseInstance &db_instance;
+};
+
+// Database info tool handler - provides comprehensive database overview
+class DatabaseInfoToolHandler : public ToolHandler {
+public:
+    DatabaseInfoToolHandler(DatabaseInstance &db);
+
+    CallToolResult Execute(const Value &arguments) override;
+    string GetName() const override { return "database_info"; }
+    string GetDescription() const override {
+        return "Get comprehensive database information including attached databases, "
+               "schemas, tables, views, and loaded extensions.";
+    }
+    ToolInputSchema GetInputSchema() const override;
+
+private:
+    DatabaseInstance &db_instance;
+
+    Value GetDatabasesInfo() const;
+    Value GetSchemasInfo() const;
+    Value GetTablesInfo() const;
+    Value GetViewsInfo() const;
+    Value GetExtensionsInfo() const;
+};
+
+// Execute tool handler - executes DDL/DML statements (INSERT, UPDATE, DELETE, CREATE, etc.)
+class ExecuteToolHandler : public ToolHandler {
+public:
+    ExecuteToolHandler(DatabaseInstance &db, bool allow_ddl = true, bool allow_dml = true);
+
+    CallToolResult Execute(const Value &arguments) override;
+    string GetName() const override { return "execute"; }
+    string GetDescription() const override {
+        return "Execute DDL (CREATE, DROP, ALTER) or DML (INSERT, UPDATE, DELETE) statements. "
+               "Returns affected row count for DML, success status for DDL.";
+    }
+    ToolInputSchema GetInputSchema() const override;
+
+private:
+    DatabaseInstance &db_instance;
+    bool allow_ddl;
+    bool allow_dml;
+
+    // Uses DuckDB's StatementType enum for robust statement classification
+    bool IsDDLStatement(StatementType type) const;
+    bool IsDMLStatement(StatementType type) const;
+    bool IsAllowedStatement(StatementType type) const;
 };
 
 } // namespace duckdb
