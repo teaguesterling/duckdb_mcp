@@ -1,0 +1,236 @@
+# name: test/sql/mcp_server_config.test
+# description: Test MCP server configuration options
+# group: [duckdb_mcp]
+
+# Load the MCP extension
+require duckdb_mcp
+
+statement ok
+LOAD duckdb_mcp;
+
+# =============================================================================
+# SETUP: Force clean state
+# =============================================================================
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# SECTION 1: Default Result Format - JSON (default)
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# Create test table
+statement ok
+CREATE TABLE config_test AS SELECT 1 as id, 'test' as name;
+
+# Default format should be JSON
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM config_test"}}}') LIKE '%[{%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# SECTION 2: Default Result Format - Markdown
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory', '{"default_result_format": "markdown"}');
+
+# Query without format param should return markdown
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM config_test"}}}') LIKE '%| id | name |%';
+----
+true
+
+# Can still override with explicit format
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM config_test","format":"json"}}}') LIKE '%[{%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# SECTION 3: Default Result Format - CSV
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory', '{"default_result_format": "csv"}');
+
+# Query without format param should return CSV
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM config_test"}}}') LIKE '%id,name%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# SECTION 4: Tool Enablement - Disable Query Tool
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory', '{"enable_query_tool": false}');
+
+# tools/list should NOT show query tool
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":30,"method":"tools/list","params":{}}') LIKE '%"query"%';
+----
+false
+
+# But other tools should still be present
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":31,"method":"tools/list","params":{}}') LIKE '%"describe"%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# SECTION 5: Tool Enablement - Disable Describe Tool
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory', '{"enable_describe_tool": false}');
+
+# tools/list should NOT show describe tool
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":40,"method":"tools/list","params":{}}') LIKE '%"describe"%';
+----
+false
+
+# Query tool should still be present
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":41,"method":"tools/list","params":{}}') LIKE '%"query"%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# SECTION 6: Tool Enablement - Disable List Tables Tool
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory', '{"enable_list_tables_tool": false}');
+
+# tools/list should NOT show list_tables tool
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":50,"method":"tools/list","params":{}}') LIKE '%"list_tables"%';
+----
+false
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# SECTION 7: Tool Enablement - Disable Database Info Tool
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory', '{"enable_database_info_tool": false}');
+
+# tools/list should NOT show database_info tool
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":60,"method":"tools/list","params":{}}') LIKE '%"database_info"%';
+----
+false
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# SECTION 8: Tool Enablement - Disable Export Tool
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory', '{"enable_export_tool": false}');
+
+# tools/list should NOT show export tool
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":70,"method":"tools/list","params":{}}') LIKE '%"export"%';
+----
+false
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# SECTION 9: Tool Enablement - Enable Execute Tool (disabled by default)
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory', '{"enable_execute_tool": true}');
+
+# tools/list SHOULD show execute tool when enabled
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":80,"method":"tools/list","params":{}}') LIKE '%"execute"%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# SECTION 10: Execute Tool - Disabled by Default
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# tools/list should NOT show execute tool by default
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":90,"method":"tools/list","params":{}}') LIKE '%"execute"%';
+----
+false
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# SECTION 11: Multiple Config Options Combined
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory', '{"default_result_format": "markdown", "enable_query_tool": true, "enable_describe_tool": true, "enable_list_tables_tool": false}');
+
+# Should have query tool
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":100,"method":"tools/list","params":{}}') LIKE '%"query"%';
+----
+true
+
+# Should NOT have list_tables tool
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":101,"method":"tools/list","params":{}}') LIKE '%"list_tables"%';
+----
+false
+
+# Default format should be markdown
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":102,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM config_test"}}}') LIKE '%| id | name |%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# Cleanup
+# =============================================================================
+
+statement ok
+DROP TABLE IF EXISTS config_test;
+
+statement ok
+SELECT mcp_server_stop(true);
