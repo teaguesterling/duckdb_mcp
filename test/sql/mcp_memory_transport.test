@@ -117,9 +117,16 @@ SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":41,"method":"tools/call","
 ----
 true
 
-# NOTE: describe query functionality has a bug (DESCRIBE stmt fails)
-# This would need to be fixed in DescribeQuery implementation
-# Skipping query describe test for now
+# Test describe tool on query (uses DESCRIBE (subquery) syntax)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"describe","arguments":{"query":"SELECT 42 as answer, 100 as value"}}}') LIKE '%\"name\":\"answer\"%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":43,"method":"tools/call","params":{"name":"describe","arguments":{"query":"SELECT 42 as answer, 100 as value"}}}') LIKE '%\"name\":\"value\"%';
+----
+true
 
 statement ok
 SELECT mcp_server_stop();

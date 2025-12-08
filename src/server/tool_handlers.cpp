@@ -334,15 +334,11 @@ Value DescribeToolHandler::DescribeTable(const string &table_name) const {
 }
 
 Value DescribeToolHandler::DescribeQuery(const string &query) const {
-    string prepare_query = "PREPARE stmt AS " + query;
+    // Use DESCRIBE with subquery syntax - wrap query in parentheses
+    string describe_query = "DESCRIBE (" + query + ")";
     Connection conn(db_instance);
-    auto prepare_result = conn.Query(prepare_query);
+    auto describe_result = conn.Query(describe_query);
 
-    if (prepare_result->HasError()) {
-        throw IOException("Failed to prepare query: " + prepare_result->GetError());
-    }
-
-    auto describe_result = conn.Query("DESCRIBE stmt");
     if (describe_result->HasError()) {
         throw IOException("Failed to describe query: " + describe_result->GetError());
     }
