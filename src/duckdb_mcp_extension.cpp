@@ -945,7 +945,7 @@ static void MCPGetDiagnosticsFunction(DataChunk &args, ExpressionState &state, V
         }
         
         yyjson_mut_obj_add_str(doc, root, "log_level", level_str.c_str());
-        yyjson_mut_obj_add_str(doc, root, "extension_version", "1.0.0");
+        yyjson_mut_obj_add_str(doc, root, "extension_version", DUCKDB_MCP_VERSION);
         yyjson_mut_obj_add_bool(doc, root, "logging_available", true);
         
         // Convert to string
@@ -1468,7 +1468,7 @@ DUCKDB_CPP_EXTENSION_ENTRY(duckdb_mcp, loader) {
 
 
 DUCKDB_EXTENSION_API const char *duckdb_mcp_version() {
-    return duckdb::DuckDB::LibraryVersion();
+    return duckdb::DUCKDB_MCP_VERSION;
 }
 
 }

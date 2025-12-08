@@ -2,6 +2,7 @@
 #include "server/resource_providers.hpp"
 #include "server/tool_handlers.hpp"
 #include "server/stdio_server_transport.hpp"
+#include "duckdb_mcp_extension.hpp"
 #include "duckdb_mcp_logging.hpp"
 #include "protocol/mcp_transport.hpp"
 #include "duckdb/common/exception.hpp"
@@ -351,7 +352,7 @@ MCPMessage MCPServer::HandleInitialize(const MCPMessage &request) {
     
     Value server_info = Value::STRUCT({
         {"name", Value("DuckDB MCP Server")},
-        {"version", Value("1.0.0")},
+        {"version", Value(DUCKDB_MCP_VERSION)},
         {"capabilities", capabilities}
     });
     

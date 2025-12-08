@@ -1,10 +1,7 @@
 {
   "mcpServers": {
     "duckdb-simple": {
-      "command": "./launch-mcp.sh",
-      "env": {
-        "DUCKDB": "duckdb"
-      }
+      "command": "./launch-mcp.sh"
     }
   }
 }

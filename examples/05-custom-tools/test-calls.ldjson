@@ -1,0 +1,12 @@
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test-client","version":"1.0.0"}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_tables","arguments":{"include_views":true}}}
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM search_products('laptop', NULL)"}}}
+{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM search_products(NULL, 'Electronics')"}}}
+{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM customer_report(1)"}}}
+{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM inventory_check(100)"}}}
+{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM inventory_check(50)"}}}
+{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM sales_summary('2024-06-01', '2024-06-30')"}}}
+{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM inventory_status ORDER BY stock"}}}
+{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM daily_summary"}}}
+{"jsonrpc":"2.0","id":99,"method":"shutdown","params":{}}
