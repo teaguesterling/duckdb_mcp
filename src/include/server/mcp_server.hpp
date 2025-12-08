@@ -88,7 +88,8 @@ public:
     string GetStatus() const;
     uint32_t GetConnectionCount() const { return active_connections.load(); }
     time_t GetUptime() const;
-    uint64_t GetRequestsServed() const { return requests_served.load(); }
+    uint64_t GetRequestsReceived() const { return requests_received.load(); }
+    uint64_t GetResponsesSent() const { return responses_sent.load(); }
     
     // Resource management
     bool PublishResource(const string &uri, unique_ptr<ResourceProvider> provider);
@@ -117,7 +118,8 @@ private:
     MCPServerConfig config;
     atomic<bool> running;
     atomic<uint32_t> active_connections;
-    atomic<uint64_t> requests_served;
+    atomic<uint64_t> requests_received;
+    atomic<uint64_t> responses_sent;
     time_t start_time;
 
     ResourceRegistry resource_registry;

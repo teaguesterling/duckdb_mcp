@@ -83,8 +83,8 @@ bool ToolRegistry::ToolExists(const string &name) const {
 // MCPServer Implementation
 //===--------------------------------------------------------------------===//
 
-MCPServer::MCPServer(const MCPServerConfig &config) 
-    : config(config), running(false), active_connections(0), requests_served(0) {
+MCPServer::MCPServer(const MCPServerConfig &config)
+    : config(config), running(false), active_connections(0), requests_received(0), responses_sent(0) {
     start_time = time(nullptr);
 }
 
@@ -176,7 +176,8 @@ string MCPServer::GetStatus() const {
     string status = "RUNNING\n";
     status += "Transport: " + config.transport + "\n";
     status += "Connections: " + std::to_string(active_connections.load()) + "\n";
-    status += "Requests Served: " + std::to_string(requests_served.load()) + "\n";
+    status += "Requests Received: " + std::to_string(requests_received.load()) + "\n";
+    status += "Responses Sent: " + std::to_string(responses_sent.load()) + "\n";
     status += "Uptime: " + std::to_string(GetUptime()) + " seconds\n";
     status += "Resources: " + std::to_string(resource_registry.ListResources().size()) + "\n";
     status += "Tools: " + std::to_string(tool_registry.ListTools().size());
@@ -228,10 +229,10 @@ void MCPServer::RunMainLoop() {
         throw InvalidInputException("Server must be started before calling RunMainLoop()");
     }
     
-    // Create server-side file descriptor transport using stdin/stdout
+    // Create server-side stdio transport using std::cin/std::cout
     auto transport = make_uniq<FdServerTransport>();
-    
-    // Connect and handle the connection in main thread (blocks forever)
+
+    // Connect and handle the connection in main thread (blocks until shutdown/max_requests)
     if (transport->Connect()) {
         HandleConnection(std::move(transport));
     }
@@ -239,7 +240,7 @@ void MCPServer::RunMainLoop() {
 
 void MCPServer::ServerLoop() {
     if (config.transport == "stdio") {
-        // Create server-side file descriptor transport using stdin/stdout
+        // Create server-side stdio transport using std::cin/std::cout
         auto transport = make_uniq<FdServerTransport>();
 
         // Connect and handle the connection
@@ -265,9 +266,10 @@ bool MCPServer::ProcessOneMessage() {
 
     try {
         auto request = test_transport->Receive();
+        requests_received.fetch_add(1);
         auto response = HandleRequest(request);
         test_transport->Send(response);
-        requests_served.fetch_add(1);
+        responses_sent.fetch_add(1);
         return true;
     } catch (const std::exception &) {
         return false;
@@ -281,9 +283,10 @@ void MCPServer::HandleConnection(unique_ptr<MCPTransport> transport) {
         while (running.load()) {
             try {
                 auto request = transport->Receive();
+                requests_received.fetch_add(1);
                 auto response = HandleRequest(request);
                 transport->Send(response);
-                requests_served.fetch_add(1);
+                responses_sent.fetch_add(1);
 
                 // If this was a shutdown request, break out of the loop
                 if (request.method == MCPMethods::SHUTDOWN) {
@@ -291,7 +294,7 @@ void MCPServer::HandleConnection(unique_ptr<MCPTransport> transport) {
                 }
 
                 // Check max_requests limit (0 = unlimited)
-                if (config.max_requests > 0 && requests_served.load() >= config.max_requests) {
+                if (config.max_requests > 0 && requests_received.load() >= config.max_requests) {
                     running = false;
                     break;
                 }

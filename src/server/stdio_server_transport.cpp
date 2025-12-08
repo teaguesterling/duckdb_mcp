@@ -1,33 +1,12 @@
 #include "server/stdio_server_transport.hpp"
 #include "protocol/mcp_message.hpp"
 #include "duckdb/common/exception.hpp"
+#include "duckdb_mcp_logging.hpp"
 #include <iostream>
-#include <thread>
-#include <chrono>
-#ifndef _WIN32
-#include <unistd.h>
-#include <poll.h>
-#include <fcntl.h>
-#endif
 
 namespace duckdb {
 
-FdServerTransport::FdServerTransport(int input_fd, int output_fd) 
-    : input_fd(input_fd), output_fd(output_fd), owns_fds(false), connected(false) {
-#ifdef _WIN32
-    throw NotImplementedException("Server transport not supported on Windows yet");
-#endif
-}
-
-FdServerTransport::FdServerTransport(const string &input_path, const string &output_path) 
-    : input_fd(-1), output_fd(-1), owns_fds(true), connected(false) {
-#ifdef _WIN32
-    throw NotImplementedException("Server transport not supported on Windows yet");
-#else
-    if (!OpenFileDescriptors(input_path, output_path)) {
-        throw IOException("Failed to open file descriptors: " + input_path + ", " + output_path);
-    }
-#endif
+FdServerTransport::FdServerTransport() : connected(false) {
 }
 
 FdServerTransport::~FdServerTransport() {
@@ -36,36 +15,17 @@ FdServerTransport::~FdServerTransport() {
 
 bool FdServerTransport::Connect() {
     lock_guard<mutex> lock(io_mutex);
-    
+
     if (connected) {
         return true;
     }
-    
-    // Validate file descriptors
-    if (input_fd < 0 || output_fd < 0) {
-        return false;
-    }
-    
+
     connected = true;
     return true;
 }
 
 void FdServerTransport::Disconnect() {
     lock_guard<mutex> lock(io_mutex);
-    
-#ifndef _WIN32
-    if (owns_fds) {
-        if (input_fd >= 0 && input_fd != STDIN_FILENO) {
-            close(input_fd);
-        }
-        if (output_fd >= 0 && output_fd != STDOUT_FILENO) {
-            close(output_fd);
-        }
-    }
-#endif
-    
-    input_fd = -1;
-    output_fd = -1;
     connected = false;
 }
 
@@ -75,55 +35,57 @@ bool FdServerTransport::IsConnected() const {
 
 void FdServerTransport::Send(const MCPMessage &message) {
     if (!IsConnected()) {
+        MCP_LOG_ERROR("stdio", "Send called but not connected");
         throw IOException("Not connected");
     }
-    
+
     lock_guard<mutex> lock(io_mutex);
-    
+
     try {
         string json = message.ToJSON();
-        WriteLine(json);
-        
-        // Flush output
-#ifndef _WIN32
-        if (output_fd == STDOUT_FILENO) {
-            std::cout.flush();
-        } else {
-            fsync(output_fd);
-        }
-#else
+        MCP_LOG_DEBUG("stdio", "Sending response: %s", json.substr(0, 100).c_str());
+        // Write directly to stdout and flush immediately
+        std::cout << json << std::endl;
         std::cout.flush();
-#endif
+        MCP_LOG_DEBUG("stdio", "Response sent and flushed");
+
     } catch (const std::exception &e) {
+        MCP_LOG_ERROR("stdio", "Failed to send message: %s", e.what());
         throw IOException("Failed to send message: " + string(e.what()));
     }
 }
 
 MCPMessage FdServerTransport::Receive() {
     if (!IsConnected()) {
+        MCP_LOG_ERROR("stdio", "Receive called but not connected");
         throw IOException("Not connected");
     }
-    
+
     lock_guard<mutex> lock(io_mutex);
-    
+
     try {
-        // Wait for input to be available
-        while (!HasInputAvailable()) {
-            if (!connected) {
-                throw IOException("Connection closed");
-            }
-            // Small delay to prevent busy waiting
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        MCP_LOG_DEBUG("stdio", "Waiting for input on stdin...");
+        // Use std::getline which blocks until a line is available
+        // This properly handles iostream buffering without mixing with poll()
+        string line;
+        if (!std::getline(std::cin, line)) {
+            MCP_LOG_DEBUG("stdio", "EOF or error on stdin");
+            throw IOException("End of input stream");
         }
-        
-        string line = ReadLine();
+
+        MCP_LOG_DEBUG("stdio", "Received line (%zu chars): %s", line.length(), line.substr(0, 100).c_str());
+
         if (line.empty()) {
+            MCP_LOG_WARN("stdio", "Received empty line");
             throw IOException("Received empty message");
         }
-        
+
         return MCPMessage::FromJSON(line);
-        
+
+    } catch (const IOException &) {
+        throw;
     } catch (const std::exception &e) {
+        MCP_LOG_ERROR("stdio", "Failed to receive/parse message: %s", e.what());
         throw IOException("Failed to receive message: " + string(e.what()));
     }
 }
@@ -138,105 +100,7 @@ bool FdServerTransport::Ping() {
 }
 
 string FdServerTransport::GetConnectionInfo() const {
-    if (input_fd == STDIN_FILENO && output_fd == STDOUT_FILENO) {
-        return "fd server transport (stdin/stdout)";
-    } else {
-        return "fd server transport (fds: " + std::to_string(input_fd) + "/" + std::to_string(output_fd) + ")";
-    }
-}
-
-string FdServerTransport::ReadLine() {
-#ifdef _WIN32
-    throw NotImplementedException("Server transport not supported on Windows yet");
-#else
-    string line;
-
-    if (input_fd == STDIN_FILENO) {
-        // Use standard getline for stdin
-        if (!std::getline(std::cin, line)) {
-            throw IOException("Failed to read from stdin");
-        }
-    } else {
-        // Read from file descriptor until newline using a character at a time
-        // Reserve some space to reduce reallocations for typical JSON-RPC messages
-        line.reserve(4096);
-        char c;
-        ssize_t bytes_read;
-        while ((bytes_read = read(input_fd, &c, 1)) > 0) {
-            if (c == '\n') {
-                break;
-            }
-            line += c;
-        }
-        if (bytes_read < 0) {
-            throw IOException("Failed to read from file descriptor");
-        }
-    }
-
-    return line;
-#endif
-}
-
-void FdServerTransport::WriteLine(const string &line) {
-#ifdef _WIN32
-    throw NotImplementedException("Server transport not supported on Windows yet");
-#else
-    string output = line + "\n";
-    
-    if (output_fd == STDOUT_FILENO) {
-        std::cout << line << std::endl;
-    } else {
-        ssize_t bytes_written = write(output_fd, output.c_str(), output.length());
-        if (bytes_written < 0 || static_cast<size_t>(bytes_written) != output.length()) {
-            throw IOException("Failed to write to file descriptor");
-        }
-    }
-#endif
-}
-
-bool FdServerTransport::HasInputAvailable() {
-#ifdef _WIN32
-    return false; // Windows polling not implemented yet
-#else
-    // Use poll to check if file descriptor has data available
-    struct pollfd pfd;
-    pfd.fd = input_fd;
-    pfd.events = POLLIN;
-    
-    int result = poll(&pfd, 1, 0); // Non-blocking poll
-    return result > 0 && (pfd.revents & POLLIN);
-#endif
-}
-
-bool FdServerTransport::OpenFileDescriptors(const string &input_path, const string &output_path) {
-#ifdef _WIN32
-    return false; // Windows file descriptor opening not implemented yet
-#else
-    // Open input file descriptor
-    if (input_path == "/dev/stdin") {
-        input_fd = STDIN_FILENO;
-    } else {
-        input_fd = open(input_path.c_str(), O_RDONLY);
-        if (input_fd < 0) {
-            return false;
-        }
-    }
-    
-    // Open output file descriptor
-    if (output_path == "/dev/stdout") {
-        output_fd = STDOUT_FILENO;
-    } else {
-        output_fd = open(output_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
-        if (output_fd < 0) {
-            if (input_fd >= 0 && input_fd != STDIN_FILENO) {
-                close(input_fd);
-            }
-            return false;
-        }
-    }
-    
-    return true;
-#endif
+    return "stdio server transport (stdin/stdout)";
 }
 
 } // namespace duckdb
