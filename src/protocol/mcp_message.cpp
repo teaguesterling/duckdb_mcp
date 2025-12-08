@@ -33,7 +33,9 @@ MCPMessage MCPMessage::CreateResponse(const Value &result, const Value &id) {
 
 MCPMessage MCPMessage::CreateError(int code, const string &message, const Value &id, const Value &data) {
     MCPMessage msg;
-    msg.type = MCPMessageType::ERROR;
+    // Use RESPONSE type since JSON-RPC 2.0 uses the same structure for success/error responses
+    // The has_error flag and error fields indicate this is an error response
+    msg.type = MCPMessageType::RESPONSE;
     msg.has_error = true;
     msg.error.code = code;
     msg.error.message = message;

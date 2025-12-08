@@ -1,0 +1,94 @@
+{
+  "description": "Test calls for DevOps MCP server",
+  "calls": [
+    {
+      "name": "Initialize connection",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+          "protocolVersion": "2024-11-05",
+          "capabilities": {},
+          "clientInfo": {"name": "devops-test", "version": "1.0"}
+        }
+      }
+    },
+    {
+      "section": "Git History",
+      "name": "Recent commits",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 10,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT hash[:8] as commit, author_name, message[:50] as msg FROM git_log() ORDER BY author_date DESC LIMIT 5"}
+        }
+      }
+    },
+    {
+      "name": "List branches",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 11,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT * FROM git_branches()"}
+        }
+      }
+    },
+    {
+      "section": "Test Results",
+      "name": "Parse pytest output (example)",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 20,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT 'pytest' as format, 'Use read_test_results(file, format) to parse test output' as note"}
+        }
+      }
+    },
+    {
+      "section": "YAML Parsing",
+      "name": "Parse YAML files (example)",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 30,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT 'yaml' as format, 'Use read_yaml(file) to parse YAML configs' as note"}
+        }
+      }
+    },
+    {
+      "section": "Network",
+      "name": "IP address parsing",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 40,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT '192.168.1.100'::INET as ip, host('192.168.1.100'::INET) as host, family('192.168.1.100'::INET) as family"}
+        }
+      }
+    },
+    {
+      "name": "IP range check",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 41,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT '10.0.0.5'::INET <<= '10.0.0.0/8'::INET as is_private_class_a"}
+        }
+      }
+    }
+  ]
+}

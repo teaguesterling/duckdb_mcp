@@ -10,7 +10,7 @@ CREATE TABLE organizations (
     name VARCHAR NOT NULL,
     slug VARCHAR UNIQUE NOT NULL,
     plan VARCHAR DEFAULT 'free',  -- free, pro, enterprise
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP,
     settings JSON DEFAULT '{}'
 );
 
@@ -22,7 +22,7 @@ CREATE TABLE users (
     name VARCHAR NOT NULL,
     role VARCHAR DEFAULT 'member',  -- admin, member, viewer
     status VARCHAR DEFAULT 'active',  -- active, invited, suspended
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP,
     last_login TIMESTAMP,
     UNIQUE(org_id, email)
 );
@@ -35,8 +35,8 @@ CREATE TABLE projects (
     description TEXT,
     status VARCHAR DEFAULT 'active',  -- active, archived, deleted
     owner_id INTEGER REFERENCES users(id),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP
 );
 
 -- Tasks
@@ -49,7 +49,7 @@ CREATE TABLE tasks (
     priority VARCHAR DEFAULT 'medium',  -- low, medium, high, urgent
     assignee_id INTEGER REFERENCES users(id),
     due_date DATE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP,
     completed_at TIMESTAMP
 );
 
@@ -66,7 +66,7 @@ CREATE TABLE activity_log (
     entity_type VARCHAR,
     entity_id INTEGER,
     metadata JSON,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP
 );
 
 -- Daily metrics (pre-aggregated)
@@ -78,5 +78,3 @@ CREATE TABLE daily_metrics (
     tasks_completed INTEGER DEFAULT 0,
     PRIMARY KEY (date, org_id)
 );
-
-.print '[01-schema] Database schema created'

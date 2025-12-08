@@ -1,79 +1,48 @@
-# Configured MCP Server Example
+# Configured MCP Server
 
-A DuckDB MCP server with custom configuration options - persistent database, specific tools enabled, and custom settings.
+MCP server with custom tool configuration.
 
-## What This Example Demonstrates
+## What it Demonstrates
 
-- Persistent database file
-- Selective tool enablement
-- Custom server configuration
-- Environment variable overrides
-- DuckDB settings configuration
+- Selective tool enabling/disabling
+- Execute tool disabled for read-only access
+- Query, describe, list_tables, database_info, export enabled
+
+## Configuration
+
+The server is configured with:
+- `enable_query_tool: true`
+- `enable_describe_tool: true`
+- `enable_list_tables_tool: true`
+- `enable_database_info_tool: true`
+- `enable_export_tool: true`
+- `enable_execute_tool: false` (disabled for safety)
 
 ## Files
 
-- `launch-mcp.sh` - Entry point with environment variable support
-- `mcp.json` - MCP server configuration
-- `init-mcp-db.sql` - Database and extension configuration
-- `start-mcp-server.sql` - Server startup with custom options
-- `config.env` - Optional environment configuration
-
-## Configuration Options
-
-This example shows how to:
-
-1. **Use a persistent database** - Data survives server restarts
-2. **Enable/disable specific tools** - Only expose what you need
-3. **Set DuckDB options** - Memory limits, threads, etc.
-4. **Configure via environment** - Override settings without editing files
+- `init-mcp-server.sql` - Loads extension, configures and starts server
+- `mcp.json` - MCP client configuration
+- `test-calls.ldjson` - Test requests including execute (should fail)
 
 ## Usage
 
-### Basic Usage
-
-```bash
-./launch-mcp.sh
-```
-
-### With Custom Database Path
-
-```bash
-DB_PATH=/path/to/my.duckdb ./launch-mcp.sh
-```
-
-### With Development Build
-
-```bash
-DUCKDB=../../build/release/duckdb ./launch-mcp.sh
-```
-
-### Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DUCKDB` | `duckdb` | Path to DuckDB binary |
-| `DB_PATH` | `./data.duckdb` | Database file path |
-| `MEMORY_LIMIT` | `2GB` | DuckDB memory limit |
-| `THREADS` | `4` | Number of worker threads |
-
-## Available Tools
-
-This example enables a read-heavy configuration:
-
-- `query` - Execute SQL queries
-- `describe` - Describe tables or queries
-- `list_tables` - List all tables
-- `database_info` - Get database overview
-- `export` - Export query results
-
-The `execute` tool is **disabled** in this example for safety.
-
-## Test Calls
+Add to your MCP client configuration:
 
 ```json
-// Query with specific format
-{"method": "tools/call", "params": {"name": "query", "arguments": {"sql": "SELECT 1 + 1 AS result", "format": "json"}}}
+{
+  "mcpServers": {
+    "duckdb-configured": {
+      "command": "duckdb",
+      "args": ["-init", "init-mcp-server.sql"]
+    }
+  }
+}
+```
 
-// Export to CSV format
-{"method": "tools/call", "params": {"name": "export", "arguments": {"query": "SELECT 1, 2, 3", "format": "csv"}}}
+## Testing
+
+The test file includes an execute call that should return an error since execute is disabled:
+
+```bash
+cat test-calls.ldjson | duckdb -init init-mcp-server.sql 2>/dev/null | jq .
 ```

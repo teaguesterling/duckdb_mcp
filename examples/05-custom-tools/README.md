@@ -1,118 +1,62 @@
-# Custom Tools and Resources Example
+# Custom Tools Example
 
-A DuckDB MCP server demonstrating how to create custom SQL-based tools and publish database resources.
+MCP server with domain-specific tools using DuckDB macros.
 
-## What This Example Demonstrates
+## What it Demonstrates
 
-- Creating custom tools from SQL templates
-- Publishing tables as MCP resources
-- Publishing query results as dynamic resources
-- Domain-specific tool creation
+- DuckDB table macros as queryable functions
+- Custom business logic exposed through SQL
+- Views for pre-computed analytics
+- All tools enabled including execute
 
-## Custom Tools
+## Custom Macros
 
-This example creates several custom tools:
+- **search_products(term, category)** - Product search with filters
+- **customer_report(customer_id)** - Customer summary with orders
+- **inventory_check(threshold)** - Stock level analysis
+- **sales_summary(start_date, end_date)** - Date range sales report
 
-### 1. `search_products`
-Search products by name or category with fuzzy matching.
+## Views
 
-```json
-{
-  "name": "search_products",
-  "arguments": {
-    "search_term": "laptop",
-    "category": "Electronics"
-  }
-}
-```
-
-### 2. `customer_report`
-Generate a customer activity report.
-
-```json
-{
-  "name": "customer_report",
-  "arguments": {
-    "customer_id": 1
-  }
-}
-```
-
-### 3. `inventory_check`
-Check inventory levels with low-stock alerts.
-
-```json
-{
-  "name": "inventory_check",
-  "arguments": {
-    "threshold": 50
-  }
-}
-```
-
-### 4. `sales_summary`
-Get sales summary for a date range.
-
-```json
-{
-  "name": "sales_summary",
-  "arguments": {
-    "start_date": "2024-06-01",
-    "end_date": "2024-06-30"
-  }
-}
-```
-
-## Published Resources
-
-Resources are published at URIs that MCP clients can read:
-
-- `db://tables/products` - Product catalog
-- `db://tables/customers` - Customer list
-- `db://views/inventory_status` - Current inventory levels
-- `db://reports/daily_summary` - Auto-refreshing daily summary
+- **inventory_status** - Product stock levels with status labels
+- **daily_summary** - Dashboard metrics
 
 ## Files
 
-- `launch-mcp.sh` - Entry point
-- `mcp.json` - MCP server configuration
-- `init-mcp-db.sql` - Schema, data, and custom tool definitions
-- `start-mcp-server.sql` - Server startup with resource publishing
+- `init-mcp-server.sql` - Schema, data, macros, views, and server start
+- `mcp.json` - MCP client configuration
+- `test-calls.ldjson` - Tests for custom tools
 
 ## Usage
 
+Add to your MCP client configuration:
+
+```json
+{
+  "mcpServers": {
+    "duckdb-custom-tools": {
+      "command": "duckdb",
+      "args": ["-init", "init-mcp-server.sql"]
+    }
+  }
+}
+```
+
+## Example Queries
+
+```sql
+-- Search for laptop products
+SELECT * FROM search_products('laptop', NULL);
+
+-- Check inventory below threshold
+SELECT * FROM inventory_check(100);
+
+-- Customer report
+SELECT * FROM customer_report(1);
+```
+
+## Testing
+
 ```bash
-./launch-mcp.sh
-```
-
-## Creating Your Own Custom Tools
-
-Custom tools are SQL templates with parameter substitution:
-
-```sql
-SELECT mcp_register_sql_tool(
-    'my_tool',                              -- Tool name
-    'Description of what it does',          -- Description
-    'SELECT * FROM table WHERE col = $param', -- SQL template
-    '{"param": "string"}'                   -- Parameter schema
-);
-```
-
-Parameters use `$name` syntax and are substituted safely.
-
-## Publishing Resources
-
-Publish tables or queries as MCP resources:
-
-```sql
--- Publish a table
-SELECT mcp_publish_table('my_table', 'db://tables/my_table', 'json');
-
--- Publish a query with auto-refresh (every 60 seconds)
-SELECT mcp_publish_query(
-    'SELECT * FROM stats',
-    'db://stats/current',
-    'json',
-    60
-);
+cat test-calls.ldjson | duckdb -init init-mcp-server.sql 2>/dev/null | jq .
 ```

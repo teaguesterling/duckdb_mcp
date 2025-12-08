@@ -125,4 +125,3 @@ JOIN organizations o ON m.org_id = o.id
 WHERE m.date >= CURRENT_DATE - INTERVAL '7 days'
 GROUP BY o.id, o.name;
 
-.print '[03-views] Views created'

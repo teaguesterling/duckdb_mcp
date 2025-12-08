@@ -1,0 +1,12 @@
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test-client","version":"1.0.0"}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_tables","arguments":{"include_views":true}}}
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"describe","arguments":{"table":"customers"}}}
+{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM customers ORDER BY id"}}}
+{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT category, COUNT(*) as count, AVG(price) as avg_price FROM products GROUP BY category ORDER BY count DESC"}}}
+{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM customer_orders ORDER BY total_spent DESC"}}}
+{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT product_name, category, units_sold, total_revenue FROM product_sales WHERE units_sold > 0 ORDER BY total_revenue DESC"}}}
+{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM order_details ORDER BY order_date DESC"}}}
+{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT * FROM products ORDER BY category, name","format":"csv"}}}
+{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"database_info","arguments":{}}}
+{"jsonrpc":"2.0","id":99,"method":"shutdown","params":{}}

@@ -9,6 +9,7 @@
 #include "json_utils.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/common/exception.hpp"
+#include "duckdb/common/types/value.hpp"
 
 namespace duckdb {
 
@@ -131,11 +132,11 @@ yyjson_mut_val *JSONUtils::ValueToJSON(yyjson_mut_doc *doc, const Value &value) 
     if (!doc) {
         throw InternalException("JSON document is null");
     }
-    
+
     if (value.IsNull()) {
         return yyjson_mut_null(doc);
     }
-    
+
     switch (value.type().id()) {
         case LogicalTypeId::BOOLEAN:
             return yyjson_mut_bool(doc, value.GetValue<bool>());
@@ -162,6 +163,42 @@ yyjson_mut_val *JSONUtils::ValueToJSON(yyjson_mut_doc *doc, const Value &value) 
         case LogicalTypeId::VARCHAR:
         case LogicalTypeId::BLOB:
             return yyjson_mut_strcpy(doc, value.ToString().c_str());
+        case LogicalTypeId::STRUCT: {
+            // Convert STRUCT to JSON object
+            yyjson_mut_val *obj = CreateObject(doc);
+            auto &struct_values = StructValue::GetChildren(value);
+            auto &struct_type = value.type();
+            for (size_t i = 0; i < struct_values.size(); i++) {
+                auto &key = StructType::GetChildName(struct_type, i);
+                yyjson_mut_val *child_val = ValueToJSON(doc, struct_values[i]);
+                yyjson_mut_obj_add(obj, yyjson_mut_strcpy(doc, key.c_str()), child_val);
+            }
+            return obj;
+        }
+        case LogicalTypeId::LIST: {
+            // Convert LIST to JSON array
+            yyjson_mut_val *arr = CreateArray(doc);
+            auto &list_values = ListValue::GetChildren(value);
+            for (auto &item : list_values) {
+                yyjson_mut_val *item_val = ValueToJSON(doc, item);
+                ArrayAdd(doc, arr, item_val);
+            }
+            return arr;
+        }
+        case LogicalTypeId::MAP: {
+            // Convert MAP to JSON object (keys must be strings for valid JSON)
+            yyjson_mut_val *obj = CreateObject(doc);
+            auto &map_values = MapValue::GetChildren(value);
+            for (auto &kv : map_values) {
+                auto &kv_children = StructValue::GetChildren(kv);
+                if (kv_children.size() >= 2) {
+                    string key = kv_children[0].ToString();
+                    yyjson_mut_val *val = ValueToJSON(doc, kv_children[1]);
+                    yyjson_mut_obj_add(obj, yyjson_mut_strcpy(doc, key.c_str()), val);
+                }
+            }
+            return obj;
+        }
         default:
             // For other types, convert to string
             return yyjson_mut_strcpy(doc, value.ToString().c_str());
@@ -271,13 +308,144 @@ yyjson_val *JSONUtils::GetArray(yyjson_val *obj, const char *key) {
     if (!obj || !key) {
         return nullptr;
     }
-    
+
     yyjson_val *val = yyjson_obj_get(obj, key);
     if (!val || !yyjson_is_arr(val)) {
         return nullptr;
     }
-    
+
     return val;
+}
+
+//===--------------------------------------------------------------------===//
+// JSONArgumentParser Implementation
+//===--------------------------------------------------------------------===//
+
+bool JSONArgumentParser::Parse(const Value &arguments) {
+    // Clean up any previous state
+    if (doc) {
+        JSONUtils::FreeDocument(doc);
+        doc = nullptr;
+        root = nullptr;
+    }
+
+    if (arguments.IsNull()) {
+        // Empty arguments - create empty JSON object
+        json_buffer = "{}";
+        doc = JSONUtils::Parse(json_buffer);
+        root = yyjson_doc_get_root(doc);
+        return true;
+    }
+
+    if (arguments.type().id() == LogicalTypeId::VARCHAR) {
+        // Already a JSON string - parse directly
+        json_buffer = arguments.ToString();
+        if (json_buffer.empty()) {
+            json_buffer = "{}";
+        }
+        try {
+            doc = JSONUtils::Parse(json_buffer);
+            root = yyjson_doc_get_root(doc);
+            return root != nullptr && yyjson_is_obj(root);
+        } catch (...) {
+            return false;
+        }
+    } else if (arguments.type().id() == LogicalTypeId::STRUCT) {
+        // Convert STRUCT to JSON string first, then parse
+        yyjson_mut_doc *mut_doc = JSONUtils::CreateDocument();
+        yyjson_mut_val *json_obj = JSONUtils::ValueToJSON(mut_doc, arguments);
+        yyjson_mut_doc_set_root(mut_doc, json_obj);
+        json_buffer = JSONUtils::Serialize(mut_doc);
+        JSONUtils::FreeDocument(mut_doc);
+
+        // Now parse the JSON string
+        doc = JSONUtils::Parse(json_buffer);
+        root = yyjson_doc_get_root(doc);
+        return root != nullptr && yyjson_is_obj(root);
+    }
+
+    // Unsupported argument type
+    return false;
+}
+
+bool JSONArgumentParser::HasField(const string &name) const {
+    if (!root) {
+        return false;
+    }
+    yyjson_val *val = yyjson_obj_get(root, name.c_str());
+    return val != nullptr;
+}
+
+string JSONArgumentParser::GetString(const string &name, const string &default_value) const {
+    if (!root) {
+        return default_value;
+    }
+    return JSONUtils::GetString(root, name.c_str(), default_value);
+}
+
+int64_t JSONArgumentParser::GetInt(const string &name, int64_t default_value) const {
+    if (!root) {
+        return default_value;
+    }
+    return JSONUtils::GetInt(root, name.c_str(), default_value);
+}
+
+bool JSONArgumentParser::GetBool(const string &name, bool default_value) const {
+    if (!root) {
+        return default_value;
+    }
+    return JSONUtils::GetBool(root, name.c_str(), default_value);
+}
+
+string JSONArgumentParser::GetObjectAsJSON(const string &name) const {
+    if (!root) {
+        return "{}";
+    }
+    yyjson_val *obj = JSONUtils::GetObject(root, name.c_str());
+    if (!obj) {
+        return "{}";
+    }
+    size_t len;
+    char *json = yyjson_val_write(obj, 0, &len);
+    if (!json) {
+        return "{}";
+    }
+    string result(json, len);
+    free(json);
+    return result;
+}
+
+bool JSONArgumentParser::ValidateRequired(const vector<string> &required_fields) const {
+    for (const auto &field : required_fields) {
+        if (!HasField(field)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+vector<string> JSONArgumentParser::GetFieldNames() const {
+    vector<string> names;
+    if (!root || !yyjson_is_obj(root)) {
+        return names;
+    }
+
+    yyjson_obj_iter iter;
+    yyjson_obj_iter_init(root, &iter);
+    yyjson_val *key;
+    while ((key = yyjson_obj_iter_next(&iter)) != nullptr) {
+        const char *key_str = yyjson_get_str(key);
+        if (key_str) {
+            names.push_back(string(key_str));
+        }
+    }
+    return names;
+}
+
+JSONArgumentParser::~JSONArgumentParser() {
+    if (doc) {
+        JSONUtils::FreeDocument(doc);
+    }
 }
 
 } // namespace duckdb

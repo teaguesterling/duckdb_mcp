@@ -1,0 +1,143 @@
+{
+  "description": "Test calls for Documentation MCP server",
+  "calls": [
+    {
+      "name": "Initialize connection",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+          "protocolVersion": "2024-11-05",
+          "capabilities": {},
+          "clientInfo": {"name": "docs-test", "version": "1.0"}
+        }
+      }
+    },
+    {
+      "section": "Text Inflection",
+      "name": "Pluralize words",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 10,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT inflect_pluralize('category') as plural, inflect_pluralize('index') as plural2, inflect_pluralize('person') as plural3"}
+        }
+      }
+    },
+    {
+      "name": "Singularize words",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 11,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT inflect_singularize('categories') as singular, inflect_singularize('indices') as singular2, inflect_singularize('people') as singular3"}
+        }
+      }
+    },
+    {
+      "name": "Title case conversion",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 12,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT inflect_titleize('hello_world') as title, inflect_tableize('UserAccount') as table_name"}
+        }
+      }
+    },
+    {
+      "section": "Fuzzy Matching",
+      "name": "String similarity ratio",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 20,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT rapidfuzz_ratio('hello world', 'hello word') as similarity, rapidfuzz_ratio('test', 'testing') as similarity2"}
+        }
+      }
+    },
+    {
+      "name": "Partial string match",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 21,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT rapidfuzz_partial_ratio('world', 'hello world') as partial_match"}
+        }
+      }
+    },
+    {
+      "section": "YAML Parsing",
+      "name": "Parse YAML content",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 30,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT yaml_extract('title: Test Doc\nauthor: Jane\nversion: 1.0', '$.title') as title, yaml_extract('title: Test Doc\nauthor: Jane\nversion: 1.0', '$.author') as author"}
+        }
+      }
+    },
+    {
+      "section": "Templating",
+      "name": "Render Jinja template",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 40,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT minijinja_render('Hello {{ name }}! You have {{ count }} messages.', '{\"name\": \"Alice\", \"count\": 5}') as rendered"}
+        }
+      }
+    },
+    {
+      "name": "Template with loop",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 41,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT minijinja_render('Items: {% for item in items %}{{ item }}{% if not loop.last %}, {% endif %}{% endfor %}', '{\"items\": [\"apple\", \"banana\", \"cherry\"]}') as rendered"}
+        }
+      }
+    },
+    {
+      "section": "Helper Macros",
+      "name": "Check front matter extraction",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 50,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT extract_front_matter('---\ntitle: Test\n---\nContent here') as front_matter"}
+        }
+      }
+    },
+    {
+      "name": "List available macros",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 51,
+        "method": "tools/call",
+        "params": {
+          "name": "query",
+          "arguments": {"sql": "SELECT macro_name, parameters FROM duckdb_macros() WHERE NOT internal"}
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "duckdb-mcp-test": {
+      "command": "./build/release/duckdb",
+      "args": [
+        "-c",
+        "SELECT mcp_server_start('stdio');"
+      ]
+    }
+  }
+}

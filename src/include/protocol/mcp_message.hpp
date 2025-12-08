@@ -14,7 +14,7 @@ enum class MCPMessageType {
 
 // MCP message structure
 struct MCPMessage {
-    MCPMessageType type;
+    MCPMessageType type = MCPMessageType::REQUEST;  // Default to REQUEST
     string jsonrpc = "2.0";  // Always "2.0" for JSON-RPC 2.0
     
     // Request/Notification fields

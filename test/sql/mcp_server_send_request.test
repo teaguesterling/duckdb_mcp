@@ -1,0 +1,148 @@
+# name: test/sql/mcp_server_send_request.test
+# description: Test MCP server using mcp_server_send_request() function
+# group: [mcp]
+
+require duckdb_mcp
+
+# ===================================
+# Setup: Force stop any running server and start fresh
+# ===================================
+statement ok
+SELECT mcp_server_stop(true);
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# ===================================
+# Test 1: Initialize method
+# ===================================
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}') LIKE '%"capabilities"%';
+----
+true
+
+# ===================================
+# Test 2: Tools list returns expected tools
+# ===================================
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}') LIKE '%"query"%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":3,"method":"tools/list","params":{}}') LIKE '%"describe"%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":4,"method":"tools/list","params":{}}') LIKE '%"list_tables"%';
+----
+true
+
+# ===================================
+# Test 3: Resources list (empty by default)
+# ===================================
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":5,"method":"resources/list","params":{}}') LIKE '%"resources"%';
+----
+true
+
+# ===================================
+# Test 4: Create test data and query it
+# ===================================
+statement ok
+CREATE TABLE mcp_test_users (id INTEGER, name VARCHAR, email VARCHAR);
+
+statement ok
+INSERT INTO mcp_test_users VALUES (1, 'Alice', 'alice@example.com'), (2, 'Bob', 'bob@example.com');
+
+# Test tools/call with query tool
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM mcp_test_users ORDER BY id"}}}') LIKE '%Alice%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM mcp_test_users ORDER BY id"}}}') LIKE '%Bob%';
+----
+true
+
+# ===================================
+# Test 5: Test describe tool
+# ===================================
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"describe","arguments":{"table":"mcp_test_users"}}}') LIKE '%name%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"describe","arguments":{"table":"mcp_test_users"}}}') LIKE '%email%';
+----
+true
+
+# ===================================
+# Test 6: Test list_tables tool
+# ===================================
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"list_tables","arguments":{}}}') LIKE '%mcp_test_users%';
+----
+true
+
+# ===================================
+# Test 7: Test database_info tool
+# ===================================
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"database_info","arguments":{}}}') LIKE '%"result"%';
+----
+true
+
+# ===================================
+# Test 8: Error handling - invalid method
+# ===================================
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":12,"method":"invalid/method","params":{}}') LIKE '%"error"%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":13,"method":"invalid/method","params":{}}') LIKE '%Method not found%';
+----
+true
+
+# ===================================
+# Test 9: Error handling - invalid tool
+# ===================================
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":14,"method":"tools/call","params":{"name":"nonexistent_tool","arguments":{}}}') LIKE '%Tool not found%';
+----
+true
+
+# ===================================
+# Test 10: Shutdown method (also stops the server)
+# Note: Use subquery to ensure single function evaluation since shutdown stops the server
+# ===================================
+query I
+SELECT r LIKE '%shutting down%' FROM (SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":15,"method":"shutdown","params":{}}') as r);
+----
+true
+
+# ===================================
+# Test 11: Verify send_request fails without running server
+# (Server was stopped by shutdown above, but force stop to be safe)
+# ===================================
+statement ok
+SELECT mcp_server_stop(true);
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":16,"method":"initialize","params":{}}') LIKE '%No MCP server running%';
+----
+true
+
+# ===================================
+# Cleanup
+# ===================================
+statement ok
+DROP TABLE mcp_test_users;
+
+statement ok
+SELECT mcp_server_stop(true);

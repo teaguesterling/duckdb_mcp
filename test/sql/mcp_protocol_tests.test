@@ -1,0 +1,76 @@
+# name: test/sql/mcp_protocol_tests.test
+# description: Test MCP protocol handling via mcp_server_test function
+# group: [duckdb_mcp]
+
+# Load the MCP extension
+require duckdb_mcp
+
+statement ok
+LOAD duckdb_mcp;
+
+# Test 1: Initialize request
+# The initialize method should return server capabilities
+query I
+SELECT mcp_server_test('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"Test","version":"1.0"},"capabilities":{}}}') LIKE '%"result"%';
+----
+true
+
+# Test 2: tools/list request
+# Should return list of available tools (query, describe, etc.)
+query I
+SELECT mcp_server_test('{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}') LIKE '%"tools"%';
+----
+true
+
+# Test 3: resources/list request
+# Should return list of published resources (initially empty)
+query I
+SELECT mcp_server_test('{"jsonrpc":"2.0","id":3,"method":"resources/list","params":{}}') LIKE '%"resources"%';
+----
+true
+
+# Test 4: Invalid method should return error
+query I
+SELECT mcp_server_test('{"jsonrpc":"2.0","id":4,"method":"invalid/method","params":{}}') LIKE '%"error"%';
+----
+true
+
+# Test 5: Malformed JSON should return error
+query I
+SELECT mcp_server_test('not valid json') LIKE '%"error"%';
+----
+true
+
+# Test 6: Verify tools/list contains expected tools
+# Check for query tool (should be enabled by default)
+query I
+SELECT mcp_server_test('{"jsonrpc":"2.0","id":5,"method":"tools/list","params":{}}') LIKE '%"query"%';
+----
+true
+
+# Test 7: Verify tools/list contains describe tool
+query I
+SELECT mcp_server_test('{"jsonrpc":"2.0","id":6,"method":"tools/list","params":{}}') LIKE '%"describe"%';
+----
+true
+
+# Test 8: Verify tools/list contains list_tables tool
+query I
+SELECT mcp_server_test('{"jsonrpc":"2.0","id":7,"method":"tools/list","params":{}}') LIKE '%"list_tables"%';
+----
+true
+
+# Test 9: Create a table and test tools/call with query tool
+statement ok
+CREATE TABLE test_protocol_data AS SELECT 1 as id, 'hello' as message;
+
+# Note: tools/call test would require proper argument formatting
+# This is a basic validation that the method is recognized
+query I
+SELECT mcp_server_test('{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"list_tables","arguments":{}}}') LIKE '%test_protocol_data%' OR mcp_server_test('{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"list_tables","arguments":{}}}') LIKE '%"result"%';
+----
+true
+
+# Cleanup
+statement ok
+DROP TABLE test_protocol_data;

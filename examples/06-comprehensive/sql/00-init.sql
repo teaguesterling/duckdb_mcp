@@ -8,4 +8,3 @@ SET memory_limit = '2GB';
 SET threads = 4;
 SET enable_progress_bar = false;
 
-.print '[00-init] Extensions and settings loaded'

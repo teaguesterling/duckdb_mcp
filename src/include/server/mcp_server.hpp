@@ -37,6 +37,8 @@ struct MCPServerConfig {
     vector<string> denied_queries;       // SQL query denylist
     uint32_t max_connections = 10;       // Maximum concurrent connections
     uint32_t request_timeout_seconds = 30; // Request timeout
+    uint32_t max_requests = 0;           // Maximum requests before shutdown (0 = unlimited)
+    bool background = false;             // Run server in background thread (for testing)
     bool require_auth = false;           // Authentication required
     string auth_token;                   // Bearer token for authentication
     DatabaseInstance *db_instance = nullptr; // DuckDB instance
@@ -77,16 +79,17 @@ public:
     ~MCPServer();
 
     // Server lifecycle
-    bool Start();
+    bool Start();           // Start in background mode (spawns thread)
+    bool StartForeground(); // Start in foreground mode (no thread, caller uses RunMainLoop)
     void Stop();
     bool IsRunning() const { return running.load(); }
-    void SetRunning(bool state) { running.store(state); }
     
     // Server information
     string GetStatus() const;
     uint32_t GetConnectionCount() const { return active_connections.load(); }
     time_t GetUptime() const;
-    uint64_t GetRequestsServed() const { return requests_served.load(); }
+    uint64_t GetRequestsReceived() const { return requests_received.load(); }
+    uint64_t GetResponsesSent() const { return responses_sent.load(); }
     
     // Resource management
     bool PublishResource(const string &uri, unique_ptr<ResourceProvider> provider);
@@ -101,17 +104,29 @@ public:
     // Main loop for stdio mode (blocks until process ends)
     void RunMainLoop();
 
+    // Testing support: process a single request directly (no transport)
+    MCPMessage ProcessRequest(const MCPMessage &request);
+
+    // Testing support: set a custom transport (for memory/mock transports)
+    void SetTransport(unique_ptr<MCPTransport> transport);
+
+    // Testing support: process exactly one message from transport and return
+    // Returns true if a message was processed, false if connection closed
+    bool ProcessOneMessage();
+
 private:
     MCPServerConfig config;
     atomic<bool> running;
     atomic<uint32_t> active_connections;
-    atomic<uint64_t> requests_served;
+    atomic<uint64_t> requests_received;
+    atomic<uint64_t> responses_sent;
     time_t start_time;
-    
+
     ResourceRegistry resource_registry;
     ToolRegistry tool_registry;
-    
+
     unique_ptr<std::thread> server_thread;
+    unique_ptr<MCPTransport> test_transport;  // For testing with custom transports
     
     // Request handling
     void ServerLoop();
@@ -141,11 +156,14 @@ private:
 class MCPServerManager {
 public:
     static MCPServerManager& GetInstance();
-    
+
     bool StartServer(const MCPServerConfig &config);
     void StopServer();
     bool IsServerRunning() const;
     MCPServer* GetServer() const { return server.get(); }
+
+    // Send request to running server (for testing with memory transport)
+    MCPMessage SendRequest(const MCPMessage &request);
 
 private:
     unique_ptr<MCPServer> server;
