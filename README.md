@@ -93,12 +93,29 @@ When running as an MCP server, DuckDB exposes these tools to clients:
 
 | Tool | Purpose | Default |
 |------|---------|---------|
-| `query` | Execute SQL SELECT queries | Enabled |
+| `query` | Execute SQL SELECT queries (supports `format` parameter) | Enabled |
 | `describe` | Get table or query schema information | Enabled |
 | `list_tables` | List tables and views with metadata | Enabled |
 | `database_info` | Get database overview (schemas, tables, extensions) | Enabled |
 | `export` | Export query results to CSV/JSON/Parquet | Enabled |
 | `execute` | Run DDL/DML statements (CREATE, INSERT, etc.) | **Disabled** |
+
+#### Query Tool Format Options
+
+The `query` tool supports different output formats via the `format` parameter:
+
+| Format | Description | Best For |
+|--------|-------------|----------|
+| `json` | JSON array of objects (default) | Programmatic processing |
+| `markdown` | GitHub-flavored markdown table | LLM context (token-efficient) |
+| `csv` | Comma-separated values | Data export |
+
+Example with format parameter:
+```json
+{"name": "query", "arguments": {"sql": "SELECT * FROM users", "format": "markdown"}}
+```
+
+Markdown format is more token-efficient for LLMs - column names appear once in the header rather than repeated for each row as in JSON.
 
 Tools can be enabled/disabled via server configuration:
 
@@ -109,9 +126,24 @@ SELECT mcp_server_start('stdio', 'localhost', 0, '{
     "enable_list_tables_tool": true,
     "enable_database_info_tool": true,
     "enable_export_tool": true,
-    "enable_execute_tool": false
+    "enable_execute_tool": false,
+    "default_result_format": "json"
 }');
 ```
+
+#### Server Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `enable_query_tool` | bool | `true` | Enable SQL query execution |
+| `enable_describe_tool` | bool | `true` | Enable schema description |
+| `enable_list_tables_tool` | bool | `true` | Enable table listing |
+| `enable_database_info_tool` | bool | `true` | Enable database info |
+| `enable_export_tool` | bool | `true` | Enable data export |
+| `enable_execute_tool` | bool | `false` | Enable DDL/DML execution |
+| `default_result_format` | string | `"json"` | Default format for query results (`json`, `markdown`, `csv`) |
+| `max_requests` | int | `0` | Max requests before shutdown (0 = unlimited) |
+| `background` | bool | `false` | Run server in background thread |
 
 ## Quick Start
 
@@ -281,20 +313,19 @@ The `examples/` directory contains ready-to-use MCP server configurations:
 | [10-developer](examples/10-developer/) | Developer: AST parsing, test data generation, cryptography |
 
 Each example includes:
-- `launch-mcp.sh` - Entry point for MCP clients (handles all configuration inline)
-- `mcp.json` - Client configuration file
+- `init-mcp-server.sql` - SQL initialization that loads extension, sets up schema/data, and starts server
+- `mcp.json` - Client configuration file (directly invokes DuckDB)
 - `test-calls.ldjson` - Line-delimited JSON test requests for testing
-- `init-mcp-db.sql` - Database initialization (where schema/data needed)
 
 ### Quick Start with Examples
 
 ```bash
-# Run the simple example
+# Run the simple example directly
 cd examples/01-simple
-./launch-mcp.sh
+duckdb -init init-mcp-server.sql
 
-# Or with a specific DuckDB binary
-DUCKDB=/path/to/duckdb ./launch-mcp.sh
+# Or test with piped JSON-RPC requests
+cat test-calls.ldjson | duckdb -init init-mcp-server.sql 2>/dev/null
 ```
 
 ### Testing Examples
@@ -303,22 +334,23 @@ Each example includes a `test-calls.ldjson` file containing line-delimited JSON 
 
 ```bash
 # Pipe test calls through the server
-cd examples/01-simple
-cat test-calls.ldjson | DUCKDB=/path/to/duckdb ./launch-mcp.sh
+cd examples/03-with-data
+cat test-calls.ldjson | duckdb -init init-mcp-server.sql 2>/dev/null
 
-# View each response as it processes
-cat test-calls.ldjson | DUCKDB=/path/to/duckdb ./launch-mcp.sh 2>/dev/null | jq .
+# View each response formatted
+cat test-calls.ldjson | duckdb -init init-mcp-server.sql 2>/dev/null | jq .
 ```
 
 ### Using with Claude Desktop
 
-Add to your MCP client configuration:
+Add to your MCP client configuration (uses direct DuckDB invocation):
 
 ```json
 {
   "mcpServers": {
     "duckdb": {
-      "command": "/path/to/examples/01-simple/launch-mcp.sh"
+      "command": "duckdb",
+      "args": ["-init", "/path/to/examples/01-simple/init-mcp-server.sql"]
     }
   }
 }
