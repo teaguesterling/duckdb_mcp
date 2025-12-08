@@ -91,4 +91,43 @@ public:
     static yyjson_val *GetArray(yyjson_val *obj, const char *key);
 };
 
+//! Helper class for parsing JSON tool arguments
+//! Supports both JSON string input (from MCP protocol) and STRUCT Value input (from SQL calls)
+class JSONArgumentParser {
+public:
+    //! Parse arguments - accepts either VARCHAR (JSON string) or STRUCT Value
+    //! Returns true if parsing succeeded, stores parsed doc internally
+    bool Parse(const Value &arguments);
+
+    //! Check if a field exists
+    bool HasField(const string &name) const;
+
+    //! Get string field (empty string if not found)
+    string GetString(const string &name, const string &default_value = "") const;
+
+    //! Get int field (default if not found)
+    int64_t GetInt(const string &name, int64_t default_value = 0) const;
+
+    //! Get bool field (default if not found)
+    bool GetBool(const string &name, bool default_value = false) const;
+
+    //! Get raw JSON string of a nested object
+    string GetObjectAsJSON(const string &name) const;
+
+    //! Validate required fields exist
+    bool ValidateRequired(const vector<string> &required_fields) const;
+
+    //! Get list of all field names
+    vector<string> GetFieldNames() const;
+
+    //! Destructor cleans up parsed doc
+    ~JSONArgumentParser();
+
+private:
+    yyjson_doc *doc = nullptr;
+    yyjson_val *root = nullptr;
+    // For STRUCT input, we convert to JSON internally
+    string json_buffer;
+};
+
 } // namespace duckdb

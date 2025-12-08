@@ -6,6 +6,7 @@
 #include "protocol/mcp_transport.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb_mcp_security.hpp"
+#include "json_utils.hpp"
 #include <ctime>
 
 namespace duckdb {
@@ -95,33 +96,62 @@ bool MCPServer::Start() {
     if (running.load()) {
         return true; // Already running
     }
-    
+
     if (!config.db_instance) {
         return false; // No database instance provided
     }
-    
+
     // Check if serving is disabled
     auto &security = MCPSecurityConfig::GetInstance();
     if (security.IsServingDisabled()) {
         return false; // Server functionality is disabled
     }
-    
+
     // Register built-in tools
     RegisterBuiltinTools();
-    
+
     running = true;
     start_time = time(nullptr);
-    
-    // For stdio transport in background mode, start server thread
+
+    // Handle different transport types
     if (config.transport == "stdio") {
         // For background mode, start thread. For foreground mode, caller will use RunMainLoop()
         server_thread = make_uniq<std::thread>(&MCPServer::ServerLoop, this);
+        return true;
+    } else if (config.transport == "memory") {
+        // Memory transport: no I/O thread needed
+        // Server just stays running and waits for ProcessRequest() calls
         return true;
     } else {
         // TCP/WebSocket not implemented yet
         running = false;
         return false;
     }
+}
+
+bool MCPServer::StartForeground() {
+    if (running.load()) {
+        return true; // Already running
+    }
+
+    if (!config.db_instance) {
+        return false; // No database instance provided
+    }
+
+    // Check if serving is disabled
+    auto &security = MCPSecurityConfig::GetInstance();
+    if (security.IsServingDisabled()) {
+        return false; // Server functionality is disabled
+    }
+
+    // Register built-in tools
+    RegisterBuiltinTools();
+
+    running = true;
+    start_time = time(nullptr);
+
+    // For foreground mode, don't start a thread - caller will use RunMainLoop()
+    return true;
 }
 
 void MCPServer::Stop() {
@@ -211,7 +241,7 @@ void MCPServer::ServerLoop() {
     if (config.transport == "stdio") {
         // Create server-side file descriptor transport using stdin/stdout
         auto transport = make_uniq<FdServerTransport>();
-        
+
         // Connect and handle the connection
         if (transport->Connect()) {
             HandleConnection(std::move(transport));
@@ -219,9 +249,34 @@ void MCPServer::ServerLoop() {
     }
 }
 
+MCPMessage MCPServer::ProcessRequest(const MCPMessage &request) {
+    // Public wrapper for HandleRequest - allows direct testing without transport
+    return HandleRequest(request);
+}
+
+void MCPServer::SetTransport(unique_ptr<MCPTransport> transport) {
+    test_transport = std::move(transport);
+}
+
+bool MCPServer::ProcessOneMessage() {
+    if (!test_transport || !test_transport->IsConnected()) {
+        return false;
+    }
+
+    try {
+        auto request = test_transport->Receive();
+        auto response = HandleRequest(request);
+        test_transport->Send(response);
+        requests_served.fetch_add(1);
+        return true;
+    } catch (const std::exception &) {
+        return false;
+    }
+}
+
 void MCPServer::HandleConnection(unique_ptr<MCPTransport> transport) {
     active_connections.fetch_add(1);
-    
+
     try {
         while (running.load()) {
             try {
@@ -229,9 +284,15 @@ void MCPServer::HandleConnection(unique_ptr<MCPTransport> transport) {
                 auto response = HandleRequest(request);
                 transport->Send(response);
                 requests_served.fetch_add(1);
-                
+
                 // If this was a shutdown request, break out of the loop
                 if (request.method == MCPMethods::SHUTDOWN) {
+                    break;
+                }
+
+                // Check max_requests limit (0 = unlimited)
+                if (config.max_requests > 0 && requests_served.load() >= config.max_requests) {
+                    running = false;
                     break;
                 }
             } catch (const std::exception &e) {
@@ -242,7 +303,7 @@ void MCPServer::HandleConnection(unique_ptr<MCPTransport> transport) {
     } catch (...) {
         // Connection error
     }
-    
+
     active_connections.fetch_sub(1);
 }
 
@@ -296,7 +357,7 @@ MCPMessage MCPServer::HandleInitialize(const MCPMessage &request) {
 
 MCPMessage MCPServer::HandleResourcesList(const MCPMessage &request) {
     auto resource_uris = resource_registry.ListResources();
-    
+
     vector<Value> resources;
     for (const auto &uri : resource_uris) {
         auto provider = resource_registry.GetResource(uri);
@@ -310,31 +371,48 @@ MCPMessage MCPServer::HandleResourcesList(const MCPMessage &request) {
             resources.push_back(resource);
         }
     }
-    
+
+    // Create list with proper child type - use first element's type if non-empty
+    Value resources_list;
+    if (resources.empty()) {
+        resources_list = Value::LIST(LogicalType::STRUCT({}), resources);
+    } else {
+        resources_list = Value::LIST(resources[0].type(), resources);
+    }
+
     Value result = Value::STRUCT({
-        {"resources", Value::LIST(LogicalType::STRUCT({}), resources)}
+        {"resources", resources_list}
     });
-    
+
     return MCPMessage::CreateResponse(result, request.id);
 }
 
 MCPMessage MCPServer::HandleResourcesRead(const MCPMessage &request) {
     // Extract URI from parameters
-    if (request.params.type().id() != LogicalTypeId::STRUCT) {
-        return CreateErrorResponse(request.id, MCPErrorCodes::INVALID_PARAMS, "Invalid parameters");
-    }
-    
-    auto &struct_values = StructValue::GetChildren(request.params);
+    // Params may be stored as JSON string or as STRUCT depending on source
     string uri;
-    
-    for (size_t i = 0; i < struct_values.size(); i++) {
-        auto &key = StructType::GetChildName(request.params.type(), i);
-        if (key == "uri") {
-            uri = struct_values[i].ToString();
-            break;
+
+    if (request.params.type().id() == LogicalTypeId::VARCHAR) {
+        // Params stored as JSON string - parse it
+        string params_str = request.params.ToString();
+        yyjson_doc *doc = JSONUtils::Parse(params_str);
+        yyjson_val *root = yyjson_doc_get_root(doc);
+        uri = JSONUtils::GetString(root, "uri");
+        JSONUtils::FreeDocument(doc);
+    } else if (request.params.type().id() == LogicalTypeId::STRUCT) {
+        // Params as STRUCT
+        auto &struct_values = StructValue::GetChildren(request.params);
+        for (size_t i = 0; i < struct_values.size(); i++) {
+            auto &key = StructType::GetChildName(request.params.type(), i);
+            if (key == "uri") {
+                uri = struct_values[i].ToString();
+                break;
+            }
         }
+    } else {
+        return CreateErrorResponse(request.id, MCPErrorCodes::INVALID_PARAMS, "Invalid parameters format");
     }
-    
+
     if (uri.empty()) {
         return CreateErrorResponse(request.id, MCPErrorCodes::INVALID_PARAMS, "Missing uri parameter");
     }
@@ -348,85 +426,139 @@ MCPMessage MCPServer::HandleResourcesRead(const MCPMessage &request) {
     if (!read_result.success) {
         return CreateErrorResponse(request.id, MCPErrorCodes::INTERNAL_ERROR, read_result.error_message);
     }
-    
-    Value result = Value::STRUCT({
-        {"contents", Value::LIST(LogicalType::STRUCT({}), {
-            Value::STRUCT({
-                {"uri", Value(uri)},
-                {"mimeType", Value(read_result.mime_type)},
-                {"text", Value(read_result.content)}
-            })
-        })}
+
+    // Build contents list with proper struct type
+    child_list_t<LogicalType> contents_struct_members;
+    contents_struct_members.push_back({"uri", LogicalType::VARCHAR});
+    contents_struct_members.push_back({"mimeType", LogicalType::VARCHAR});
+    contents_struct_members.push_back({"text", LogicalType::VARCHAR});
+    LogicalType contents_struct_type = LogicalType::STRUCT(contents_struct_members);
+
+    Value contents_item = Value::STRUCT({
+        {"uri", Value(uri)},
+        {"mimeType", Value(read_result.mime_type)},
+        {"text", Value(read_result.content)}
     });
-    
+
+    Value result = Value::STRUCT({
+        {"contents", Value::LIST(contents_struct_type, {contents_item})}
+    });
+
     return MCPMessage::CreateResponse(result, request.id);
 }
 
 MCPMessage MCPServer::HandleToolsList(const MCPMessage &request) {
     auto tool_names = tool_registry.ListTools();
-    
+
     vector<Value> tools;
+    // Define a consistent struct type for all tools using JSON type for variable schema
+    child_list_t<LogicalType> tool_struct_members;
+    tool_struct_members.push_back({"name", LogicalType::VARCHAR});
+    tool_struct_members.push_back({"description", LogicalType::VARCHAR});
+    tool_struct_members.push_back({"inputSchema", LogicalType::JSON()});
+    LogicalType tool_struct_type = LogicalType::STRUCT(tool_struct_members);
+
     for (const auto &name : tool_names) {
         auto handler = tool_registry.GetTool(name);
         if (handler) {
+            // Serialize inputSchema to JSON string for consistent typing
+            Value schema = handler->GetInputSchema().ToJSON();
+            yyjson_mut_doc *doc = JSONUtils::CreateDocument();
+            yyjson_mut_val *schema_json = JSONUtils::ValueToJSON(doc, schema);
+            yyjson_mut_doc_set_root(doc, schema_json);
+            string schema_str = JSONUtils::Serialize(doc);
+            JSONUtils::FreeDocument(doc);
+
+            // Create JSON-typed value for the schema
+            Value schema_json_val(schema_str);
+            schema_json_val.Reinterpret(LogicalType::JSON());
+
             Value tool = Value::STRUCT({
                 {"name", Value(name)},
                 {"description", Value(handler->GetDescription())},
-                {"inputSchema", handler->GetInputSchema().ToJSON()}
+                {"inputSchema", schema_json_val}
             });
             tools.push_back(tool);
         }
     }
-    
+
+    // Create list with the defined struct type
+    Value tools_list = Value::LIST(tool_struct_type, tools);
+
     Value result = Value::STRUCT({
-        {"tools", Value::LIST(LogicalType::STRUCT({}), tools)}
+        {"tools", tools_list}
     });
-    
+
     return MCPMessage::CreateResponse(result, request.id);
 }
 
 MCPMessage MCPServer::HandleToolsCall(const MCPMessage &request) {
     // Extract tool name and arguments from parameters
-    if (request.params.type().id() != LogicalTypeId::STRUCT) {
-        return CreateErrorResponse(request.id, MCPErrorCodes::INVALID_PARAMS, "Invalid parameters");
-    }
-    
-    auto &struct_values = StructValue::GetChildren(request.params);
+    // Params may be stored as JSON string or as STRUCT depending on source
     string tool_name;
     Value arguments;
-    
-    for (size_t i = 0; i < struct_values.size(); i++) {
-        auto &key = StructType::GetChildName(request.params.type(), i);
-        if (key == "name") {
-            tool_name = struct_values[i].ToString();
-        } else if (key == "arguments") {
-            arguments = struct_values[i];
+
+    if (request.params.type().id() == LogicalTypeId::VARCHAR) {
+        // Params stored as JSON string - parse it
+        string params_str = request.params.ToString();
+        yyjson_doc *doc = JSONUtils::Parse(params_str);
+        yyjson_val *root = yyjson_doc_get_root(doc);
+
+        tool_name = JSONUtils::GetString(root, "name");
+        yyjson_val *args_val = JSONUtils::GetObject(root, "arguments");
+        if (args_val) {
+            size_t len;
+            char *args_json = yyjson_val_write(args_val, 0, &len);
+            if (args_json) {
+                arguments = Value(string(args_json, len));
+                free(args_json);
+            }
         }
+        JSONUtils::FreeDocument(doc);
+    } else if (request.params.type().id() == LogicalTypeId::STRUCT) {
+        // Params as STRUCT
+        auto &struct_values = StructValue::GetChildren(request.params);
+        for (size_t i = 0; i < struct_values.size(); i++) {
+            auto &key = StructType::GetChildName(request.params.type(), i);
+            if (key == "name") {
+                tool_name = struct_values[i].ToString();
+            } else if (key == "arguments") {
+                arguments = struct_values[i];
+            }
+        }
+    } else {
+        return CreateErrorResponse(request.id, MCPErrorCodes::INVALID_PARAMS, "Invalid parameters format");
     }
-    
+
     if (tool_name.empty()) {
         return CreateErrorResponse(request.id, MCPErrorCodes::INVALID_PARAMS, "Missing tool name");
     }
-    
+
     auto handler = tool_registry.GetTool(tool_name);
     if (!handler) {
         return CreateErrorResponse(request.id, MCPErrorCodes::TOOL_NOT_FOUND, "Tool not found: " + tool_name);
     }
-    
+
     auto call_result = handler->Execute(arguments);
     if (!call_result.success) {
         return CreateErrorResponse(request.id, MCPErrorCodes::INVALID_TOOL_INPUT, call_result.error_message);
     }
-    
-    Value result = Value::STRUCT({
-        {"content", Value::LIST(LogicalType::STRUCT({}), {
-            Value::STRUCT({
-                {"type", Value("text")},
-                {"text", call_result.result}
-            })
-        })}
+
+    // Build content list with proper struct type
+    child_list_t<LogicalType> content_struct_members;
+    content_struct_members.push_back({"type", LogicalType::VARCHAR});
+    content_struct_members.push_back({"text", LogicalType::VARCHAR});
+    LogicalType content_struct_type = LogicalType::STRUCT(content_struct_members);
+
+    Value content_item = Value::STRUCT({
+        {"type", Value("text")},
+        {"text", call_result.result}
     });
-    
+
+    Value result = Value::STRUCT({
+        {"content", Value::LIST(content_struct_type, {content_item})}
+    });
+
     return MCPMessage::CreateResponse(result, request.id);
 }
 
@@ -550,6 +682,17 @@ void MCPServerManager::StopServer() {
 bool MCPServerManager::IsServerRunning() const {
     lock_guard<mutex> lock(manager_mutex);
     return server && server->IsRunning();
+}
+
+MCPMessage MCPServerManager::SendRequest(const MCPMessage &request) {
+    lock_guard<mutex> lock(manager_mutex);
+
+    if (!server) {
+        return MCPMessage::CreateError(MCPErrorCodes::INTERNAL_ERROR,
+            "No server running", request.id);
+    }
+
+    return server->ProcessRequest(request);
 }
 
 } // namespace duckdb

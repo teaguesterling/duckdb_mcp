@@ -30,6 +30,7 @@ set(EXTENSION_SOURCES
   src/server/resource_providers.cpp
   src/server/tool_handlers.cpp
   src/server/stdio_server_transport.cpp
+  src/server/memory_transport.cpp
 )
 
 build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})

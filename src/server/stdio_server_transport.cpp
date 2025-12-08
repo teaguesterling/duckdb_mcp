@@ -150,27 +150,29 @@ string FdServerTransport::ReadLine() {
     throw NotImplementedException("Server transport not supported on Windows yet");
 #else
     string line;
-    char buffer[1024];
-    
+
     if (input_fd == STDIN_FILENO) {
         // Use standard getline for stdin
         if (!std::getline(std::cin, line)) {
             throw IOException("Failed to read from stdin");
         }
     } else {
-        // Read from file descriptor until newline
+        // Read from file descriptor until newline using a character at a time
+        // Reserve some space to reduce reallocations for typical JSON-RPC messages
+        line.reserve(4096);
+        char c;
         ssize_t bytes_read;
-        while ((bytes_read = read(input_fd, buffer, 1)) > 0) {
-            if (buffer[0] == '\n') {
+        while ((bytes_read = read(input_fd, &c, 1)) > 0) {
+            if (c == '\n') {
                 break;
             }
-            line += buffer[0];
+            line += c;
         }
         if (bytes_read < 0) {
             throw IOException("Failed to read from file descriptor");
         }
     }
-    
+
     return line;
 #endif
 }

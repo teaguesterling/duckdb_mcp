@@ -1,0 +1,45 @@
+# name: test/sql/mcp_server_lifecycle.test
+# description: Test MCP server lifecycle (start/status/stop) with memory transport
+# group: [mcp]
+
+require duckdb_mcp
+
+# ===================================
+# Test 1: Force stop any running server
+# ===================================
+query I
+SELECT mcp_server_stop(true);
+----
+{'success': true, 'running': false, 'message': 'MCP server state cleared (forced)', 'transport': '', 'listen': '', 'port': 0, 'background': false}
+
+# ===================================
+# Test 2: Check status shows stopped
+# ===================================
+query I
+SELECT mcp_server_status();
+----
+{'success': true, 'running': false, 'message': Server is stopped, 'transport': '', 'listen': '', 'port': 0, 'background': false}
+
+# ===================================
+# Test 3: Start server with memory transport
+# ===================================
+query I
+SELECT mcp_server_start('memory');
+----
+{'success': true, 'running': true, 'message': 'MCP server started on memory transport (background mode)', 'transport': memory, 'listen': localhost, 'port': 0, 'background': true}
+
+# ===================================
+# Test 4: Stop server
+# ===================================
+query I
+SELECT mcp_server_stop();
+----
+{'success': true, 'running': false, 'message': MCP server stopped, 'transport': '', 'listen': '', 'port': 0, 'background': false}
+
+# ===================================
+# Test 5: Final cleanup
+# ===================================
+query I
+SELECT mcp_server_stop(true);
+----
+{'success': true, 'running': false, 'message': 'MCP server state cleared (forced)', 'transport': '', 'listen': '', 'port': 0, 'background': false}

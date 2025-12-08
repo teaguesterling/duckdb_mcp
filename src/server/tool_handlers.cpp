@@ -42,11 +42,19 @@ Value ToolInputSchema::ToJSON() const {
             {"type", prop.second}
         }));
     }
-    
+
+    // Create list with proper child type - use first element's type if non-empty
+    Value props_list;
+    if (props.empty()) {
+        props_list = Value::LIST(LogicalType::STRUCT({}), props);
+    } else {
+        props_list = Value::LIST(props[0].type(), props);
+    }
+
     return Value::STRUCT({
         {"type", Value(type)},
-        {"properties", Value::LIST(LogicalType::STRUCT({}), props)},
-        {"required", Value::LIST(LogicalType::VARCHAR, 
+        {"properties", props_list},
+        {"required", Value::LIST(LogicalType::VARCHAR,
                                 vector<Value>(required_fields.begin(), required_fields.end()))}
     });
 }
@@ -62,26 +70,21 @@ QueryToolHandler::QueryToolHandler(DatabaseInstance &db, const vector<string> &a
 
 CallToolResult QueryToolHandler::Execute(const Value &arguments) {
     try {
-        // Validate input
-        auto schema = GetInputSchema();
-        if (!schema.ValidateInput(arguments)) {
-            return CallToolResult::Error("Invalid input: missing required fields");
+        // Parse JSON arguments (accepts both VARCHAR JSON and STRUCT)
+        JSONArgumentParser parser;
+        if (!parser.Parse(arguments)) {
+            return CallToolResult::Error("Invalid input: failed to parse arguments");
         }
-        
+
+        // Validate required fields
+        if (!parser.ValidateRequired({"sql"})) {
+            return CallToolResult::Error("Invalid input: missing required field 'sql'");
+        }
+
         // Extract parameters
-        auto &struct_values = StructValue::GetChildren(arguments);
-        string sql;
-        string format = "json"; // default format
-        
-        for (size_t i = 0; i < struct_values.size(); i++) {
-            auto &key = StructType::GetChildName(arguments.type(), i);
-            if (key == "sql") {
-                sql = struct_values[i].ToString();
-            } else if (key == "format") {
-                format = struct_values[i].ToString();
-            }
-        }
-        
+        string sql = parser.GetString("sql");
+        string format = parser.GetString("format", "json");
+
         if (sql.empty()) {
             return CallToolResult::Error("SQL query is required");
         }
@@ -210,20 +213,16 @@ DescribeToolHandler::DescribeToolHandler(DatabaseInstance &db) : db_instance(db)
 
 CallToolResult DescribeToolHandler::Execute(const Value &arguments) {
     try {
-        // Extract parameters
-        auto &struct_values = StructValue::GetChildren(arguments);
-        string table_name;
-        string query;
-        
-        for (size_t i = 0; i < struct_values.size(); i++) {
-            auto &key = StructType::GetChildName(arguments.type(), i);
-            if (key == "table") {
-                table_name = struct_values[i].ToString();
-            } else if (key == "query") {
-                query = struct_values[i].ToString();
-            }
+        // Parse JSON arguments (accepts both VARCHAR JSON and STRUCT)
+        JSONArgumentParser parser;
+        if (!parser.Parse(arguments)) {
+            return CallToolResult::Error("Invalid input: failed to parse arguments");
         }
-        
+
+        // Extract parameters
+        string table_name = parser.GetString("table");
+        string query = parser.GetString("query");
+
         Value result;
         if (!table_name.empty()) {
             result = DescribeTable(table_name);
@@ -232,9 +231,9 @@ CallToolResult DescribeToolHandler::Execute(const Value &arguments) {
         } else {
             return CallToolResult::Error("Either 'table' or 'query' parameter is required");
         }
-        
+
         return CallToolResult::Success(result);
-        
+
     } catch (const std::exception &e) {
         return CallToolResult::Error("Describe error: " + string(e.what()));
     }
@@ -253,61 +252,71 @@ Value DescribeToolHandler::DescribeTable(const string &table_name) const {
     string describe_query = "DESCRIBE " + table_name;
     Connection conn(db_instance);
     auto result = conn.Query(describe_query);
-    
+
     if (result->HasError()) {
         throw IOException("Failed to describe table: " + result->GetError());
     }
-    
-    vector<Value> columns;
+
+    // Build JSON directly to avoid STRUCT type issues
+    string json = "{\"table\":\"" + table_name + "\",\"columns\":[";
+    bool first_col = true;
+
     while (auto chunk = result->Fetch()) {
         for (idx_t i = 0; i < chunk->size(); i++) {
-            Value column = Value::STRUCT({
-                {"name", chunk->GetValue(0, i)},
-                {"type", chunk->GetValue(1, i)},
-                {"null", chunk->GetValue(2, i)},
-                {"key", chunk->GetValue(3, i)},
-                {"default", chunk->GetValue(4, i)},
-                {"extra", chunk->GetValue(5, i)}
-            });
-            columns.push_back(column);
+            if (!first_col) {
+                json += ",";
+            }
+            first_col = false;
+
+            json += "{";
+            json += "\"name\":\"" + chunk->GetValue(0, i).ToString() + "\",";
+            json += "\"type\":\"" + chunk->GetValue(1, i).ToString() + "\",";
+            json += "\"null\":\"" + chunk->GetValue(2, i).ToString() + "\",";
+            json += "\"key\":\"" + chunk->GetValue(3, i).ToString() + "\",";
+            json += "\"default\":" + (chunk->GetValue(4, i).IsNull() ? "null" : "\"" + chunk->GetValue(4, i).ToString() + "\"") + ",";
+            json += "\"extra\":" + (chunk->GetValue(5, i).IsNull() ? "null" : "\"" + chunk->GetValue(5, i).ToString() + "\"");
+            json += "}";
         }
     }
-    
-    return Value::STRUCT({
-        {"table", Value(table_name)},
-        {"columns", Value::LIST(LogicalType::STRUCT({}), columns)}
-    });
+    json += "]}";
+
+    return Value(json);
 }
 
 Value DescribeToolHandler::DescribeQuery(const string &query) const {
     string prepare_query = "PREPARE stmt AS " + query;
     Connection conn(db_instance);
     auto prepare_result = conn.Query(prepare_query);
-    
+
     if (prepare_result->HasError()) {
         throw IOException("Failed to prepare query: " + prepare_result->GetError());
     }
-    
+
     auto describe_result = conn.Query("DESCRIBE stmt");
     if (describe_result->HasError()) {
         throw IOException("Failed to describe query: " + describe_result->GetError());
     }
-    
-    vector<Value> columns;
+
+    // Build JSON directly to avoid STRUCT type issues
+    string json = "{\"query\":\"" + query + "\",\"columns\":[";
+    bool first_col = true;
+
     while (auto chunk = describe_result->Fetch()) {
         for (idx_t i = 0; i < chunk->size(); i++) {
-            Value column = Value::STRUCT({
-                {"name", chunk->GetValue(0, i)},
-                {"type", chunk->GetValue(1, i)}
-            });
-            columns.push_back(column);
+            if (!first_col) {
+                json += ",";
+            }
+            first_col = false;
+
+            json += "{";
+            json += "\"name\":\"" + chunk->GetValue(0, i).ToString() + "\",";
+            json += "\"type\":\"" + chunk->GetValue(1, i).ToString() + "\"";
+            json += "}";
         }
     }
-    
-    return Value::STRUCT({
-        {"query", Value(query)},
-        {"columns", Value::LIST(LogicalType::STRUCT({}), columns)}
-    });
+    json += "]}";
+
+    return Value(json);
 }
 
 //===--------------------------------------------------------------------===//
@@ -319,23 +328,22 @@ ExportToolHandler::ExportToolHandler(DatabaseInstance &db) : db_instance(db) {
 
 CallToolResult ExportToolHandler::Execute(const Value &arguments) {
     try {
-        // Extract parameters
-        auto &struct_values = StructValue::GetChildren(arguments);
-        string query;
-        string format = "csv"; // default format
-        string output_path;
-        
-        for (size_t i = 0; i < struct_values.size(); i++) {
-            auto &key = StructType::GetChildName(arguments.type(), i);
-            if (key == "query") {
-                query = struct_values[i].ToString();
-            } else if (key == "format") {
-                format = struct_values[i].ToString();
-            } else if (key == "output") {
-                output_path = struct_values[i].ToString();
-            }
+        // Parse JSON arguments (accepts both VARCHAR JSON and STRUCT)
+        JSONArgumentParser parser;
+        if (!parser.Parse(arguments)) {
+            return CallToolResult::Error("Invalid input: failed to parse arguments");
         }
-        
+
+        // Validate required fields
+        if (!parser.ValidateRequired({"query"})) {
+            return CallToolResult::Error("Invalid input: missing required field 'query'");
+        }
+
+        // Extract parameters
+        string query = parser.GetString("query");
+        string format = parser.GetString("format", "csv");
+        string output_path = parser.GetString("output");
+
         if (query.empty()) {
             return CallToolResult::Error("Query is required");
         }
@@ -473,13 +481,19 @@ SQLToolHandler::SQLToolHandler(const string &name, const string &description, co
 
 CallToolResult SQLToolHandler::Execute(const Value &arguments) {
     try {
-        // Validate input
-        if (!input_schema.ValidateInput(arguments)) {
+        // Parse JSON arguments (accepts both VARCHAR JSON and STRUCT)
+        JSONArgumentParser parser;
+        if (!parser.Parse(arguments)) {
+            return CallToolResult::Error("Invalid input: failed to parse arguments");
+        }
+
+        // Validate required fields from schema
+        if (!parser.ValidateRequired(input_schema.required_fields)) {
             return CallToolResult::Error("Invalid input: missing required fields");
         }
-        
+
         // Substitute parameters in SQL template
-        string sql = SubstituteParameters(sql_template, arguments);
+        string sql = SubstituteParameters(sql_template, parser);
         
         // Execute query
         Connection conn(db_instance);
@@ -524,26 +538,23 @@ CallToolResult SQLToolHandler::Execute(const Value &arguments) {
     }
 }
 
-string SQLToolHandler::SubstituteParameters(const string &template_sql, const Value &arguments) const {
+string SQLToolHandler::SubstituteParameters(const string &template_sql, const JSONArgumentParser &parser) const {
     string result = template_sql;
-    
-    if (arguments.type().id() == LogicalTypeId::STRUCT) {
-        auto &struct_values = StructValue::GetChildren(arguments);
-        
-        for (size_t i = 0; i < struct_values.size(); i++) {
-            auto &key = StructType::GetChildName(arguments.type(), i);
-            auto value = struct_values[i].ToString();
-            
-            // Simple parameter substitution - replace $key with value
-            string param = "$" + key;
-            size_t pos = 0;
-            while ((pos = result.find(param, pos)) != string::npos) {
-                result.replace(pos, param.length(), value);
-                pos += value.length();
-            }
+
+    // Get all field names and substitute them
+    auto field_names = parser.GetFieldNames();
+    for (const auto &key : field_names) {
+        string value = parser.GetString(key);
+
+        // Simple parameter substitution - replace $key with value
+        string param = "$" + key;
+        size_t pos = 0;
+        while ((pos = result.find(param, pos)) != string::npos) {
+            result.replace(pos, param.length(), value);
+            pos += value.length();
         }
     }
-    
+
     return result;
 }
 
@@ -556,24 +567,16 @@ ListTablesToolHandler::ListTablesToolHandler(DatabaseInstance &db) : db_instance
 
 CallToolResult ListTablesToolHandler::Execute(const Value &arguments) {
     try {
-        // Extract parameters
-        bool include_views = false;
-        string schema_filter;
-        string database_filter;
-
-        if (arguments.type().id() == LogicalTypeId::STRUCT) {
-            auto &struct_values = StructValue::GetChildren(arguments);
-            for (size_t i = 0; i < struct_values.size(); i++) {
-                auto &key = StructType::GetChildName(arguments.type(), i);
-                if (key == "include_views") {
-                    include_views = struct_values[i].GetValue<bool>();
-                } else if (key == "schema") {
-                    schema_filter = struct_values[i].ToString();
-                } else if (key == "database") {
-                    database_filter = struct_values[i].ToString();
-                }
-            }
+        // Parse JSON arguments (accepts both VARCHAR JSON and STRUCT)
+        JSONArgumentParser parser;
+        if (!parser.Parse(arguments)) {
+            return CallToolResult::Error("Invalid input: failed to parse arguments");
         }
+
+        // Extract parameters (all optional)
+        bool include_views = parser.GetBool("include_views", false);
+        string schema_filter = parser.GetString("schema");
+        string database_filter = parser.GetString("database");
 
         Connection conn(db_instance);
 
@@ -971,20 +974,18 @@ ExecuteToolHandler::ExecuteToolHandler(DatabaseInstance &db, bool allow_ddl, boo
 
 CallToolResult ExecuteToolHandler::Execute(const Value &arguments) {
     try {
-        // Extract parameters
-        if (arguments.type().id() != LogicalTypeId::STRUCT) {
-            return CallToolResult::Error("Invalid input: expected object with 'statement' field");
+        // Parse JSON arguments (accepts both VARCHAR JSON and STRUCT)
+        JSONArgumentParser parser;
+        if (!parser.Parse(arguments)) {
+            return CallToolResult::Error("Invalid input: failed to parse arguments");
         }
 
-        auto &struct_values = StructValue::GetChildren(arguments);
-        string statement;
-
-        for (size_t i = 0; i < struct_values.size(); i++) {
-            auto &key = StructType::GetChildName(arguments.type(), i);
-            if (key == "statement") {
-                statement = struct_values[i].ToString();
-            }
+        // Validate required fields
+        if (!parser.ValidateRequired({"statement"})) {
+            return CallToolResult::Error("Invalid input: missing required field 'statement'");
         }
+
+        string statement = parser.GetString("statement");
 
         if (statement.empty()) {
             return CallToolResult::Error("Statement is required");

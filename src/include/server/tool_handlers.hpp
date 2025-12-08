@@ -2,6 +2,7 @@
 
 #include "duckdb.hpp"
 #include "duckdb/main/database.hpp"
+#include "json_utils.hpp"
 
 namespace duckdb {
 
@@ -122,7 +123,7 @@ private:
     ToolInputSchema input_schema;
     DatabaseInstance &db_instance;
 
-    string SubstituteParameters(const string &template_sql, const Value &arguments) const;
+    string SubstituteParameters(const string &template_sql, const JSONArgumentParser &parser) const;
 };
 
 // List tables tool handler - lists all tables (and optionally views) in the database
