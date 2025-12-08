@@ -54,9 +54,10 @@ public:
 // Query tool handler - executes SQL queries
 class QueryToolHandler : public ToolHandler {
 public:
-    QueryToolHandler(DatabaseInstance &db, const vector<string> &allowed_queries = {}, 
-                    const vector<string> &denied_queries = {});
-    
+    QueryToolHandler(DatabaseInstance &db, const vector<string> &allowed_queries = {},
+                    const vector<string> &denied_queries = {},
+                    const string &default_format = "json");
+
     CallToolResult Execute(const Value &arguments) override;
     string GetName() const override { return "query"; }
     string GetDescription() const override { return "Execute SQL query"; }
@@ -66,7 +67,8 @@ private:
     DatabaseInstance &db_instance;
     vector<string> allowed_queries;
     vector<string> denied_queries;
-    
+    string default_result_format;
+
     bool IsQueryAllowed(const string &query) const;
     string FormatResult(QueryResult &result, const string &format) const;
 };

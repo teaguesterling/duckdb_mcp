@@ -548,6 +548,9 @@ static Value MCPServerStartImpl(ExpressionState &state,
                 if (val && yyjson_is_bool(val)) {
                     server_config.background = yyjson_get_bool(val);
                 }
+
+                // Parse default result format
+                server_config.default_result_format = JSONUtils::GetString(root, "default_result_format", "json");
             }
             JSONUtils::FreeDocument(doc);
         }

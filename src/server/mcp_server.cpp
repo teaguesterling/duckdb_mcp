@@ -582,7 +582,8 @@ void MCPServer::RegisterBuiltinTools() {
     if (config.enable_query_tool) {
         auto query_tool = make_uniq<QueryToolHandler>(*config.db_instance,
                                                        config.allowed_queries,
-                                                       config.denied_queries);
+                                                       config.denied_queries,
+                                                       config.default_result_format);
         tool_registry.RegisterTool("query", std::move(query_tool));
     }
 

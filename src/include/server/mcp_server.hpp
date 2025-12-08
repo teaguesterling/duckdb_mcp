@@ -35,6 +35,7 @@ struct MCPServerConfig {
 
     vector<string> allowed_queries;      // SQL query allowlist (empty = all allowed)
     vector<string> denied_queries;       // SQL query denylist
+    string default_result_format = "json"; // Default format for query results ("json", "markdown", "csv")
     uint32_t max_connections = 10;       // Maximum concurrent connections
     uint32_t request_timeout_seconds = 30; // Request timeout
     uint32_t max_requests = 0;           // Maximum requests before shutdown (0 = unlimited)

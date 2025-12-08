@@ -63,9 +63,11 @@ Value ToolInputSchema::ToJSON() const {
 // QueryToolHandler Implementation
 //===--------------------------------------------------------------------===//
 
-QueryToolHandler::QueryToolHandler(DatabaseInstance &db, const vector<string> &allowed_queries, 
-                                  const vector<string> &denied_queries)
-    : db_instance(db), allowed_queries(allowed_queries), denied_queries(denied_queries) {
+QueryToolHandler::QueryToolHandler(DatabaseInstance &db, const vector<string> &allowed_queries,
+                                  const vector<string> &denied_queries,
+                                  const string &default_format)
+    : db_instance(db), allowed_queries(allowed_queries), denied_queries(denied_queries),
+      default_result_format(default_format) {
 }
 
 CallToolResult QueryToolHandler::Execute(const Value &arguments) {
@@ -83,7 +85,7 @@ CallToolResult QueryToolHandler::Execute(const Value &arguments) {
 
         // Extract parameters
         string sql = parser.GetString("sql");
-        string format = parser.GetString("format", "json");
+        string format = parser.GetString("format", default_result_format);
 
         if (sql.empty()) {
             return CallToolResult::Error("SQL query is required");
@@ -145,22 +147,22 @@ bool QueryToolHandler::IsQueryAllowed(const string &query) const {
 
 string QueryToolHandler::FormatResult(QueryResult &result, const string &format) const {
     if (format == "json") {
-        // Convert to JSON
+        // Convert to JSON array of objects
         string json = "[";
         bool first_row = true;
-        
+
         while (auto chunk = result.Fetch()) {
             for (idx_t i = 0; i < chunk->size(); i++) {
                 if (!first_row) {
                     json += ",";
                 }
                 first_row = false;
-                
+
                 json += "{";
                 for (idx_t col = 0; col < chunk->ColumnCount(); col++) {
                     if (col > 0) json += ",";
                     json += "\"" + result.names[col] + "\":";
-                    
+
                     auto value = chunk->GetValue(col, i);
                     if (value.IsNull()) {
                         json += "null";
@@ -173,18 +175,18 @@ string QueryToolHandler::FormatResult(QueryResult &result, const string &format)
         }
         json += "]";
         return json;
-        
+
     } else if (format == "csv") {
         // Convert to CSV
         string csv;
-        
+
         // Header
         for (idx_t col = 0; col < result.names.size(); col++) {
             if (col > 0) csv += ",";
             csv += result.names[col];
         }
         csv += "\n";
-        
+
         // Data
         while (auto chunk = result.Fetch()) {
             for (idx_t i = 0; i < chunk->size(); i++) {
@@ -197,9 +199,57 @@ string QueryToolHandler::FormatResult(QueryResult &result, const string &format)
             }
         }
         return csv;
-        
+
+    } else if (format == "markdown") {
+        // Convert to GitHub-flavored markdown table
+        // More token-efficient than JSON for tabular data
+        string md;
+        idx_t num_cols = result.names.size();
+
+        if (num_cols == 0) {
+            return "(empty result)";
+        }
+
+        // Header row
+        md += "|";
+        for (idx_t col = 0; col < num_cols; col++) {
+            md += " " + result.names[col] + " |";
+        }
+        md += "\n";
+
+        // Separator row with alignment hints
+        md += "|";
+        for (idx_t col = 0; col < num_cols; col++) {
+            bool is_numeric = result.types[col].IsNumeric();
+            if (is_numeric) {
+                md += "---:|";  // Right-align numeric columns
+            } else {
+                md += "---|";   // Left-align text columns
+            }
+        }
+        md += "\n";
+
+        // Data rows
+        while (auto chunk = result.Fetch()) {
+            for (idx_t i = 0; i < chunk->size(); i++) {
+                md += "|";
+                for (idx_t col = 0; col < chunk->ColumnCount(); col++) {
+                    auto value = chunk->GetValue(col, i);
+                    string cell = value.IsNull() ? "NULL" : value.ToString();
+                    // Escape pipe characters in cell values
+                    for (size_t pos = 0; (pos = cell.find('|', pos)) != string::npos; pos += 2) {
+                        cell.replace(pos, 1, "\\|");
+                    }
+                    md += " " + cell + " |";
+                }
+                md += "\n";
+            }
+        }
+
+        return md;
+
     } else {
-        // Default to string representation
+        // Default to string representation (duckbox format)
         return result.ToString();
     }
 }
