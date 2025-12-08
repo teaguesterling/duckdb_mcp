@@ -23,15 +23,23 @@ MCP server with domain-specific tools using DuckDB macros.
 
 ## Files
 
-- `launch-mcp.sh` - Server entry point
-- `init-mcp-db.sql` - Schema, data, macros, and views
+- `init-mcp-server.sql` - Schema, data, macros, views, and server start
 - `mcp.json` - MCP client configuration
 - `test-calls.ldjson` - Tests for custom tools
 
 ## Usage
 
-```bash
-./launch-mcp.sh
+Add to your MCP client configuration:
+
+```json
+{
+  "mcpServers": {
+    "duckdb-custom-tools": {
+      "command": "duckdb",
+      "args": ["-init", "init-mcp-server.sql"]
+    }
+  }
+}
 ```
 
 ## Example Queries
@@ -50,5 +58,5 @@ SELECT * FROM customer_report(1);
 ## Testing
 
 ```bash
-cat test-calls.ldjson | DUCKDB=/path/to/duckdb ./launch-mcp.sh 2>/dev/null
+cat test-calls.ldjson | duckdb -init init-mcp-server.sql 2>/dev/null | jq .
 ```

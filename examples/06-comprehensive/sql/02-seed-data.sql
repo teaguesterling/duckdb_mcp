@@ -88,4 +88,3 @@ INSERT INTO daily_metrics (date, org_id, active_users, tasks_created, tasks_comp
     ('2024-06-25', 3, 1, 0, 1),
     ('2024-06-28', 3, 1, 1, 0);
 
-.print '[02-seed-data] Sample data loaded'

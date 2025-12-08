@@ -1,31 +1,36 @@
-# Simple MCP Server Example
+# Simple MCP Server
 
-The simplest possible DuckDB MCP server configuration.
+Minimal DuckDB MCP server with default configuration.
 
 ## What it Demonstrates
 
-- Minimal MCP server setup with empty in-memory database
-- All default tools enabled (query, describe, list_tables, database_info, export)
-- Basic MCP protocol flow (initialize, tools/list, tools/call, shutdown)
+- Basic MCP server setup
+- Default tool configuration (all tools enabled)
+- Direct duckdb invocation from mcp.json
 
 ## Files
 
-- `launch-mcp.sh` - Server entry point
+- `init-mcp-server.sql` - Loads extension and starts server
 - `mcp.json` - MCP client configuration
 - `test-calls.ldjson` - Test requests (line-delimited JSON)
 
 ## Usage
 
-```bash
-# Start the server
-./launch-mcp.sh
+Add to your MCP client configuration:
 
-# Or specify DuckDB binary
-DUCKDB=/path/to/duckdb ./launch-mcp.sh
+```json
+{
+  "mcpServers": {
+    "duckdb-simple": {
+      "command": "duckdb",
+      "args": ["-init", "init-mcp-server.sql"]
+    }
+  }
+}
 ```
 
 ## Testing
 
 ```bash
-cat test-calls.ldjson | DUCKDB=/path/to/duckdb ./launch-mcp.sh 2>/dev/null
+cat test-calls.ldjson | duckdb -init init-mcp-server.sql 2>/dev/null | jq .
 ```

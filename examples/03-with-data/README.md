@@ -18,24 +18,29 @@ MCP server pre-loaded with e-commerce sample data.
 
 ## Files
 
-- `launch-mcp.sh` - Server entry point
-- `init-mcp-db.sql` - Schema creation and sample data
+- `init-mcp-server.sql` - Schema creation, sample data, and server start
 - `mcp.json` - MCP client configuration
 - `test-calls.ldjson` - Test queries against the data
 
 ## Usage
 
-```bash
-./launch-mcp.sh
+Add to your MCP client configuration:
 
-# Or specify DuckDB binary
-DUCKDB=/path/to/duckdb ./launch-mcp.sh
+```json
+{
+  "mcpServers": {
+    "duckdb-ecommerce": {
+      "command": "duckdb",
+      "args": ["-init", "init-mcp-server.sql"]
+    }
+  }
+}
 ```
 
 ## Testing
 
 ```bash
-cat test-calls.ldjson | DUCKDB=/path/to/duckdb ./launch-mcp.sh 2>/dev/null
+cat test-calls.ldjson | duckdb -init init-mcp-server.sql 2>/dev/null | jq .
 ```
 
 ## Example Queries

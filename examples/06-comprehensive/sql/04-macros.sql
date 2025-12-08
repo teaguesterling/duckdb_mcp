@@ -156,4 +156,3 @@ CREATE MACRO productivity_metrics(org_id_param, start_date, end_date) AS TABLE
       AND m.date <= end_date
     ORDER BY m.date;
 
-.print '[04-macros] Custom macros created'

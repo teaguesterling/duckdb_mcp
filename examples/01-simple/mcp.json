@@ -1,7 +1,8 @@
 {
   "mcpServers": {
     "duckdb-simple": {
-      "command": "./launch-mcp.sh"
+      "command": "duckdb",
+      "args": ["-init", "init-mcp-server.sql"]
     }
   }
 }

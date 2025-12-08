@@ -1,4 +1,4 @@
-# Secure MCP Server Example
+# Secure MCP Server
 
 MCP server with security restrictions and query filtering.
 
@@ -31,15 +31,23 @@ MCP server with security restrictions and query filtering.
 
 ## Files
 
-- `launch-mcp.sh` - Server entry point with security config
-- `init-mcp-db.sql` - Schema with sensitive data and safe views
+- `init-mcp-server.sql` - Schema with sensitive data, safe views, and server config
 - `mcp.json` - MCP client configuration
 - `test-calls.ldjson` - Tests including blocked operations
 
 ## Usage
 
-```bash
-./launch-mcp.sh
+Add to your MCP client configuration:
+
+```json
+{
+  "mcpServers": {
+    "duckdb-secure": {
+      "command": "duckdb",
+      "args": ["-init", "init-mcp-server.sql"]
+    }
+  }
+}
 ```
 
 ## Security Tests
@@ -51,5 +59,5 @@ The test file includes operations that should be blocked:
 - COPY commands (denied pattern)
 
 ```bash
-cat test-calls.ldjson | DUCKDB=/path/to/duckdb ./launch-mcp.sh 2>/dev/null
+cat test-calls.ldjson | duckdb -init init-mcp-server.sql 2>/dev/null | jq .
 ```

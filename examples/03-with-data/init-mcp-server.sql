@@ -13,7 +13,7 @@ CREATE TABLE customers (
     id INTEGER PRIMARY KEY,
     name VARCHAR NOT NULL,
     email VARCHAR UNIQUE NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP
 );
 
 -- Products table
@@ -29,7 +29,7 @@ CREATE TABLE products (
 CREATE TABLE orders (
     id INTEGER PRIMARY KEY,
     customer_id INTEGER REFERENCES customers(id),
-    order_date DATE DEFAULT CURRENT_DATE,
+    order_date DATE,
     status VARCHAR DEFAULT 'pending',
     total DECIMAL(10, 2)
 );
@@ -140,6 +140,5 @@ JOIN customers c ON o.customer_id = c.id
 LEFT JOIN order_items oi ON o.id = oi.order_id
 GROUP BY o.id, o.order_date, o.status, c.name, o.total;
 
-.print 'E-commerce sample database initialized'
-.print 'Tables: customers, products, orders, order_items'
-.print 'Views: customer_orders, product_sales, order_details'
+-- Start MCP server with default config
+SELECT mcp_server_start('stdio');

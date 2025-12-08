@@ -7,25 +7,19 @@ This folder contains example configurations for running DuckDB as an MCP (Model 
 | Example | Description | Key Features |
 |---------|-------------|--------------|
 | [01-simple](./01-simple/) | Minimal setup | Empty database, default tools |
-| [02-configured](./02-configured/) | Custom configuration | Persistent DB, env vars, selective tools |
+| [02-configured](./02-configured/) | Custom configuration | Selective tool enabling |
 | [03-with-data](./03-with-data/) | Pre-loaded data | E-commerce schema, sample data, views |
-| [04-security](./04-security/) | Security features | Query restrictions, read-only mode |
+| [04-security](./04-security/) | Security features | Query restrictions, disabled tools |
 | [05-custom-tools](./05-custom-tools/) | Custom tools | DuckDB macros as domain tools |
 | [06-comprehensive](./06-comprehensive/) | Full featured | All features combined |
 
 ## Quick Start
 
-Each example follows the same pattern:
+Each example can be run directly with duckdb:
 
 ```bash
 cd examples/01-simple
-./launch-mcp.sh
-```
-
-Or with a specific DuckDB binary:
-
-```bash
-DUCKDB=/path/to/duckdb ./launch-mcp.sh
+cat test-calls.ldjson | duckdb -init init-mcp-server.sql 2>/dev/null | jq .
 ```
 
 ## Structure
@@ -34,11 +28,9 @@ Each example contains:
 
 ```
 example-name/
-├── launch-mcp.sh         # Entry point (called by MCP clients)
+├── init-mcp-server.sql   # SQL file that loads extension and starts server
 ├── mcp.json              # MCP client configuration
-├── init-mcp-db.sql       # Database initialization
-├── start-mcp-server.sql  # Server startup
-├── test-calls.json       # Test requests
+├── test-calls.ldjson     # Test requests (line-delimited JSON)
 └── README.md             # Documentation
 ```
 
@@ -52,7 +44,8 @@ Add to your Claude Desktop configuration (`~/.config/claude/mcp.json` or similar
 {
   "mcpServers": {
     "duckdb": {
-      "command": "/path/to/examples/01-simple/launch-mcp.sh"
+      "command": "duckdb",
+      "args": ["-init", "/path/to/examples/01-simple/init-mcp-server.sql"]
     }
   }
 }
@@ -60,18 +53,7 @@ Add to your Claude Desktop configuration (`~/.config/claude/mcp.json` or similar
 
 ### Other MCP Clients
 
-Most MCP clients accept a command to spawn the server. Point it to the `launch-mcp.sh` script of your chosen example.
-
-## Environment Variables
-
-All examples support these environment variables:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DUCKDB` | `duckdb` | Path to DuckDB binary |
-| `DB_PATH` | (varies) | Database file path |
-
-Additional variables may be supported by specific examples.
+Most MCP clients accept a command and arguments. Use `duckdb` with `-init` pointing to the example's `init-mcp-server.sql` file.
 
 ## Available Tools
 
@@ -91,13 +73,16 @@ Tools can be enabled/disabled in the server configuration.
 ## Creating Your Own Configuration
 
 1. Copy an example folder
-2. Modify `init-mcp-db.sql` for your schema
-3. Adjust `start-mcp-server.sql` for your security needs
-4. Update `mcp.json` with your settings
+2. Modify the SQL init file for your schema and server config
+3. Update `mcp.json` with your settings
 
 ## Testing
 
-Each example includes a `test-calls.json` file with sample MCP requests. Use these to verify your setup works correctly.
+Each example includes a `test-calls.ldjson` file with sample MCP requests:
+
+```bash
+cat test-calls.ldjson | duckdb -init init-mcp-server.sql 2>/dev/null | jq .
+```
 
 ## Security Notes
 

@@ -1,4 +1,4 @@
-# Configured MCP Server Example
+# Configured MCP Server
 
 MCP server with custom tool configuration.
 
@@ -20,17 +20,23 @@ The server is configured with:
 
 ## Files
 
-- `launch-mcp.sh` - Server entry point with inline configuration
+- `init-mcp-server.sql` - Loads extension, configures and starts server
 - `mcp.json` - MCP client configuration
 - `test-calls.ldjson` - Test requests including execute (should fail)
 
 ## Usage
 
-```bash
-./launch-mcp.sh
+Add to your MCP client configuration:
 
-# Or specify DuckDB binary
-DUCKDB=/path/to/duckdb ./launch-mcp.sh
+```json
+{
+  "mcpServers": {
+    "duckdb-configured": {
+      "command": "duckdb",
+      "args": ["-init", "init-mcp-server.sql"]
+    }
+  }
+}
 ```
 
 ## Testing
@@ -38,5 +44,5 @@ DUCKDB=/path/to/duckdb ./launch-mcp.sh
 The test file includes an execute call that should return an error since execute is disabled:
 
 ```bash
-cat test-calls.ldjson | DUCKDB=/path/to/duckdb ./launch-mcp.sh 2>/dev/null
+cat test-calls.ldjson | duckdb -init init-mcp-server.sql 2>/dev/null | jq .
 ```
