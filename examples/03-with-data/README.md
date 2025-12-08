@@ -1,69 +1,53 @@
-# MCP Server with Schema and Sample Data
+# MCP Server with Sample Data
 
-A DuckDB MCP server pre-loaded with a sample e-commerce schema and data for demonstration and testing.
+MCP server pre-loaded with e-commerce sample data.
 
-## What This Example Demonstrates
+## What it Demonstrates
 
-- Pre-defined database schema
-- Sample data loading
-- Realistic table relationships
-- Query examples across multiple tables
+- Database initialization with schema and sample data
+- Tables: customers, products, orders, order_items
+- Views: customer_orders, product_sales, order_details
+- Querying pre-populated data via MCP
 
-## Schema Overview
+## Schema
 
-```
-customers (id, name, email, created_at)
-    |
-    +--< orders (id, customer_id, order_date, status, total)
-            |
-            +--< order_items (id, order_id, product_id, quantity, price)
-                    |
-products (id, name, category, price, stock) >--+
-```
+- **customers** - Customer records (id, name, email, created_at)
+- **products** - Product catalog (id, name, category, price, stock)
+- **orders** - Order headers (id, customer_id, order_date, status, total)
+- **order_items** - Order line items with product references
 
 ## Files
 
-- `launch-mcp.sh` - Entry point
-- `mcp.json` - MCP server configuration
-- `init-mcp-db.sql` - Creates schema and loads sample data
-- `start-mcp-server.sql` - Starts the MCP server
+- `launch-mcp.sh` - Server entry point
+- `init-mcp-db.sql` - Schema creation and sample data
+- `mcp.json` - MCP client configuration
+- `test-calls.ldjson` - Test queries against the data
 
 ## Usage
 
 ```bash
-# Start the server
 ./launch-mcp.sh
 
-# With development build
-DUCKDB=../../build/release/duckdb ./launch-mcp.sh
+# Or specify DuckDB binary
+DUCKDB=/path/to/duckdb ./launch-mcp.sh
 ```
 
-## Sample Queries
+## Testing
 
-Once connected, try these queries:
+```bash
+cat test-calls.ldjson | DUCKDB=/path/to/duckdb ./launch-mcp.sh 2>/dev/null
+```
+
+## Example Queries
 
 ```sql
 -- List all customers
-SELECT * FROM customers;
+SELECT * FROM customers ORDER BY id;
 
--- Orders with customer names
-SELECT o.id, c.name, o.order_date, o.total
-FROM orders o
-JOIN customers c ON o.customer_id = c.id;
+-- Products by category
+SELECT category, COUNT(*) as count, AVG(price) as avg_price
+FROM products GROUP BY category;
 
--- Products by category with stock levels
-SELECT category, COUNT(*) as products, SUM(stock) as total_stock
-FROM products
-GROUP BY category;
-
--- Top customers by order value
-SELECT c.name, COUNT(o.id) as orders, SUM(o.total) as total_spent
-FROM customers c
-JOIN orders o ON c.id = o.customer_id
-GROUP BY c.id, c.name
-ORDER BY total_spent DESC;
+-- Customer order summary
+SELECT * FROM customer_orders ORDER BY total_spent DESC;
 ```
-
-## Test Calls
-
-See `test-calls.json` for example MCP tool calls demonstrating the sample data.

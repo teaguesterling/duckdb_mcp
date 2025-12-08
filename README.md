@@ -281,11 +281,10 @@ The `examples/` directory contains ready-to-use MCP server configurations:
 | [10-developer](examples/10-developer/) | Developer: AST parsing, test data generation, cryptography |
 
 Each example includes:
-- `launch-mcp.sh` - Entry point for MCP clients
+- `launch-mcp.sh` - Entry point for MCP clients (handles all configuration inline)
 - `mcp.json` - Client configuration file
-- `init-mcp-db.sql` - Database initialization
-- `start-mcp-server.sql` - Server startup configuration
-- `test-calls.json` - Sample MCP requests for testing
+- `test-calls.ldjson` - Line-delimited JSON test requests for testing
+- `init-mcp-db.sql` - Database initialization (where schema/data needed)
 
 ### Quick Start with Examples
 
@@ -296,6 +295,19 @@ cd examples/01-simple
 
 # Or with a specific DuckDB binary
 DUCKDB=/path/to/duckdb ./launch-mcp.sh
+```
+
+### Testing Examples
+
+Each example includes a `test-calls.ldjson` file containing line-delimited JSON requests:
+
+```bash
+# Pipe test calls through the server
+cd examples/01-simple
+cat test-calls.ldjson | DUCKDB=/path/to/duckdb ./launch-mcp.sh
+
+# View each response as it processes
+cat test-calls.ldjson | DUCKDB=/path/to/duckdb ./launch-mcp.sh 2>/dev/null | jq .
 ```
 
 ### Using with Claude Desktop

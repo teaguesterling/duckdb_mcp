@@ -16,9 +16,9 @@ A full-featured DuckDB MCP server demonstrating all capabilities together - conf
 
 ```
 06-comprehensive/
-├── launch-mcp.sh           # Entry point
+├── launch-mcp.sh           # Entry point (handles all config)
 ├── mcp.json                # Client configuration
-├── config.env              # Environment configuration
+├── config.env              # Environment configuration (optional)
 ├── sql/
 │   ├── 00-init.sql         # Extension loading
 │   ├── 01-schema.sql       # Database schema
@@ -27,8 +27,7 @@ A full-featured DuckDB MCP server demonstrating all capabilities together - conf
 │   ├── 04-macros.sql       # Custom macros (tools)
 │   └── 05-server.sql       # Server configuration
 ├── init-mcp-db.sql         # Orchestrates SQL loading
-├── start-mcp-server.sql    # Starts the server
-└── test-calls.json         # Test suite
+└── test-calls.ldjson       # Test suite (line-delimited JSON)
 ```
 
 ## Features
@@ -79,26 +78,24 @@ READ_ONLY=true ./launch-mcp.sh
 Edit `config.env` to customize:
 
 ```bash
-# Database
-DB_PATH=./app.duckdb
+# Database path (empty = in-memory)
+DB_PATH=
 
-# Security
+# Security - read-only mode (requires DB_PATH)
 READ_ONLY=false
-ENABLE_EXECUTE=false
-
-# Performance
-MEMORY_LIMIT=4GB
-THREADS=8
 ```
 
 ## Test Suite
 
-The `test-calls.json` includes comprehensive tests:
+The `test-calls.ldjson` includes comprehensive tests:
 
 1. **Discovery** - List tools, tables, database info
 2. **Queries** - Various SELECT patterns
 3. **Custom Tools** - All domain-specific tools
 4. **Security** - Verify blocked operations
-5. **Resources** - Access published resources
 
-Run tests with an MCP test client or manually send JSON-RPC requests.
+Run tests:
+
+```bash
+cat test-calls.ldjson | DUCKDB=/path/to/duckdb ./launch-mcp.sh 2>/dev/null
+```

@@ -1,42 +1,40 @@
-# Security Features Example
+# Secure MCP Server Example
 
-A DuckDB MCP server demonstrating security features including query restrictions, tool limitations, and access controls.
+MCP server with security restrictions and query filtering.
 
-## What This Example Demonstrates
+## What it Demonstrates
 
-- Query allowlists and denylists
-- Read-only mode (no DDL/DML)
-- Restricted tool access
-- Safe defaults for production use
+- Disabled execute and export tools
+- Query pattern blocking (DROP, TRUNCATE, ALTER, COPY)
+- Safe views for data access (masking sensitive fields)
+- Read-only analytical access pattern
 
-## Security Features
+## Configuration
 
-### 1. Query Restrictions
+```json
+{
+  "enable_query_tool": true,
+  "enable_describe_tool": true,
+  "enable_list_tables_tool": true,
+  "enable_database_info_tool": true,
+  "enable_export_tool": false,
+  "enable_execute_tool": false,
+  "denied_queries": ["DROP", "TRUNCATE", "ALTER", "COPY"]
+}
+```
 
-The server can restrict which SQL operations are allowed:
+## Schema
 
-- **Allowlist**: Only permit specific query patterns
-- **Denylist**: Block dangerous operations
-
-### 2. Tool Restrictions
-
-- `execute` tool disabled entirely
-- Only read operations permitted
-
-### 3. Statement Blocking
-
-The configuration blocks:
-- `DROP` statements
-- `DELETE` without WHERE
-- `TRUNCATE` operations
-- File system access (`COPY TO/FROM` with paths)
+- **sensitive_data** - Contains account balances (protected)
+- **audit_log** - Action audit trail
+- **safe_user_summary** - View that masks sensitive balance data
 
 ## Files
 
-- `launch-mcp.sh` - Entry point
-- `mcp.json` - MCP server configuration
-- `init-mcp-db.sql` - Security configuration and sample data
-- `start-mcp-server.sql` - Secure server startup
+- `launch-mcp.sh` - Server entry point with security config
+- `init-mcp-db.sql` - Schema with sensitive data and safe views
+- `mcp.json` - MCP client configuration
+- `test-calls.ldjson` - Tests including blocked operations
 
 ## Usage
 
@@ -44,40 +42,14 @@ The configuration blocks:
 ./launch-mcp.sh
 ```
 
-## Security Configuration
+## Security Tests
 
-This example configures:
+The test file includes operations that should be blocked:
+- Execute tool calls (tool not found)
+- Export tool calls (tool not found)
+- DROP TABLE queries (denied pattern)
+- COPY commands (denied pattern)
 
-```sql
--- Deny dangerous operations
-denied_queries: ["DROP", "TRUNCATE", "DELETE FROM.*WHERE 1=1"]
-
--- Disable write tools
-enable_execute_tool: false
-execute_allow_ddl: false
-execute_allow_dml: false
+```bash
+cat test-calls.ldjson | DUCKDB=/path/to/duckdb ./launch-mcp.sh 2>/dev/null
 ```
-
-## Test Cases
-
-The `test-calls.json` includes both allowed and blocked operations to demonstrate security:
-
-### Allowed Operations
-- SELECT queries
-- DESCRIBE tables
-- List tables/database info
-- Aggregations and joins
-
-### Blocked Operations
-- CREATE TABLE (DDL blocked)
-- INSERT/UPDATE/DELETE (DML blocked)
-- DROP statements (denied)
-- File exports with paths
-
-## Production Recommendations
-
-1. **Always disable `execute` tool** unless explicitly needed
-2. **Use query denylists** to block dangerous patterns
-3. **Run DuckDB in read-only mode** when possible
-4. **Limit file system access** by blocking COPY TO/FROM
-5. **Use a separate database file** for MCP access (not your production data)
