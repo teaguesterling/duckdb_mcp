@@ -360,6 +360,59 @@ statement ok
 SELECT mcp_server_stop();
 
 # =============================================================================
+# SECTION 11: Unsupported Format Validation (Issue #8)
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# Test unsupported format returns error, not fallback data
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":120,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 1","format":"jsonl"}}}') LIKE '%Unsupported format%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":121,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 1","format":"table"}}}') LIKE '%Unsupported format%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":122,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 1","format":"box"}}}') LIKE '%Unsupported format%';
+----
+true
+
+# Verify supported formats still work
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":123,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 42 as num","format":"json"}}}') LIKE '%42%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":124,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 42 as num","format":"markdown"}}}') LIKE '%| num |%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":125,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 42 as num","format":"csv"}}}') LIKE '%num%';
+----
+true
+
+# Test export tool format validation
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":130,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT 1","format":"parquet"}}}') LIKE '%Unsupported format%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":131,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT 1","format":"jsonl"}}}') LIKE '%Unsupported format%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
 # Cleanup
 # =============================================================================
 

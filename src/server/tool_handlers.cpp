@@ -91,7 +91,12 @@ CallToolResult QueryToolHandler::Execute(const Value &arguments) {
         if (sql.empty()) {
             return CallToolResult::Error("SQL query is required");
         }
-        
+
+        // Validate format
+        if (format != "json" && format != "csv" && format != "markdown") {
+            return CallToolResult::Error("Unsupported format '" + format + "'. Supported formats: json, markdown, csv");
+        }
+
         // Security check
         if (!IsQueryAllowed(sql)) {
             return CallToolResult::Error("Query not allowed by security policy");
@@ -394,7 +399,20 @@ CallToolResult ExportToolHandler::Execute(const Value &arguments) {
         if (query.empty()) {
             return CallToolResult::Error("Query is required");
         }
-        
+
+        // Validate format based on output mode
+        if (output_path.empty()) {
+            // Inline return - only json and csv supported
+            if (format != "json" && format != "csv") {
+                return CallToolResult::Error("Unsupported format '" + format + "' for inline return. Supported formats: json, csv");
+            }
+        } else {
+            // File export - json, csv, and parquet supported
+            if (format != "json" && format != "csv" && format != "parquet") {
+                return CallToolResult::Error("Unsupported format '" + format + "' for file export. Supported formats: json, csv, parquet");
+            }
+        }
+
         // Execute query
         Connection conn(db_instance);
         auto result = conn.Query(query);
