@@ -7,7 +7,7 @@
 namespace duckdb {
 
 // Extension version constant - update this when releasing new versions
-constexpr const char *DUCKDB_MCP_VERSION = "1.2.1";
+constexpr const char *DUCKDB_MCP_VERSION = "1.3.0";
 
 class DuckdbMcpExtension : public Extension {
 public:
