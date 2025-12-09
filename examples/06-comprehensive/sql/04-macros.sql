@@ -20,7 +20,7 @@ CREATE MACRO org_dashboard(org_id_param) AS TABLE
          WHERE p.org_id = o.id AND t.status = 'done') as completed_tasks,
         (SELECT COUNT(*) FROM tasks t
          JOIN projects p ON t.project_id = p.id
-         WHERE p.org_id = o.id AND t.due_date < CURRENT_DATE AND t.status != 'done') as overdue_tasks
+         WHERE p.org_id = o.id AND t.due_date < NOW()::TIMESTAMP::DATE AND t.status != 'done') as overdue_tasks
     FROM organizations o
     WHERE o.id = org_id_param;
 
@@ -38,8 +38,8 @@ CREATE MACRO user_activity(user_id_param) AS TABLE
         u.last_login,
         (SELECT COUNT(*) FROM tasks t WHERE t.assignee_id = u.id AND t.status != 'done') as pending_tasks,
         (SELECT COUNT(*) FROM tasks t WHERE t.assignee_id = u.id AND t.status = 'done') as completed_tasks,
-        (SELECT COUNT(*) FROM tasks t WHERE t.assignee_id = u.id AND t.due_date < CURRENT_DATE AND t.status != 'done') as overdue_tasks,
-        (SELECT COUNT(*) FROM activity_log a WHERE a.user_id = u.id AND a.created_at >= CURRENT_DATE - INTERVAL '7 days') as actions_this_week
+        (SELECT COUNT(*) FROM tasks t WHERE t.assignee_id = u.id AND t.due_date < NOW()::TIMESTAMP::DATE AND t.status != 'done') as overdue_tasks,
+        (SELECT COUNT(*) FROM activity_log a WHERE a.user_id = u.id AND a.created_at >= NOW()::TIMESTAMP::DATE - INTERVAL '7 days') as actions_this_week
     FROM users u
     JOIN organizations o ON u.org_id = o.id
     WHERE u.id = user_id_param;
@@ -54,8 +54,8 @@ CREATE MACRO user_tasks(user_id_param, status_filter) AS TABLE
         p.name as project,
         t.due_date,
         CASE
-            WHEN t.due_date < CURRENT_DATE AND t.status != 'done' THEN 'OVERDUE'
-            WHEN t.due_date = CURRENT_DATE THEN 'DUE TODAY'
+            WHEN t.due_date < NOW()::TIMESTAMP::DATE AND t.status != 'done' THEN 'OVERDUE'
+            WHEN t.due_date = NOW()::TIMESTAMP::DATE THEN 'DUE TODAY'
             ELSE 'OK'
         END as due_status
     FROM tasks t
@@ -89,7 +89,7 @@ CREATE MACRO project_status(project_id_param) AS TABLE
         (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.status = 'in_progress') as in_progress,
         (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.status = 'review') as in_review,
         (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.status = 'todo') as todo,
-        (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.due_date < CURRENT_DATE AND t.status != 'done') as overdue
+        (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.due_date < NOW()::TIMESTAMP::DATE AND t.status != 'done') as overdue
     FROM projects p
     JOIN organizations o ON p.org_id = o.id
     LEFT JOIN users owner ON p.owner_id = owner.id
@@ -129,12 +129,12 @@ CREATE MACRO overdue_tasks(org_id_param) AS TABLE
         p.name as project,
         assignee.name as assignee,
         t.due_date,
-        CURRENT_DATE - t.due_date as days_overdue
+        NOW()::TIMESTAMP::DATE - t.due_date as days_overdue
     FROM tasks t
     JOIN projects p ON t.project_id = p.id
     LEFT JOIN users assignee ON t.assignee_id = assignee.id
     WHERE p.org_id = org_id_param
-      AND t.due_date < CURRENT_DATE
+      AND t.due_date < NOW()::TIMESTAMP::DATE
       AND t.status != 'done'
     ORDER BY t.due_date ASC;
 

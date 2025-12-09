@@ -85,11 +85,11 @@ FROM products p;
 
 CREATE VIEW daily_summary AS
 SELECT
-    CURRENT_DATE as report_date,
+    NOW()::TIMESTAMP::DATE as report_date,
     (SELECT COUNT(*) FROM customers) as total_customers,
     (SELECT COUNT(*) FROM products) as total_products,
     (SELECT COUNT(*) FROM orders WHERE status = 'pending') as pending_orders,
-    (SELECT COALESCE(SUM(total), 0) FROM orders WHERE order_date = CURRENT_DATE) as today_revenue;
+    (SELECT COALESCE(SUM(total), 0) FROM orders WHERE order_date = NOW()::TIMESTAMP::DATE) as today_revenue;
 
 -- ============================================
 -- Custom SQL Macros (queryable via the 'query' tool)

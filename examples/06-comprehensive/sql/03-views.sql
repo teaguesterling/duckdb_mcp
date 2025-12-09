@@ -58,7 +58,7 @@ SELECT
     COUNT(t.id) FILTER (WHERE t.status = 'done') as done_tasks,
     COUNT(t.id) FILTER (WHERE t.status = 'in_progress') as in_progress_tasks,
     COUNT(t.id) FILTER (WHERE t.status = 'todo') as todo_tasks,
-    COUNT(t.id) FILTER (WHERE t.due_date < CURRENT_DATE AND t.status != 'done') as overdue_tasks,
+    COUNT(t.id) FILTER (WHERE t.due_date < NOW()::TIMESTAMP::DATE AND t.status != 'done') as overdue_tasks,
     ROUND(100.0 * COUNT(t.id) FILTER (WHERE t.status = 'done') / NULLIF(COUNT(t.id), 0), 1) as completion_pct
 FROM projects p
 JOIN organizations o ON p.org_id = o.id
@@ -82,9 +82,9 @@ SELECT
     assignee.name as assignee_name,
     t.due_date,
     CASE
-        WHEN t.due_date < CURRENT_DATE AND t.status != 'done' THEN 'overdue'
-        WHEN t.due_date = CURRENT_DATE THEN 'due_today'
-        WHEN t.due_date <= CURRENT_DATE + INTERVAL '7 days' THEN 'due_soon'
+        WHEN t.due_date < NOW()::TIMESTAMP::DATE AND t.status != 'done' THEN 'overdue'
+        WHEN t.due_date = NOW()::TIMESTAMP::DATE THEN 'due_today'
+        WHEN t.due_date <= NOW()::TIMESTAMP::DATE + INTERVAL '7 days' THEN 'due_soon'
         ELSE 'on_track'
     END as due_status
 FROM tasks t
@@ -122,6 +122,6 @@ SELECT
     ROUND(AVG(m.active_users), 1) as avg_daily_active_users
 FROM daily_metrics m
 JOIN organizations o ON m.org_id = o.id
-WHERE m.date >= CURRENT_DATE - INTERVAL '7 days'
+WHERE m.date >= NOW()::TIMESTAMP::DATE - INTERVAL '7 days'
 GROUP BY o.id, o.name;
 
