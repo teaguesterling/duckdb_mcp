@@ -91,6 +91,7 @@ public:
     time_t GetUptime() const;
     uint64_t GetRequestsReceived() const { return requests_received.load(); }
     uint64_t GetResponsesSent() const { return responses_sent.load(); }
+    uint64_t GetErrorsReturned() const { return errors_returned.load(); }
     
     // Resource management
     bool PublishResource(const string &uri, unique_ptr<ResourceProvider> provider);
@@ -121,6 +122,7 @@ private:
     atomic<uint32_t> active_connections;
     atomic<uint64_t> requests_received;
     atomic<uint64_t> responses_sent;
+    atomic<uint64_t> errors_returned;
     time_t start_time;
 
     ResourceRegistry resource_registry;

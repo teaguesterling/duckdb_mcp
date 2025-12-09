@@ -462,6 +462,7 @@ static LogicalType GetMCPStatusType() {
     members.push_back({"background", LogicalType::BOOLEAN});
     members.push_back({"requests_received", LogicalType::UBIGINT});
     members.push_back({"responses_sent", LogicalType::UBIGINT});
+    members.push_back({"errors_returned", LogicalType::UBIGINT});
     return LogicalType::STRUCT(members);
 }
 
@@ -469,7 +470,8 @@ static LogicalType GetMCPStatusType() {
 static Value CreateMCPStatus(bool success, bool running, const string &message,
                               const string &transport = "", const string &listen = "",
                               int port = 0, bool background = false,
-                              uint64_t requests_received = 0, uint64_t responses_sent = 0) {
+                              uint64_t requests_received = 0, uint64_t responses_sent = 0,
+                              uint64_t errors_returned = 0) {
     child_list_t<Value> values;
     values.push_back({"success", Value::BOOLEAN(success)});
     values.push_back({"running", Value::BOOLEAN(running)});
@@ -480,6 +482,7 @@ static Value CreateMCPStatus(bool success, bool running, const string &message,
     values.push_back({"background", Value::BOOLEAN(background)});
     values.push_back({"requests_received", Value::UBIGINT(requests_received)});
     values.push_back({"responses_sent", Value::UBIGINT(responses_sent)});
+    values.push_back({"errors_returned", Value::UBIGINT(errors_returned)});
     return Value::STRUCT(values);
 }
 
@@ -578,11 +581,13 @@ static Value MCPServerStartImpl(ExpressionState &state,
                     server.RunMainLoop(); // Blocks until max_requests or shutdown
                     return CreateMCPStatus(true, false, "MCP server completed",
                                            transport, bind_address, port, false,
-                                           server.GetRequestsReceived(), server.GetResponsesSent());
+                                           server.GetRequestsReceived(), server.GetResponsesSent(),
+                                           server.GetErrorsReturned());
                 } catch (const std::exception &e) {
                     return CreateMCPStatus(false, false, string(e.what()),
                                            transport, bind_address, port, false,
-                                           server.GetRequestsReceived(), server.GetResponsesSent());
+                                           server.GetRequestsReceived(), server.GetResponsesSent(),
+                                           server.GetErrorsReturned());
                 }
             }
         } else if (transport == "memory") {
@@ -723,7 +728,8 @@ static void MCPServerStatusFunction(DataChunk &args, ExpressionState &state, Vec
                 result.SetValue(i, CreateMCPStatus(true, true, server->GetStatus(),
                                                    "", "", 0, true,
                                                    server->GetRequestsReceived(),
-                                                   server->GetResponsesSent()));
+                                                   server->GetResponsesSent(),
+                                                   server->GetErrorsReturned()));
             } else {
                 result.SetValue(i, CreateMCPStatus(false, false, "Server manager inconsistency"));
             }

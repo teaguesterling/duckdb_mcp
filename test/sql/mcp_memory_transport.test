@@ -23,7 +23,7 @@ SELECT mcp_server_stop(true);
 query I
 SELECT mcp_server_start('memory');
 ----
-{'success': true, 'running': true, 'message': 'MCP server started on memory transport (background mode)', 'transport': memory, 'listen': localhost, 'port': 0, 'background': true, 'requests_received': 0, 'responses_sent': 0}
+{'success': true, 'running': true, 'message': 'MCP server started on memory transport (background mode)', 'transport': memory, 'listen': localhost, 'port': 0, 'background': true, 'requests_received': 0, 'responses_sent': 0, 'errors_returned': 0}
 
 # Test initialize handshake - verify MCP spec compliance
 # See: https://modelcontextprotocol.io/specification/2024-11-05/basic/lifecycle

@@ -10,7 +10,7 @@ require duckdb_mcp
 query I
 SELECT mcp_server_stop(true);
 ----
-{'success': true, 'running': false, 'message': 'MCP server state cleared (forced)', 'transport': '', 'listen': '', 'port': 0, 'background': false, 'requests_received': 0, 'responses_sent': 0}
+{'success': true, 'running': false, 'message': 'MCP server state cleared (forced)', 'transport': '', 'listen': '', 'port': 0, 'background': false, 'requests_received': 0, 'responses_sent': 0, 'errors_returned': 0}
 
 # ===================================
 # Test 2: Check status shows stopped
@@ -18,7 +18,7 @@ SELECT mcp_server_stop(true);
 query I
 SELECT mcp_server_status();
 ----
-{'success': true, 'running': false, 'message': Server is stopped, 'transport': '', 'listen': '', 'port': 0, 'background': false, 'requests_received': 0, 'responses_sent': 0}
+{'success': true, 'running': false, 'message': Server is stopped, 'transport': '', 'listen': '', 'port': 0, 'background': false, 'requests_received': 0, 'responses_sent': 0, 'errors_returned': 0}
 
 # ===================================
 # Test 3: Start server with memory transport
@@ -26,7 +26,7 @@ SELECT mcp_server_status();
 query I
 SELECT mcp_server_start('memory');
 ----
-{'success': true, 'running': true, 'message': 'MCP server started on memory transport (background mode)', 'transport': memory, 'listen': localhost, 'port': 0, 'background': true, 'requests_received': 0, 'responses_sent': 0}
+{'success': true, 'running': true, 'message': 'MCP server started on memory transport (background mode)', 'transport': memory, 'listen': localhost, 'port': 0, 'background': true, 'requests_received': 0, 'responses_sent': 0, 'errors_returned': 0}
 
 # ===================================
 # Test 4: Stop server
@@ -34,7 +34,7 @@ SELECT mcp_server_start('memory');
 query I
 SELECT mcp_server_stop();
 ----
-{'success': true, 'running': false, 'message': MCP server stopped, 'transport': '', 'listen': '', 'port': 0, 'background': false, 'requests_received': 0, 'responses_sent': 0}
+{'success': true, 'running': false, 'message': MCP server stopped, 'transport': '', 'listen': '', 'port': 0, 'background': false, 'requests_received': 0, 'responses_sent': 0, 'errors_returned': 0}
 
 # ===================================
 # Test 5: Final cleanup
@@ -42,4 +42,4 @@ SELECT mcp_server_stop();
 query I
 SELECT mcp_server_stop(true);
 ----
-{'success': true, 'running': false, 'message': 'MCP server state cleared (forced)', 'transport': '', 'listen': '', 'port': 0, 'background': false, 'requests_received': 0, 'responses_sent': 0}
+{'success': true, 'running': false, 'message': 'MCP server state cleared (forced)', 'transport': '', 'listen': '', 'port': 0, 'background': false, 'requests_received': 0, 'responses_sent': 0, 'errors_returned': 0}

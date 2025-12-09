@@ -85,7 +85,7 @@ bool ToolRegistry::ToolExists(const string &name) const {
 //===--------------------------------------------------------------------===//
 
 MCPServer::MCPServer(const MCPServerConfig &config)
-    : config(config), running(false), active_connections(0), requests_received(0), responses_sent(0) {
+    : config(config), running(false), active_connections(0), requests_received(0), responses_sent(0), errors_returned(0) {
     start_time = time(nullptr);
 }
 
@@ -179,6 +179,7 @@ string MCPServer::GetStatus() const {
     status += "Connections: " + std::to_string(active_connections.load()) + "\n";
     status += "Requests Received: " + std::to_string(requests_received.load()) + "\n";
     status += "Responses Sent: " + std::to_string(responses_sent.load()) + "\n";
+    status += "Errors Returned: " + std::to_string(errors_returned.load()) + "\n";
     status += "Uptime: " + std::to_string(GetUptime()) + " seconds\n";
     status += "Resources: " + std::to_string(resource_registry.ListResources().size()) + "\n";
     status += "Tools: " + std::to_string(tool_registry.ListTools().size());
@@ -271,6 +272,9 @@ bool MCPServer::ProcessOneMessage() {
         auto response = HandleRequest(request);
         test_transport->Send(response);
         responses_sent.fetch_add(1);
+        if (response.IsError()) {
+            errors_returned.fetch_add(1);
+        }
         return true;
     } catch (const std::exception &) {
         return false;
@@ -288,6 +292,9 @@ void MCPServer::HandleConnection(unique_ptr<MCPTransport> transport) {
                 auto response = HandleRequest(request);
                 transport->Send(response);
                 responses_sent.fetch_add(1);
+                if (response.IsError()) {
+                    errors_returned.fetch_add(1);
+                }
 
                 // If this was a shutdown request, break out of the loop
                 if (request.method == MCPMethods::SHUTDOWN) {
