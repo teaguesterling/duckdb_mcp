@@ -92,14 +92,13 @@ SELECT
     (SELECT COALESCE(SUM(total), 0) FROM orders WHERE order_date = CURRENT_DATE) as today_revenue;
 
 -- ============================================
--- Register Custom SQL Tools
+-- Custom SQL Macros (queryable via the 'query' tool)
 -- ============================================
 
--- Tool 1: Search products by name or category
--- Note: This uses the mcp_register_sql_tool function (if available)
--- The actual implementation depends on the extension's capabilities
+-- These macros provide custom business logic that can be queried via:
+-- tools/call with name="query" and sql="SELECT * FROM macro_name(args)"
 
--- For now, we'll create these as macros that the query tool can use
+-- Product search with optional category filter
 CREATE MACRO search_products(search_term, category_filter) AS TABLE
     SELECT id, name, category, price, stock
     FROM products
@@ -107,7 +106,7 @@ CREATE MACRO search_products(search_term, category_filter) AS TABLE
       AND (category = category_filter OR category_filter IS NULL)
     ORDER BY name;
 
--- Tool 2: Customer report
+-- Customer report with order summary
 CREATE MACRO customer_report(cust_id) AS TABLE
     SELECT
         c.id,
@@ -122,7 +121,7 @@ CREATE MACRO customer_report(cust_id) AS TABLE
     WHERE c.id = cust_id
     GROUP BY c.id, c.name, c.email, c.created_at;
 
--- Tool 3: Inventory check with threshold
+-- Inventory check with threshold
 CREATE MACRO inventory_check(stock_threshold) AS TABLE
     SELECT
         id,
@@ -134,7 +133,7 @@ CREATE MACRO inventory_check(stock_threshold) AS TABLE
     FROM inventory_status
     ORDER BY stock ASC;
 
--- Tool 4: Sales summary for date range
+-- Sales summary for date range
 CREATE MACRO sales_summary(start_dt, end_dt) AS TABLE
     SELECT
         o.order_date,
@@ -145,7 +144,14 @@ CREATE MACRO sales_summary(start_dt, end_dt) AS TABLE
     GROUP BY o.order_date
     ORDER BY o.order_date;
 
--- Start MCP server with all tools enabled
+-- ============================================
+-- Start MCP Server (must be LAST - it blocks for stdio)
+-- ============================================
+
+-- Note: For stdio transport, mcp_server_start blocks.
+-- Custom tools via mcp_publish_tool require 'memory' transport (background mode).
+-- For stdio, use macros which are queryable via the built-in 'query' tool.
+
 SELECT mcp_server_start('stdio', '{
   "enable_query_tool": true,
   "enable_describe_tool": true,
