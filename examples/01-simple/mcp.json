@@ -1,8 +1,13 @@
 {
   "mcpServers": {
-    "duckdb-simple": {
-      "command": "duckdb",
-      "args": ["-init", "init-mcp-server.sql"]
+    "duckdb-mcp-test": {
+      "command": "./build/release/duckdb",
+      "args": [
+        "-s",
+        "LOAD duckdb_mcp",
+        "-s",
+        "SELECT mcp_server_start('stdio')"
+      ]
     }
   }
 }
