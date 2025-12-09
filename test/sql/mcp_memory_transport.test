@@ -25,15 +25,42 @@ SELECT mcp_server_start('memory');
 ----
 {'success': true, 'running': true, 'message': 'MCP server started on memory transport (background mode)', 'transport': memory, 'listen': localhost, 'port': 0, 'background': true, 'requests_received': 0, 'responses_sent': 0}
 
-# Test initialize handshake
+# Test initialize handshake - verify MCP spec compliance
+# See: https://modelcontextprotocol.io/specification/2024-11-05/basic/lifecycle
+
+# Initialize response must have "result" key
 query I
 SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}') LIKE '%"result"%';
 ----
 true
 
-# Verify server name in initialize response
+# Initialize response must have protocolVersion at top level of result
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":2,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}') LIKE '%DuckDB MCP Server%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":2,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}') LIKE '%"protocolVersion":"2024-11-05"%';
+----
+true
+
+# Initialize response must have serverInfo object
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":3,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}') LIKE '%"serverInfo":{%';
+----
+true
+
+# serverInfo must contain name
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":4,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}') LIKE '%DuckDB MCP Server%';
+----
+true
+
+# capabilities.tools must be an object (not a boolean)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":5,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}') LIKE '%"tools":{%';
+----
+true
+
+# capabilities.resources must be an object (not a boolean)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":6,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}') LIKE '%"resources":{%';
 ----
 true
 
@@ -293,6 +320,39 @@ true
 
 query I
 SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":104,"method":"tools/list","params":{}}') LIKE '%"export"%';
+----
+true
+
+# =============================================================================
+# SECTION 10: Tools List - JSON Schema Format Compliance
+# =============================================================================
+
+# inputSchema must be an object, not a string
+# If it's a string, it would look like: "inputSchema":"{\"type..." (escaped quotes)
+# If it's an object, it looks like: "inputSchema":{"type"... (no escape before type)
+# This test will FAIL if inputSchema is a string, PASS if it's an object
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":110,"method":"tools/list","params":{}}') LIKE '%"inputSchema":{"type":"object"%';
+----
+true
+
+# inputSchema.properties must be an object with property names as keys (not an array)
+# Verify "sql" appears as a property key followed by an object (type definition)
+# NOT as {"name":"sql"...} which would be the array format
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":111,"method":"tools/list","params":{}}') LIKE '%"sql":{"type":"string"}%';
+----
+true
+
+# Verify properties is followed by { (object start), not [ (array start)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":112,"method":"tools/list","params":{}}') LIKE '%"properties":{%';
+----
+true
+
+# Verify inputSchema has required array
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":113,"method":"tools/list","params":{}}') LIKE '%"required":%';
 ----
 true
 

@@ -161,8 +161,27 @@ yyjson_mut_val *JSONUtils::ValueToJSON(yyjson_mut_doc *doc, const Value &value) 
         case LogicalTypeId::DOUBLE:
             return yyjson_mut_real(doc, value.GetValue<double>());
         case LogicalTypeId::VARCHAR:
-        case LogicalTypeId::BLOB:
+        case LogicalTypeId::BLOB: {
+            // Check if this is a JSON-typed value - if so, parse and inline it
+            // rather than escaping it as a string
+            if (value.type().id() == LogicalTypeId::VARCHAR &&
+                value.type().GetAlias() == "JSON") {
+                string json_str = value.ToString();
+                if (!json_str.empty()) {
+                    // Parse the JSON string
+                    yyjson_doc *parsed = yyjson_read(json_str.c_str(), json_str.length(), 0);
+                    if (parsed) {
+                        // Copy the parsed value into our mutable document
+                        yyjson_val *root = yyjson_doc_get_root(parsed);
+                        yyjson_mut_val *copied = yyjson_val_mut_copy(doc, root);
+                        yyjson_doc_free(parsed);
+                        return copied;
+                    }
+                }
+            }
+            // Regular string - escape as usual
             return yyjson_mut_strcpy(doc, value.ToString().c_str());
+        }
         case LogicalTypeId::STRUCT: {
             // Convert STRUCT to JSON object
             yyjson_mut_val *obj = CreateObject(doc);

@@ -34,26 +34,27 @@ bool ToolInputSchema::ValidateInput(const Value &input) const {
 }
 
 Value ToolInputSchema::ToJSON() const {
-    // Create a simple schema representation
-    vector<Value> props;
+    // Create properties as a STRUCT (object) with property names as keys
+    // This matches JSON Schema format expected by MCP
+    child_list_t<Value> prop_entries;
     for (const auto &prop : properties) {
-        props.push_back(Value::STRUCT({
-            {"name", Value(prop.first)},
+        // Each property value is a schema object with "type" field
+        prop_entries.push_back(make_pair(prop.first, Value::STRUCT({
             {"type", prop.second}
-        }));
+        })));
     }
 
-    // Create list with proper child type - use first element's type if non-empty
-    Value props_list;
-    if (props.empty()) {
-        props_list = Value::LIST(LogicalType::STRUCT({}), props);
+    // Create the properties object (empty struct if no properties)
+    Value props_obj;
+    if (prop_entries.empty()) {
+        props_obj = Value::STRUCT(child_list_t<Value>());
     } else {
-        props_list = Value::LIST(props[0].type(), props);
+        props_obj = Value::STRUCT(prop_entries);
     }
 
     return Value::STRUCT({
         {"type", Value(type)},
-        {"properties", props_list},
+        {"properties", props_obj},
         {"required", Value::LIST(LogicalType::VARCHAR,
                                 vector<Value>(required_fields.begin(), required_fields.end()))}
     });

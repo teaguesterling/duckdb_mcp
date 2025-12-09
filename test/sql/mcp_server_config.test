@@ -80,15 +80,15 @@ SELECT mcp_server_stop();
 statement ok
 SELECT mcp_server_start('memory', '{"enable_query_tool": false}');
 
-# tools/list should NOT show query tool
+# tools/list should NOT show query tool (check for "name":"query" to avoid matching "query" in inputSchema)
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":30,"method":"tools/list","params":{}}') LIKE '%"query"%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":30,"method":"tools/list","params":{}}') LIKE '%"name":"query"%';
 ----
 false
 
 # But other tools should still be present
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":31,"method":"tools/list","params":{}}') LIKE '%"describe"%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":31,"method":"tools/list","params":{}}') LIKE '%"name":"describe"%';
 ----
 true
 

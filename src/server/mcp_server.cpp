@@ -342,21 +342,36 @@ MCPMessage MCPServer::HandleRequest(const MCPMessage &request) {
 }
 
 MCPMessage MCPServer::HandleInitialize(const MCPMessage &request) {
-    // Return server capabilities
-    Value capabilities = Value::STRUCT({
-        {"resources", Value::BOOLEAN(true)},
-        {"tools", Value::BOOLEAN(true)},
-        {"prompts", Value::BOOLEAN(false)}, // Not implemented yet
-        {"sampling", Value::BOOLEAN(false)} // Not implemented yet
+    // MCP spec requires capabilities to be objects with specific sub-fields
+    // See: https://modelcontextprotocol.io/specification/2024-11-05/basic/lifecycle
+    Value resources_cap = Value::STRUCT({
+        {"subscribe", Value::BOOLEAN(false)},  // We don't support resource subscriptions yet
+        {"listChanged", Value::BOOLEAN(true)}  // We can notify when resource list changes
     });
-    
+
+    Value tools_cap = Value::STRUCT({
+        {"listChanged", Value::BOOLEAN(true)}  // We can notify when tool list changes
+    });
+
+    Value capabilities = Value::STRUCT({
+        {"resources", resources_cap},
+        {"tools", tools_cap}
+        // prompts and sampling not included = not supported
+    });
+
     Value server_info = Value::STRUCT({
         {"name", Value("DuckDB MCP Server")},
-        {"version", Value(DUCKDB_MCP_VERSION)},
+        {"version", Value(DUCKDB_MCP_VERSION)}
+    });
+
+    // MCP initialize response requires protocolVersion, serverInfo, and capabilities at top level
+    Value result = Value::STRUCT({
+        {"protocolVersion", Value("2024-11-05")},
+        {"serverInfo", server_info},
         {"capabilities", capabilities}
     });
-    
-    return MCPMessage::CreateResponse(server_info, request.id);
+
+    return MCPMessage::CreateResponse(result, request.id);
 }
 
 MCPMessage MCPServer::HandleResourcesList(const MCPMessage &request) {
@@ -465,7 +480,8 @@ MCPMessage MCPServer::HandleToolsList(const MCPMessage &request) {
     for (const auto &name : tool_names) {
         auto handler = tool_registry.GetTool(name);
         if (handler) {
-            // Serialize inputSchema to JSON string for consistent typing
+            // Serialize inputSchema to JSON string - JSONUtils::ValueToJSON will
+            // recognize JSON-typed values and inline them instead of escaping
             Value schema = handler->GetInputSchema().ToJSON();
             yyjson_mut_doc *doc = JSONUtils::CreateDocument();
             yyjson_mut_val *schema_json = JSONUtils::ValueToJSON(doc, schema);
