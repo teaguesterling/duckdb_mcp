@@ -2,6 +2,7 @@
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "json_utils.hpp"
+#include "result_formatter.hpp"
 
 namespace duckdb {
 
@@ -152,112 +153,8 @@ bool QueryToolHandler::IsQueryAllowed(const string &query) const {
 }
 
 string QueryToolHandler::FormatResult(QueryResult &result, const string &format) const {
-    if (format == "json") {
-        // Convert to JSON array of objects
-        string json = "[";
-        bool first_row = true;
-
-        while (auto chunk = result.Fetch()) {
-            for (idx_t i = 0; i < chunk->size(); i++) {
-                if (!first_row) {
-                    json += ",";
-                }
-                first_row = false;
-
-                json += "{";
-                for (idx_t col = 0; col < chunk->ColumnCount(); col++) {
-                    if (col > 0) json += ",";
-                    json += "\"" + result.names[col] + "\":";
-
-                    auto value = chunk->GetValue(col, i);
-                    if (value.IsNull()) {
-                        json += "null";
-                    } else {
-                        json += "\"" + value.ToString() + "\"";
-                    }
-                }
-                json += "}";
-            }
-        }
-        json += "]";
-        return json;
-
-    } else if (format == "csv") {
-        // Convert to CSV
-        string csv;
-
-        // Header
-        for (idx_t col = 0; col < result.names.size(); col++) {
-            if (col > 0) csv += ",";
-            csv += result.names[col];
-        }
-        csv += "\n";
-
-        // Data
-        while (auto chunk = result.Fetch()) {
-            for (idx_t i = 0; i < chunk->size(); i++) {
-                for (idx_t col = 0; col < chunk->ColumnCount(); col++) {
-                    if (col > 0) csv += ",";
-                    auto value = chunk->GetValue(col, i);
-                    csv += value.ToString();
-                }
-                csv += "\n";
-            }
-        }
-        return csv;
-
-    } else if (format == "markdown") {
-        // Convert to GitHub-flavored markdown table
-        // More token-efficient than JSON for tabular data
-        string md;
-        idx_t num_cols = result.names.size();
-
-        if (num_cols == 0) {
-            return "(empty result)";
-        }
-
-        // Header row
-        md += "|";
-        for (idx_t col = 0; col < num_cols; col++) {
-            md += " " + result.names[col] + " |";
-        }
-        md += "\n";
-
-        // Separator row with alignment hints
-        md += "|";
-        for (idx_t col = 0; col < num_cols; col++) {
-            bool is_numeric = result.types[col].IsNumeric();
-            if (is_numeric) {
-                md += "---:|";  // Right-align numeric columns
-            } else {
-                md += "---|";   // Left-align text columns
-            }
-        }
-        md += "\n";
-
-        // Data rows
-        while (auto chunk = result.Fetch()) {
-            for (idx_t i = 0; i < chunk->size(); i++) {
-                md += "|";
-                for (idx_t col = 0; col < chunk->ColumnCount(); col++) {
-                    auto value = chunk->GetValue(col, i);
-                    string cell = value.IsNull() ? "NULL" : value.ToString();
-                    // Escape pipe characters in cell values
-                    for (size_t pos = 0; (pos = cell.find('|', pos)) != string::npos; pos += 2) {
-                        cell.replace(pos, 1, "\\|");
-                    }
-                    md += " " + cell + " |";
-                }
-                md += "\n";
-            }
-        }
-
-        return md;
-
-    } else {
-        // Default to string representation (duckbox format)
-        return result.ToString();
-    }
+    // Delegate to shared ResultFormatter utility
+    return ResultFormatter::Format(result, format);
 }
 
 //===--------------------------------------------------------------------===//
@@ -539,9 +436,10 @@ string ExportToolHandler::FormatData(QueryResult &result, const string &format) 
 //===--------------------------------------------------------------------===//
 
 SQLToolHandler::SQLToolHandler(const string &name, const string &description, const string &sql_template,
-                              const ToolInputSchema &input_schema, DatabaseInstance &db)
+                              const ToolInputSchema &input_schema, DatabaseInstance &db,
+                              const string &result_format)
     : tool_name(name), tool_description(description), sql_template(sql_template),
-      input_schema(input_schema), db_instance(db) {
+      input_schema(input_schema), db_instance(db), result_format(result_format) {
 }
 
 CallToolResult SQLToolHandler::Execute(const Value &arguments) {
@@ -559,45 +457,20 @@ CallToolResult SQLToolHandler::Execute(const Value &arguments) {
 
         // Substitute parameters in SQL template
         string sql = SubstituteParameters(sql_template, parser);
-        
+
         // Execute query
         Connection conn(db_instance);
         auto result = conn.Query(sql);
-        
+
         if (result->HasError()) {
             return CallToolResult::Error("SQL error: " + result->GetError());
         }
-        
-        // Return result as JSON
-        string json_result = "[";
-        bool first_row = true;
-        
-        while (auto chunk = result->Fetch()) {
-            for (idx_t i = 0; i < chunk->size(); i++) {
-                if (!first_row) {
-                    json_result += ",";
-                }
-                first_row = false;
-                
-                json_result += "{";
-                for (idx_t col = 0; col < chunk->ColumnCount(); col++) {
-                    if (col > 0) json_result += ",";
-                    json_result += "\"" + result->names[col] + "\":";
-                    
-                    auto value = chunk->GetValue(col, i);
-                    if (value.IsNull()) {
-                        json_result += "null";
-                    } else {
-                        json_result += "\"" + value.ToString() + "\"";
-                    }
-                }
-                json_result += "}";
-            }
-        }
-        json_result += "]";
-        
-        return CallToolResult::Success(Value(json_result));
-        
+
+        // Format result using the configured format
+        string formatted_result = ResultFormatter::Format(*result, result_format);
+
+        return CallToolResult::Success(Value(formatted_result));
+
     } catch (const std::exception &e) {
         return CallToolResult::Error("Tool execution error: " + string(e.what()));
     }

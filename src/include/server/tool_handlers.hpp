@@ -117,7 +117,8 @@ private:
 class SQLToolHandler : public ToolHandler {
 public:
     SQLToolHandler(const string &name, const string &description, const string &sql_template,
-                  const ToolInputSchema &input_schema, DatabaseInstance &db);
+                  const ToolInputSchema &input_schema, DatabaseInstance &db,
+                  const string &result_format = "json");
 
     CallToolResult Execute(const Value &arguments) override;
     string GetName() const override { return tool_name; }
@@ -130,6 +131,7 @@ private:
     string sql_template;
     ToolInputSchema input_schema;
     DatabaseInstance &db_instance;
+    string result_format;
 
     string SubstituteParameters(const string &template_sql, const JSONArgumentParser &parser) const;
 };

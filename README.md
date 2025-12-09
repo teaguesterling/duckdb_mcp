@@ -86,6 +86,7 @@ FROM pagination_flow ORDER BY page_num;
 | `mcp_server_status()` | Check server status | Basic status information only |
 | `mcp_publish_table(table, uri, format)` | Publish table as resource | Static snapshot; no real-time updates |
 | `mcp_publish_query(sql, uri, format, interval)` | Publish query result | Refresh interval minimum 60 seconds |
+| `mcp_publish_tool(name, desc, sql, props, required [, format])` | Publish custom SQL tool | Parameters substituted as `$name` |
 
 ### Built-in Server Tools
 
@@ -192,6 +193,25 @@ SELECT mcp_server_start('stdio', 'localhost', 0, '{}');
 
 -- Publish table as resource
 SELECT mcp_publish_table('products', 'data://tables/products', 'json');
+
+-- Publish custom tool with parameterized SQL
+SELECT mcp_publish_tool(
+    'get_product',                              -- tool name
+    'Get product by ID',                        -- description
+    'SELECT * FROM products WHERE id = $id',    -- SQL template ($param syntax)
+    '{"id": "integer"}',                        -- parameter schema
+    '["id"]'                                    -- required parameters
+);
+
+-- With custom output format (json, csv, or markdown)
+SELECT mcp_publish_tool(
+    'list_products',
+    'List all products',
+    'SELECT name, price FROM products ORDER BY price',
+    '{}',
+    '[]',
+    'markdown'  -- output format
+);
 ```
 
 ## Security Configuration

@@ -1,6 +1,7 @@
 #include "server/resource_providers.hpp"
 #include "duckdb/common/exception.hpp"
 #include "json_utils.hpp"
+#include "result_formatter.hpp"
 #include <ctime>
 
 namespace duckdb {
@@ -32,14 +33,11 @@ ReadResourceResult TableResourceProvider::Read() {
 }
 
 string TableResourceProvider::GetMimeType() const {
-    if (format == "json") {
-        return "application/json";
-    } else if (format == "csv") {
-        return "text/csv";
-    } else if (format == "arrow") {
+    // Arrow format is resource-specific, others use shared utility
+    if (format == "arrow") {
         return "application/vnd.apache.arrow.file";
     }
-    return "text/plain";
+    return ResultFormatter::GetMimeType(format);
 }
 
 size_t TableResourceProvider::GetSize() const {
@@ -52,70 +50,8 @@ string TableResourceProvider::GetDescription() const {
 }
 
 string TableResourceProvider::FormatResult(QueryResult &result) const {
-    if (format == "json") {
-        // Convert to JSON using proper JSON library
-        yyjson_mut_doc *doc = JSONUtils::CreateDocument();
-        if (!doc) {
-            throw InternalException("Failed to create JSON document");
-        }
-        
-        try {
-            yyjson_mut_val *json_array = JSONUtils::CreateArray(doc);
-            yyjson_mut_doc_set_root(doc, json_array);
-            
-            while (auto chunk = result.Fetch()) {
-                for (idx_t i = 0; i < chunk->size(); i++) {
-                    yyjson_mut_val *json_row = JSONUtils::CreateObject(doc);
-                    
-                    for (idx_t col = 0; col < chunk->ColumnCount(); col++) {
-                        const string &column_name = result.names[col];
-                        Value cell_value = chunk->GetValue(col, i);
-                        
-                        yyjson_mut_val *json_value = JSONUtils::ValueToJSON(doc, cell_value);
-                        yyjson_mut_obj_add(json_row, yyjson_mut_strcpy(doc, column_name.c_str()), json_value);
-                    }
-                    
-                    JSONUtils::ArrayAdd(doc, json_array, json_row);
-                }
-            }
-            
-            string json_str = JSONUtils::Serialize(doc);
-            JSONUtils::FreeDocument(doc);
-            return json_str;
-            
-        } catch (...) {
-            JSONUtils::FreeDocument(doc);
-            throw;
-        }
-        
-    } else if (format == "csv") {
-        // Convert to CSV
-        string csv;
-        
-        // Header
-        for (idx_t col = 0; col < result.names.size(); col++) {
-            if (col > 0) csv += ",";
-            csv += result.names[col];
-        }
-        csv += "\n";
-        
-        // Data
-        while (auto chunk = result.Fetch()) {
-            for (idx_t i = 0; i < chunk->size(); i++) {
-                for (idx_t col = 0; col < chunk->ColumnCount(); col++) {
-                    if (col > 0) csv += ",";
-                    auto value = chunk->GetValue(col, i);
-                    csv += value.ToString();
-                }
-                csv += "\n";
-            }
-        }
-        return csv;
-        
-    } else {
-        // Default to string representation
-        return result.ToString();
-    }
+    // Delegate to shared ResultFormatter utility
+    return ResultFormatter::Format(result, format);
 }
 
 //===--------------------------------------------------------------------===//
@@ -144,14 +80,11 @@ ReadResourceResult QueryResourceProvider::Read() {
 }
 
 string QueryResourceProvider::GetMimeType() const {
-    if (format == "json") {
-        return "application/json";
-    } else if (format == "csv") {
-        return "text/csv";
-    } else if (format == "arrow") {
+    // Arrow format is resource-specific, others use shared utility
+    if (format == "arrow") {
         return "application/vnd.apache.arrow.file";
     }
-    return "text/plain";
+    return ResultFormatter::GetMimeType(format);
 }
 
 size_t QueryResourceProvider::GetSize() const {
@@ -196,70 +129,8 @@ string QueryResourceProvider::ExecuteQuery() const {
 }
 
 string QueryResourceProvider::FormatResult(QueryResult &result) const {
-    if (format == "json") {
-        // Convert to JSON using proper JSON library (same as TableResourceProvider)
-        yyjson_mut_doc *doc = JSONUtils::CreateDocument();
-        if (!doc) {
-            throw InternalException("Failed to create JSON document");
-        }
-        
-        try {
-            yyjson_mut_val *json_array = JSONUtils::CreateArray(doc);
-            yyjson_mut_doc_set_root(doc, json_array);
-            
-            while (auto chunk = result.Fetch()) {
-                for (idx_t i = 0; i < chunk->size(); i++) {
-                    yyjson_mut_val *json_row = JSONUtils::CreateObject(doc);
-                    
-                    for (idx_t col = 0; col < chunk->ColumnCount(); col++) {
-                        const string &column_name = result.names[col];
-                        Value cell_value = chunk->GetValue(col, i);
-                        
-                        yyjson_mut_val *json_value = JSONUtils::ValueToJSON(doc, cell_value);
-                        yyjson_mut_obj_add(json_row, yyjson_mut_strcpy(doc, column_name.c_str()), json_value);
-                    }
-                    
-                    JSONUtils::ArrayAdd(doc, json_array, json_row);
-                }
-            }
-            
-            string json_str = JSONUtils::Serialize(doc);
-            JSONUtils::FreeDocument(doc);
-            return json_str;
-            
-        } catch (...) {
-            JSONUtils::FreeDocument(doc);
-            throw;
-        }
-        
-    } else if (format == "csv") {
-        // Convert to CSV (similar to TableResourceProvider)
-        string csv;
-        
-        // Header
-        for (idx_t col = 0; col < result.names.size(); col++) {
-            if (col > 0) csv += ",";
-            csv += result.names[col];
-        }
-        csv += "\n";
-        
-        // Data
-        while (auto chunk = result.Fetch()) {
-            for (idx_t i = 0; i < chunk->size(); i++) {
-                for (idx_t col = 0; col < chunk->ColumnCount(); col++) {
-                    if (col > 0) csv += ",";
-                    auto value = chunk->GetValue(col, i);
-                    csv += value.ToString();
-                }
-                csv += "\n";
-            }
-        }
-        return csv;
-        
-    } else {
-        // Default to string representation
-        return result.ToString();
-    }
+    // Delegate to shared ResultFormatter utility
+    return ResultFormatter::Format(result, format);
 }
 
 //===--------------------------------------------------------------------===//

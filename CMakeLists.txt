@@ -9,12 +9,13 @@ set(LOADABLE_EXTENSION_NAME ${TARGET_NAME}_loadable_extension)
 project(${TARGET_NAME})
 include_directories(src/include)
 
-set(EXTENSION_SOURCES 
+set(EXTENSION_SOURCES
   src/duckdb_mcp_extension.cpp
   src/duckdb_mcp_config.cpp
   src/duckdb_mcp_security.cpp
   src/duckdb_mcp_logging.cpp
   src/json_utils.cpp
+  src/result_formatter.cpp
   src/mcpfs/mcp_path.cpp
   src/mcpfs/mcp_file_system.cpp
   src/protocol/mcp_message.cpp

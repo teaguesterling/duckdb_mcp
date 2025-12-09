@@ -17,6 +17,7 @@ using namespace duckdb_yyjson;
 #include "server/mcp_server.hpp"
 #include "server/resource_providers.hpp"
 #include "server/tool_handlers.hpp"
+#include "result_formatter.hpp"
 #include "server/memory_transport.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/string_util.hpp"
@@ -846,14 +847,34 @@ static void MCPPublishTableFunction(DataChunk &args, ExpressionState &state, Vec
             
             // Parse parameters
             string table_name = table_vector.GetValue(i).ToString();
-            string resource_uri = uri_vector.GetValue(i).IsNull() ? 
+            string resource_uri = uri_vector.GetValue(i).IsNull() ?
                 ("data://tables/" + table_name) : uri_vector.GetValue(i).ToString();
             string format = format_vector.GetValue(i).IsNull() ? "json" : format_vector.GetValue(i).ToString();
-            
+
+            // Validate format
+            if (!ResultFormatter::IsFormatSupported(format)) {
+                result_data[i] = StringVector::AddString(result,
+                    "ERROR: Unsupported format '" + format + "'. Supported formats: json, csv, markdown");
+                continue;
+            }
+
             // Get database instance
             auto &context = state.GetContext();
             auto &db_instance = DatabaseInstance::GetDatabase(context);
-            
+
+            // Validate table exists before publishing
+            try {
+                Connection conn(db_instance);
+                auto check_result = conn.Query("SELECT 1 FROM " + table_name + " LIMIT 0");
+                if (check_result->HasError()) {
+                    result_data[i] = StringVector::AddString(result, "ERROR: Table '" + table_name + "' not found");
+                    continue;
+                }
+            } catch (const std::exception &e) {
+                result_data[i] = StringVector::AddString(result, "ERROR: Table '" + table_name + "' not found");
+                continue;
+            }
+
             // Create resource provider
             auto provider = make_uniq<TableResourceProvider>(table_name, format, db_instance);
             
@@ -878,43 +899,201 @@ static void MCPPublishQueryFunction(DataChunk &args, ExpressionState &state, Vec
     auto &uri_vector = args.data[1];
     auto &format_vector = args.data[2];
     auto &refresh_vector = args.data[3];
-    
+
     result.SetVectorType(VectorType::FLAT_VECTOR);
     auto result_data = FlatVector::GetData<string_t>(result);
-    
+
     for (idx_t i = 0; i < args.size(); i++) {
         try {
             auto &server_manager = MCPServerManager::GetInstance();
-            
+
             if (!server_manager.IsServerRunning()) {
                 result_data[i] = StringVector::AddString(result, "ERROR: MCP server is not running");
                 continue;
             }
-            
+
             // Parse parameters
             string query = query_vector.GetValue(i).ToString();
             string resource_uri = uri_vector.GetValue(i).ToString();
             string format = format_vector.GetValue(i).IsNull() ? "json" : format_vector.GetValue(i).ToString();
             uint32_t refresh_seconds = refresh_vector.GetValue(i).IsNull() ? 0 : refresh_vector.GetValue(i).GetValue<uint32_t>();
-            
+
+            // Validate format
+            if (!ResultFormatter::IsFormatSupported(format)) {
+                result_data[i] = StringVector::AddString(result,
+                    "ERROR: Unsupported format '" + format + "'. Supported formats: json, csv, markdown");
+                continue;
+            }
+
             // Get database instance
             auto &context = state.GetContext();
             auto &db_instance = DatabaseInstance::GetDatabase(context);
-            
+
             // Create resource provider
             auto provider = make_uniq<QueryResourceProvider>(query, format, db_instance, refresh_seconds);
-            
+
             // Publish resource
             auto server = server_manager.GetServer();
             if (server->PublishResource(resource_uri, std::move(provider))) {
-                string refresh_info = refresh_seconds > 0 ? 
+                string refresh_info = refresh_seconds > 0 ?
                     " (refresh every " + std::to_string(refresh_seconds) + "s)" : " (no refresh)";
-                result_data[i] = StringVector::AddString(result, "SUCCESS: Published query as resource '" + 
+                result_data[i] = StringVector::AddString(result, "SUCCESS: Published query as resource '" +
                     resource_uri + "' in " + format + " format" + refresh_info);
             } else {
                 result_data[i] = StringVector::AddString(result, "ERROR: Failed to publish query");
             }
-            
+
+        } catch (const std::exception &e) {
+            result_data[i] = StringVector::AddString(result, "ERROR: " + string(e.what()));
+        }
+    }
+}
+
+// Helper to parse properties JSON into ToolInputSchema
+static ToolInputSchema ParseToolInputSchema(const string &properties_json, const string &required_json) {
+    ToolInputSchema schema;
+    schema.type = "object";
+
+    // Parse properties JSON: {"param_name": "type", ...}
+    if (!properties_json.empty() && properties_json != "{}") {
+        yyjson_doc *props_doc = JSONUtils::Parse(properties_json);
+        yyjson_val *props_root = yyjson_doc_get_root(props_doc);
+        if (props_root && yyjson_is_obj(props_root)) {
+            yyjson_obj_iter iter = yyjson_obj_iter_with(props_root);
+            yyjson_val *key;
+            while ((key = yyjson_obj_iter_next(&iter))) {
+                yyjson_val *val = yyjson_obj_iter_get_val(key);
+                if (yyjson_is_str(val)) {
+                    string prop_name = yyjson_get_str(key);
+                    string prop_type = yyjson_get_str(val);
+                    schema.properties[prop_name] = Value(prop_type);
+                }
+            }
+        }
+        JSONUtils::FreeDocument(props_doc);
+    }
+
+    // Parse required JSON: ["param1", "param2", ...]
+    if (!required_json.empty() && required_json != "[]") {
+        yyjson_doc *req_doc = JSONUtils::Parse(required_json);
+        yyjson_val *req_root = yyjson_doc_get_root(req_doc);
+        if (req_root && yyjson_is_arr(req_root)) {
+            size_t idx, max;
+            yyjson_val *val;
+            yyjson_arr_foreach(req_root, idx, max, val) {
+                if (yyjson_is_str(val)) {
+                    schema.required_fields.push_back(yyjson_get_str(val));
+                }
+            }
+        }
+        JSONUtils::FreeDocument(req_doc);
+    }
+
+    return schema;
+}
+
+// Publish tool with 5 parameters (format defaults to json)
+static void MCPPublishToolFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+    auto &name_vector = args.data[0];
+    auto &desc_vector = args.data[1];
+    auto &sql_vector = args.data[2];
+    auto &props_vector = args.data[3];
+    auto &required_vector = args.data[4];
+
+    result.SetVectorType(VectorType::FLAT_VECTOR);
+    auto result_data = FlatVector::GetData<string_t>(result);
+
+    for (idx_t i = 0; i < args.size(); i++) {
+        try {
+            auto &server_manager = MCPServerManager::GetInstance();
+
+            if (!server_manager.IsServerRunning()) {
+                result_data[i] = StringVector::AddString(result, "ERROR: MCP server is not running");
+                continue;
+            }
+
+            // Parse parameters
+            string tool_name = name_vector.GetValue(i).ToString();
+            string description = desc_vector.GetValue(i).ToString();
+            string sql_template = sql_vector.GetValue(i).ToString();
+            string properties_json = props_vector.GetValue(i).IsNull() ? "{}" : props_vector.GetValue(i).ToString();
+            string required_json = required_vector.GetValue(i).IsNull() ? "[]" : required_vector.GetValue(i).ToString();
+            string format = "json"; // Default format
+
+            // Get database instance
+            auto &context = state.GetContext();
+            auto &db_instance = DatabaseInstance::GetDatabase(context);
+
+            // Parse input schema from JSON
+            ToolInputSchema input_schema = ParseToolInputSchema(properties_json, required_json);
+
+            // Create tool handler
+            auto handler = make_uniq<SQLToolHandler>(tool_name, description, sql_template,
+                                                     input_schema, db_instance, format);
+
+            // Register tool
+            auto server = server_manager.GetServer();
+            if (server->RegisterTool(tool_name, std::move(handler))) {
+                result_data[i] = StringVector::AddString(result, "SUCCESS: Published tool '" + tool_name + "'");
+            } else {
+                result_data[i] = StringVector::AddString(result, "ERROR: Failed to publish tool");
+            }
+
+        } catch (const std::exception &e) {
+            result_data[i] = StringVector::AddString(result, "ERROR: " + string(e.what()));
+        }
+    }
+}
+
+// Publish tool with 6 parameters (includes format option)
+static void MCPPublishToolWithFormatFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+    auto &name_vector = args.data[0];
+    auto &desc_vector = args.data[1];
+    auto &sql_vector = args.data[2];
+    auto &props_vector = args.data[3];
+    auto &required_vector = args.data[4];
+    auto &format_vector = args.data[5];
+
+    result.SetVectorType(VectorType::FLAT_VECTOR);
+    auto result_data = FlatVector::GetData<string_t>(result);
+
+    for (idx_t i = 0; i < args.size(); i++) {
+        try {
+            auto &server_manager = MCPServerManager::GetInstance();
+
+            if (!server_manager.IsServerRunning()) {
+                result_data[i] = StringVector::AddString(result, "ERROR: MCP server is not running");
+                continue;
+            }
+
+            // Parse parameters
+            string tool_name = name_vector.GetValue(i).ToString();
+            string description = desc_vector.GetValue(i).ToString();
+            string sql_template = sql_vector.GetValue(i).ToString();
+            string properties_json = props_vector.GetValue(i).IsNull() ? "{}" : props_vector.GetValue(i).ToString();
+            string required_json = required_vector.GetValue(i).IsNull() ? "[]" : required_vector.GetValue(i).ToString();
+            string format = format_vector.GetValue(i).IsNull() ? "json" : format_vector.GetValue(i).ToString();
+
+            // Get database instance
+            auto &context = state.GetContext();
+            auto &db_instance = DatabaseInstance::GetDatabase(context);
+
+            // Parse input schema from JSON
+            ToolInputSchema input_schema = ParseToolInputSchema(properties_json, required_json);
+
+            // Create tool handler
+            auto handler = make_uniq<SQLToolHandler>(tool_name, description, sql_template,
+                                                     input_schema, db_instance, format);
+
+            // Register tool
+            auto server = server_manager.GetServer();
+            if (server->RegisterTool(tool_name, std::move(handler))) {
+                result_data[i] = StringVector::AddString(result, "SUCCESS: Published tool '" + tool_name +
+                    "' with " + format + " output format");
+            } else {
+                result_data[i] = StringVector::AddString(result, "ERROR: Failed to publish tool");
+            }
+
         } catch (const std::exception &e) {
             result_data[i] = StringVector::AddString(result, "ERROR: " + string(e.what()));
         }
@@ -1427,16 +1606,36 @@ static void LoadInternal(ExtensionLoader &loader) {
     loader.RegisterFunction(send_request_func);
 
     // Register resource publishing functions
-    auto publish_table_func = ScalarFunction("mcp_publish_table", 
-        {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR}, 
+    // Note: We use SPECIAL_HANDLING to allow NULL uri/format parameters (which have defaults)
+    auto publish_table_func = ScalarFunction("mcp_publish_table",
+        {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
         LogicalType::VARCHAR, MCPPublishTableFunction);
+    publish_table_func.null_handling = FunctionNullHandling::SPECIAL_HANDLING;
     loader.RegisterFunction(publish_table_func);
-    
-    auto publish_query_func = ScalarFunction("mcp_publish_query", 
-        {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::INTEGER}, 
+
+    auto publish_query_func = ScalarFunction("mcp_publish_query",
+        {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::INTEGER},
         LogicalType::VARCHAR, MCPPublishQueryFunction);
+    publish_query_func.null_handling = FunctionNullHandling::SPECIAL_HANDLING;
     loader.RegisterFunction(publish_query_func);
-    
+
+    // Register tool publishing functions
+    // mcp_publish_tool(name, description, sql_template, properties_json, required_json)
+    auto publish_tool_func = ScalarFunction("mcp_publish_tool",
+        {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
+         LogicalType::VARCHAR, LogicalType::VARCHAR},
+        LogicalType::VARCHAR, MCPPublishToolFunction);
+    publish_tool_func.null_handling = FunctionNullHandling::SPECIAL_HANDLING;
+    loader.RegisterFunction(publish_tool_func);
+
+    // mcp_publish_tool(name, description, sql_template, properties_json, required_json, format)
+    auto publish_tool_format_func = ScalarFunction("mcp_publish_tool",
+        {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
+         LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
+        LogicalType::VARCHAR, MCPPublishToolWithFormatFunction);
+    publish_tool_format_func.null_handling = FunctionNullHandling::SPECIAL_HANDLING;
+    loader.RegisterFunction(publish_tool_format_func);
+
     // Register MCP template functions
     auto register_prompt_template_func = ScalarFunction("mcp_register_prompt_template",
         {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR}, 

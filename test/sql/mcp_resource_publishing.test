@@ -1,0 +1,724 @@
+# name: test/sql/mcp_resource_publishing.test
+# description: Test MCP resource and tool publishing functions
+# group: [duckdb_mcp]
+
+# Load the MCP extension
+require duckdb_mcp
+
+statement ok
+LOAD duckdb_mcp;
+
+# =============================================================================
+# SETUP: Clean state and test data
+# =============================================================================
+
+statement ok
+SELECT mcp_server_stop(true);
+
+statement ok
+CREATE TABLE test_products AS SELECT 1 as id, 'Widget' as name, 9.99 as price UNION ALL SELECT 2, 'Gadget', 19.99;
+
+statement ok
+CREATE TABLE test_users AS SELECT 1 as id, 'Alice' as username UNION ALL SELECT 2, 'Bob';
+
+# =============================================================================
+# SECTION 1: mcp_publish_table - Basic Functionality
+# =============================================================================
+
+# Server must be running to publish
+query I
+SELECT mcp_publish_table('test_products', 'data://products', 'json') LIKE '%ERROR%server is not running%';
+----
+true
+
+# Start server
+statement ok
+SELECT mcp_server_start('memory');
+
+# Publish table with explicit URI
+query I
+SELECT mcp_publish_table('test_products', 'data://products', 'json') LIKE '%SUCCESS%';
+----
+true
+
+# Published resource should appear in resources/list
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":1,"method":"resources/list","params":{}}') LIKE '%data://products%';
+----
+true
+
+# Read published resource should return table data
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":2,"method":"resources/read","params":{"uri":"data://products"}}') LIKE '%Widget%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":3,"method":"resources/read","params":{"uri":"data://products"}}') LIKE '%Gadget%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# SECTION 2: mcp_publish_table - Format Options
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# Publish as CSV format
+query I
+SELECT mcp_publish_table('test_products', 'data://products_csv', 'csv') LIKE '%SUCCESS%csv%';
+----
+true
+
+# Publish as markdown format
+query I
+SELECT mcp_publish_table('test_products', 'data://products_md', 'markdown') LIKE '%SUCCESS%markdown%';
+----
+true
+
+# CSV resource should have CSV-formatted content
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":10,"method":"resources/read","params":{"uri":"data://products_csv"}}') LIKE '%id,name,price%';
+----
+true
+
+# Markdown resource should have table format
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":11,"method":"resources/read","params":{"uri":"data://products_md"}}') LIKE '%| id |%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# SECTION 3: mcp_publish_table - Default URI
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# Publish with NULL uri should use default (data://tables/{table_name})
+query I
+SELECT mcp_publish_table('test_users', NULL, 'json') LIKE '%SUCCESS%';
+----
+true
+
+# Should be accessible at default URI
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":20,"method":"resources/read","params":{"uri":"data://tables/test_users"}}') LIKE '%Alice%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# SECTION 4: mcp_publish_query - Basic Functionality
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# Publish a query as resource
+query I
+SELECT mcp_publish_query('SELECT id, name FROM test_products WHERE price < 15', 'data://cheap_products', 'json', 0) LIKE '%SUCCESS%';
+----
+true
+
+# Resource should appear in list
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":30,"method":"resources/list","params":{}}') LIKE '%data://cheap_products%';
+----
+true
+
+# Reading resource should execute query and return filtered results
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":31,"method":"resources/read","params":{"uri":"data://cheap_products"}}') LIKE '%Widget%';
+----
+true
+
+# Should NOT contain items over price threshold
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":32,"method":"resources/read","params":{"uri":"data://cheap_products"}}') NOT LIKE '%Gadget%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# SECTION 5: mcp_publish_query - Aggregation Queries
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# Publish aggregation query
+query I
+SELECT mcp_publish_query('SELECT COUNT(*) as total, AVG(price) as avg_price FROM test_products', 'data://product_stats', 'json', 0) LIKE '%SUCCESS%';
+----
+true
+
+# Should return aggregated results
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":40,"method":"resources/read","params":{"uri":"data://product_stats"}}') LIKE '%total%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# SECTION 6: mcp_publish_query - With Refresh
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# Publish query with refresh interval
+query I
+SELECT mcp_publish_query('SELECT * FROM test_products', 'data://refreshing', 'json', 60) LIKE '%SUCCESS%refresh every 60s%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# SECTION 7: Multiple Resources
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# Publish multiple resources
+statement ok
+SELECT mcp_publish_table('test_products', 'data://res1', 'json');
+
+statement ok
+SELECT mcp_publish_table('test_users', 'data://res2', 'json');
+
+statement ok
+SELECT mcp_publish_query('SELECT 1 as num', 'data://res3', 'json', 0);
+
+# All three should appear in resources/list
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":50,"method":"resources/list","params":{}}') LIKE '%res1%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":51,"method":"resources/list","params":{}}') LIKE '%res2%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":52,"method":"resources/list","params":{}}') LIKE '%res3%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# SECTION 8: Error Cases
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# Publishing non-existent table should error
+query I
+SELECT mcp_publish_table('nonexistent_table', 'data://bad', 'json') LIKE '%ERROR%';
+----
+true
+
+# Invalid query should error when resource is read
+statement ok
+SELECT mcp_publish_query('SELECT * FROM nonexistent', 'data://bad_query', 'json', 0);
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":60,"method":"resources/read","params":{"uri":"data://bad_query"}}') LIKE '%error%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# SECTION 9: mcp_publish_tool - Basic Functionality (TDD - Tests First)
+# =============================================================================
+
+# NOTE: These tests define expected behavior for mcp_publish_tool
+# Implementation will follow after tests are written
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# Publish a simple parameterized tool
+# mcp_publish_tool(name, description, sql_template, properties_json, required_json)
+query I
+SELECT mcp_publish_tool(
+    'get_product_by_id',
+    'Get a product by its ID',
+    'SELECT * FROM test_products WHERE id = $id',
+    '{"id": "integer"}',
+    '["id"]'
+) LIKE '%SUCCESS%';
+----
+true
+
+# Tool should appear in tools/list
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":100,"method":"tools/list","params":{}}') LIKE '%get_product_by_id%';
+----
+true
+
+# Tool description should be in the listing
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":101,"method":"tools/list","params":{}}') LIKE '%Get a product by its ID%';
+----
+true
+
+# Calling the tool with valid parameter should work
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":102,"method":"tools/call","params":{"name":"get_product_by_id","arguments":{"id":"1"}}}') LIKE '%Widget%';
+----
+true
+
+# Calling with different parameter should return different result
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":103,"method":"tools/call","params":{"name":"get_product_by_id","arguments":{"id":"2"}}}') LIKE '%Gadget%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# SECTION 10: mcp_publish_tool - Multiple Parameters
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# Tool with multiple parameters
+query I
+SELECT mcp_publish_tool(
+    'search_products',
+    'Search products by name pattern and max price',
+    'SELECT * FROM test_products WHERE name LIKE $pattern AND price <= $max_price',
+    '{"pattern": "string", "max_price": "number"}',
+    '["pattern"]'
+) LIKE '%SUCCESS%';
+----
+true
+
+# Call with both parameters
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":110,"method":"tools/call","params":{"name":"search_products","arguments":{"pattern":"%Widget%","max_price":"100"}}}') LIKE '%Widget%';
+----
+true
+
+# Optional parameter (max_price not required)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":111,"method":"tools/call","params":{"name":"search_products","arguments":{"pattern":"%Gadget%"}}}') LIKE '%Gadget%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# SECTION 11: mcp_publish_tool - Input Schema Validation
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory');
+
+query I
+SELECT mcp_publish_tool(
+    'get_user',
+    'Get user by username',
+    'SELECT * FROM test_users WHERE username = $username',
+    '{"username": "string"}',
+    '["username"]'
+) LIKE '%SUCCESS%';
+----
+true
+
+# Missing required parameter should error
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":120,"method":"tools/call","params":{"name":"get_user","arguments":{}}}') LIKE '%error%';
+----
+true
+
+# Valid call should succeed
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":121,"method":"tools/call","params":{"name":"get_user","arguments":{"username":"Alice"}}}') LIKE '%Alice%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# SECTION 12: mcp_publish_tool - Aggregation Tools
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# Tool that returns aggregated data
+query I
+SELECT mcp_publish_tool(
+    'count_products_under_price',
+    'Count products under a given price',
+    'SELECT COUNT(*) as count FROM test_products WHERE price < $threshold',
+    '{"threshold": "number"}',
+    '["threshold"]'
+) LIKE '%SUCCESS%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":130,"method":"tools/call","params":{"name":"count_products_under_price","arguments":{"threshold":"15"}}}') LIKE '%1%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":131,"method":"tools/call","params":{"name":"count_products_under_price","arguments":{"threshold":"100"}}}') LIKE '%2%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# SECTION 13: mcp_publish_tool - Error Cases
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# Server not running (already covered above, but explicit check)
+statement ok
+SELECT mcp_server_stop();
+
+query I
+SELECT mcp_publish_tool('bad_tool', 'desc', 'SELECT 1', '{}', '[]') LIKE '%ERROR%server is not running%';
+----
+true
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# Invalid SQL template (syntax error) - should fail when called
+query I
+SELECT mcp_publish_tool(
+    'bad_sql_tool',
+    'Tool with bad SQL',
+    'SELECTT * FROM test_products',
+    '{}',
+    '[]'
+) LIKE '%SUCCESS%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":140,"method":"tools/call","params":{"name":"bad_sql_tool","arguments":{}}}') LIKE '%error%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# SECTION 14: mcp_publish_tool - No Parameters (Static Tool)
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# Tool with no parameters
+query I
+SELECT mcp_publish_tool(
+    'list_all_products',
+    'List all products',
+    'SELECT * FROM test_products ORDER BY id',
+    '{}',
+    '[]'
+) LIKE '%SUCCESS%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":150,"method":"tools/call","params":{"name":"list_all_products","arguments":{}}}') LIKE '%Widget%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":151,"method":"tools/call","params":{"name":"list_all_products","arguments":{}}}') LIKE '%Gadget%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# SECTION 15: Tool inputSchema Compliance
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory');
+
+query I
+SELECT mcp_publish_tool(
+    'schema_test_tool',
+    'Tool for testing schema',
+    'SELECT $val as value',
+    '{"val": "string"}',
+    '["val"]'
+) LIKE '%SUCCESS%';
+----
+true
+
+# inputSchema should be a proper JSON object
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":160,"method":"tools/list","params":{}}') LIKE '%"inputSchema":{"type":"object"%';
+----
+true
+
+# Properties should contain our parameter
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":161,"method":"tools/list","params":{}}') LIKE '%"val":%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# SECTION 16: mcp_publish_query - Format Options
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# Publish query as CSV
+query I
+SELECT mcp_publish_query('SELECT id, name FROM test_products', 'data://query_csv', 'csv', 0) LIKE '%SUCCESS%';
+----
+true
+
+# Publish query as markdown
+query I
+SELECT mcp_publish_query('SELECT id, name FROM test_products', 'data://query_md', 'markdown', 0) LIKE '%SUCCESS%';
+----
+true
+
+# CSV query resource should have CSV format
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":170,"method":"resources/read","params":{"uri":"data://query_csv"}}') LIKE '%id,name%';
+----
+true
+
+# Markdown query resource should have table format
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":171,"method":"resources/read","params":{"uri":"data://query_md"}}') LIKE '%| id | name |%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# SECTION 17: Markdown Format - Detailed Verification
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# Create a table with various data types for markdown testing
+statement ok
+CREATE TABLE md_test AS SELECT 1 as num, 'text' as str, 123.456 as decimal_val;
+
+query I
+SELECT mcp_publish_table('md_test', 'data://md_detailed', 'markdown') LIKE '%SUCCESS%';
+----
+true
+
+# Markdown should have header row with column names
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":180,"method":"resources/read","params":{"uri":"data://md_detailed"}}') LIKE '%| num |%';
+----
+true
+
+# Markdown should have separator row with dashes
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":181,"method":"resources/read","params":{"uri":"data://md_detailed"}}') LIKE '%|---%';
+----
+true
+
+# Markdown should have data row
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":182,"method":"resources/read","params":{"uri":"data://md_detailed"}}') LIKE '%| 1 |%';
+----
+true
+
+statement ok
+DROP TABLE md_test;
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# SECTION 18: Resource Metadata (mimeType)
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# Publish resources in different formats
+statement ok
+SELECT mcp_publish_table('test_products', 'data://mime_json', 'json');
+
+statement ok
+SELECT mcp_publish_table('test_products', 'data://mime_csv', 'csv');
+
+statement ok
+SELECT mcp_publish_table('test_products', 'data://mime_md', 'markdown');
+
+# JSON resources should have application/json mimeType
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":190,"method":"resources/list","params":{}}') LIKE '%mime_json%application/json%';
+----
+true
+
+# CSV resources should have text/csv mimeType
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":191,"method":"resources/list","params":{}}') LIKE '%mime_csv%text/csv%';
+----
+true
+
+# Markdown resources should have text/markdown mimeType
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":192,"method":"resources/list","params":{}}') LIKE '%mime_md%text/markdown%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# SECTION 19: mcp_publish_tool - Format Output Option
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# Tools should also support format option (6th parameter)
+query I
+SELECT mcp_publish_tool(
+    'get_product_markdown',
+    'Get product as markdown',
+    'SELECT * FROM test_products WHERE id = $id',
+    '{"id": "integer"}',
+    '["id"]',
+    'markdown'
+) LIKE '%SUCCESS%';
+----
+true
+
+# Tool result should be in markdown format
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":200,"method":"tools/call","params":{"name":"get_product_markdown","arguments":{"id":"1"}}}') LIKE '%| id |%';
+----
+true
+
+# Default format should be JSON
+query I
+SELECT mcp_publish_tool(
+    'get_product_json',
+    'Get product as JSON',
+    'SELECT * FROM test_products WHERE id = $id',
+    '{"id": "integer"}',
+    '["id"]'
+) LIKE '%SUCCESS%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":201,"method":"tools/call","params":{"name":"get_product_json","arguments":{"id":"1"}}}') LIKE '%"id"%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# SECTION 20: SQL Injection Prevention
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# Register a tool with string parameter
+query I
+SELECT mcp_publish_tool(
+    'safe_search',
+    'Search users safely',
+    'SELECT * FROM test_users WHERE username = $name',
+    '{"name": "string"}',
+    '["name"]'
+) LIKE '%SUCCESS%';
+----
+true
+
+# Attempt SQL injection - should be safely escaped/parameterized
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":210,"method":"tools/call","params":{"name":"safe_search","arguments":{"name":"Alice'' OR ''1''=''1"}}}') NOT LIKE '%Bob%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# SECTION 21: Unsupported Format Validation for Resources
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# Publishing with unsupported format should error
+query I
+SELECT mcp_publish_table('test_products', 'data://bad_format', 'parquet') LIKE '%ERROR%Unsupported format%';
+----
+true
+
+query I
+SELECT mcp_publish_query('SELECT 1', 'data://bad_format2', 'jsonl', 0) LIKE '%ERROR%Unsupported format%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# Cleanup
+# =============================================================================
+
+statement ok
+DROP TABLE IF EXISTS test_products;
+
+statement ok
+DROP TABLE IF EXISTS test_users;
+
+statement ok
+SELECT mcp_server_stop(true);
