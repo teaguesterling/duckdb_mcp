@@ -254,6 +254,10 @@ void MCPServer::ServerLoop() {
 
 MCPMessage MCPServer::ProcessRequest(const MCPMessage &request) {
     // Public wrapper for HandleRequest - allows direct testing without transport
+    if (request.IsNotification()) {
+        HandleNotification(request);
+        return MCPMessage::CreateResponse(Value(), request.id);
+    }
     return HandleRequest(request);
 }
 
@@ -269,11 +273,15 @@ bool MCPServer::ProcessOneMessage() {
     try {
         auto request = test_transport->Receive();
         requests_received.fetch_add(1);
-        auto response = HandleRequest(request);
-        test_transport->Send(response);
-        responses_sent.fetch_add(1);
-        if (response.IsError()) {
-            errors_returned.fetch_add(1);
+        if (request.IsNotification()) {
+            HandleNotification(request);
+        } else {
+            auto response = HandleRequest(request);
+            test_transport->Send(response);
+            responses_sent.fetch_add(1);
+            if (response.IsError()) {
+                errors_returned.fetch_add(1);
+            }
         }
         return true;
     } catch (const std::exception &) {
@@ -289,16 +297,20 @@ void MCPServer::HandleConnection(unique_ptr<MCPTransport> transport) {
             try {
                 auto request = transport->Receive();
                 requests_received.fetch_add(1);
-                auto response = HandleRequest(request);
-                transport->Send(response);
-                responses_sent.fetch_add(1);
-                if (response.IsError()) {
-                    errors_returned.fetch_add(1);
-                }
+                if (request.IsNotification()) {
+                    HandleNotification(request);
+                } else {
+                    auto response = HandleRequest(request);
+                    transport->Send(response);
+                    responses_sent.fetch_add(1);
+                    if (response.IsError()) {
+                        errors_returned.fetch_add(1);
+                    }
 
-                // If this was a shutdown request, break out of the loop
-                if (request.method == MCPMethods::SHUTDOWN) {
-                    break;
+                    // If this was a shutdown request, break out of the loop
+                    if (request.method == MCPMethods::SHUTDOWN) {
+                        break;
+                    }
                 }
 
                 // Check max_requests limit (0 = unlimited)
@@ -345,6 +357,12 @@ MCPMessage MCPServer::HandleRequest(const MCPMessage &request) {
     } catch (const std::exception &e) {
         return CreateErrorResponse(request.id, MCPErrorCodes::INTERNAL_ERROR, 
                                  "Internal error: " + string(e.what()));
+    }
+}
+
+void MCPServer::HandleNotification(const MCPMessage &request) {
+    if (request.method == MCPMethods::INITIALIZED) {
+        return;
     }
 }
 
