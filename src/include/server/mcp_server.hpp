@@ -135,6 +135,7 @@ private:
     void ServerLoop();
     void HandleConnection(unique_ptr<MCPTransport> transport);
     MCPMessage HandleRequest(const MCPMessage &request);
+    void HandleNotification(const MCPMessage &request);
     
     // Protocol handlers
     MCPMessage HandleInitialize(const MCPMessage &request);
