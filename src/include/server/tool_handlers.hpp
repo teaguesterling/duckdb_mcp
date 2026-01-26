@@ -32,10 +32,13 @@ struct ToolInputSchema {
     string type = "object";
     unordered_map<string, Value> properties;
     vector<string> required_fields;
-    
+
     bool ValidateInput(const Value &input) const;
     Value ToJSON() const;
 };
+
+// Parse properties and required JSON into ToolInputSchema
+ToolInputSchema ParseToolInputSchema(const string &properties_json, const string &required_json);
 
 // Abstract base class for tool handlers
 class ToolHandler {

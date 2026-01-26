@@ -64,6 +64,36 @@ SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":6,"method":"initialize","p
 ----
 true
 
+# =============================================================================
+# SECTION 1b: Notifications (no response expected per JSON-RPC 2.0 spec)
+# =============================================================================
+
+# notifications/initialized - sent by client after receiving initialize response
+# Per MCP spec, server should accept this without returning an error
+# Note: notifications have no "id" field and don't expect a response
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}') NOT LIKE '%error%';
+----
+true
+
+# notifications/cancelled - client cancelling a request (we accept but don't act on it)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":"123","reason":"test"}}') NOT LIKE '%error%';
+----
+true
+
+# notifications/progress - progress updates (ignored by server)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","method":"notifications/progress","params":{"progressToken":"abc","progress":50}}') NOT LIKE '%error%';
+----
+true
+
+# Unknown notification should also not return an error (silently ignored per spec)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","method":"notifications/unknown","params":{}}') NOT LIKE '%Method not found%';
+----
+true
+
 # Stop server
 statement ok
 SELECT mcp_server_stop();

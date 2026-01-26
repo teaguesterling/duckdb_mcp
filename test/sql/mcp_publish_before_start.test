@@ -1,0 +1,188 @@
+# name: test/sql/mcp_publish_before_start.test
+# description: Test publishing tools and resources before server starts
+# group: [duckdb_mcp]
+
+# Load the MCP extension
+require duckdb_mcp
+
+statement ok
+LOAD duckdb_mcp;
+
+# =============================================================================
+# SETUP: Force clean state - ensure no server is running
+# =============================================================================
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# SECTION 1: Publish Tool Before Server Starts
+# =============================================================================
+
+# Create test table for SQL tool
+statement ok
+CREATE TABLE IF NOT EXISTS products AS SELECT 1 as id, 'Widget' as name, 10.99 as price;
+
+# Publish tool BEFORE server starts - should queue
+query I
+SELECT mcp_publish_tool('get_product', 'Get product by ID', 'SELECT * FROM products WHERE id = $id', '{"id":{"type":"integer","description":"Product ID"}}', '["id"]') LIKE 'QUEUED%';
+----
+true
+
+# Publish another tool with format option
+query I
+SELECT mcp_publish_tool('list_products', 'List all products', 'SELECT * FROM products', '{}', '[]', 'markdown') LIKE 'QUEUED%';
+----
+true
+
+# =============================================================================
+# SECTION 2: Publish Table Resource Before Server Starts
+# =============================================================================
+
+# Publish table resource BEFORE server starts - should queue
+query I
+SELECT mcp_publish_table('products', 'data://products', 'json') LIKE 'QUEUED%';
+----
+true
+
+# =============================================================================
+# SECTION 3: Publish Query Resource Before Server Starts
+# =============================================================================
+
+# Publish query resource BEFORE server starts - should queue
+query I
+SELECT mcp_publish_query('SELECT * FROM products WHERE price > 5', 'data://expensive-products', 'json', NULL) LIKE 'QUEUED%';
+----
+true
+
+# =============================================================================
+# SECTION 4: Publish Static Resource Before Server Starts (mcp_publish_resource)
+# =============================================================================
+
+# Publish static resource BEFORE server starts - should queue
+query I
+SELECT mcp_publish_resource('config://app-info', '{"name":"TestApp","version":"1.0"}', 'application/json', 'Application configuration') LIKE 'QUEUED%';
+----
+true
+
+# Publish another static resource with defaults
+query I
+SELECT mcp_publish_resource('doc://readme', 'This is the README content', NULL, NULL) LIKE 'QUEUED%';
+----
+true
+
+# =============================================================================
+# SECTION 5: Start Server and Verify Queued Items Are Registered
+# =============================================================================
+
+# Now start the server - pending registrations should be applied
+statement ok
+SELECT mcp_server_start('memory');
+
+# Verify tools are listed
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}') LIKE '%get_product%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}') LIKE '%list_products%';
+----
+true
+
+# Verify resources are listed
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":10,"method":"resources/list","params":{}}') LIKE '%data://products%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":11,"method":"resources/list","params":{}}') LIKE '%data://expensive-products%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":12,"method":"resources/list","params":{}}') LIKE '%config://app-info%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":13,"method":"resources/list","params":{}}') LIKE '%doc://readme%';
+----
+true
+
+# =============================================================================
+# SECTION 6: Verify Tools Work After Being Queued
+# =============================================================================
+
+# Call the get_product tool
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"get_product","arguments":{"id":1}}}') LIKE '%Widget%';
+----
+true
+
+# Call the list_products tool (returns markdown format with Widget data)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"list_products","arguments":{}}}') LIKE '%Widget%';
+----
+true
+
+# =============================================================================
+# SECTION 7: Verify Resources Work After Being Queued
+# =============================================================================
+
+# Read the products table resource
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":30,"method":"resources/read","params":{"uri":"data://products"}}') LIKE '%Widget%';
+----
+true
+
+# Read the static resource
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":31,"method":"resources/read","params":{"uri":"config://app-info"}}') LIKE '%TestApp%';
+----
+true
+
+# Read the plain text static resource
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":32,"method":"resources/read","params":{"uri":"doc://readme"}}') LIKE '%README%';
+----
+true
+
+# =============================================================================
+# SECTION 8: Publish While Server Is Running (Immediate Registration)
+# =============================================================================
+
+# Publish tool while server is running - should be immediate SUCCESS
+query I
+SELECT mcp_publish_tool('count_products', 'Count all products', 'SELECT COUNT(*) as cnt FROM products', '{}', '[]') LIKE 'SUCCESS%';
+----
+true
+
+# Verify it's immediately available
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":40,"method":"tools/list","params":{}}') LIKE '%count_products%';
+----
+true
+
+# Publish resource while server is running
+query I
+SELECT mcp_publish_resource('info://runtime', 'Server is running!', 'text/plain', 'Runtime info') LIKE 'SUCCESS%';
+----
+true
+
+# Verify it's immediately available
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":41,"method":"resources/list","params":{}}') LIKE '%info://runtime%';
+----
+true
+
+# =============================================================================
+# Cleanup
+# =============================================================================
+
+statement ok
+SELECT mcp_server_stop(true);
+
+statement ok
+DROP TABLE IF EXISTS products;

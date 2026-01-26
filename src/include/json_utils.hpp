@@ -75,9 +75,12 @@ public:
     //! Create MCP message object with common fields
     static yyjson_mut_val *CreateMCPMessage(yyjson_mut_doc *doc, const char *jsonrpc = "2.0");
     
-    //! Get string value from JSON object
+    //! Get string value from JSON object (only for string types)
     static string GetString(yyjson_val *obj, const char *key, const string &default_value = "");
-    
+
+    //! Get any value as string representation (works for int, bool, string, etc.)
+    static string GetValueAsString(yyjson_val *obj, const char *key, const string &default_value = "");
+
     //! Get int value from JSON object
     static int64_t GetInt(yyjson_val *obj, const char *key, int64_t default_value = 0);
     
@@ -102,8 +105,11 @@ public:
     //! Check if a field exists
     bool HasField(const string &name) const;
 
-    //! Get string field (empty string if not found)
+    //! Get string field (empty string if not found, only for string types)
     string GetString(const string &name, const string &default_value = "") const;
+
+    //! Get any value as string representation (works for int, bool, string, etc.)
+    string GetValueAsString(const string &name, const string &default_value = "") const;
 
     //! Get int field (default if not found)
     int64_t GetInt(const string &name, int64_t default_value = 0) const;

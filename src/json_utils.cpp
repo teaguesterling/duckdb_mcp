@@ -284,6 +284,41 @@ string JSONUtils::GetString(yyjson_val *obj, const char *key, const string &defa
     return str ? string(str) : default_value;
 }
 
+string JSONUtils::GetValueAsString(yyjson_val *obj, const char *key, const string &default_value) {
+    if (!obj || !key) {
+        return default_value;
+    }
+
+    yyjson_val *val = yyjson_obj_get(obj, key);
+    if (!val) {
+        return default_value;
+    }
+
+    // Handle different JSON types
+    if (yyjson_is_str(val)) {
+        const char *str = yyjson_get_str(val);
+        return str ? string(str) : default_value;
+    } else if (yyjson_is_int(val)) {
+        return std::to_string(yyjson_get_sint(val));
+    } else if (yyjson_is_real(val)) {
+        return std::to_string(yyjson_get_real(val));
+    } else if (yyjson_is_bool(val)) {
+        return yyjson_get_bool(val) ? "true" : "false";
+    } else if (yyjson_is_null(val)) {
+        return "null";
+    } else {
+        // For objects/arrays, return JSON representation
+        char *json_str = yyjson_val_write(val, 0, nullptr);
+        if (json_str) {
+            string result(json_str);
+            free(json_str);
+            return result;
+        }
+    }
+
+    return default_value;
+}
+
 int64_t JSONUtils::GetInt(yyjson_val *obj, const char *key, int64_t default_value) {
     if (!obj || !key) {
         return default_value;
@@ -400,6 +435,13 @@ string JSONArgumentParser::GetString(const string &name, const string &default_v
         return default_value;
     }
     return JSONUtils::GetString(root, name.c_str(), default_value);
+}
+
+string JSONArgumentParser::GetValueAsString(const string &name, const string &default_value) const {
+    if (!root) {
+        return default_value;
+    }
+    return JSONUtils::GetValueAsString(root, name.c_str(), default_value);
 }
 
 int64_t JSONArgumentParser::GetInt(const string &name, int64_t default_value) const {

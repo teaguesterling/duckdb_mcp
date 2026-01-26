@@ -118,6 +118,9 @@ SELECT mcp_publish_table('users', 'data://tables/users', 'csv');
 !!! note
     Published tables are static snapshots. The resource content is captured when published and won't reflect subsequent table changes unless republished.
 
+!!! tip "Publish Before Server Starts"
+    You can call `mcp_publish_table` before starting the server. The registration will be queued and automatically applied when the server starts. This is useful for initialization scripts.
+
 ---
 
 ### mcp_publish_query
@@ -148,6 +151,59 @@ SELECT mcp_publish_query(
     3600
 );
 ```
+
+!!! tip "Publish Before Server Starts"
+    You can call `mcp_publish_query` before starting the server. The registration will be queued and automatically applied when the server starts.
+
+---
+
+### mcp_publish_resource
+
+Publish static content as an MCP resource. This is useful for configuration files, documentation, or any static data.
+
+```sql
+mcp_publish_resource(uri, content, mime_type, description) → VARCHAR
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `uri` | VARCHAR | Resource URI (e.g., `config://app-settings`) |
+| `content` | VARCHAR | The static content to publish |
+| `mime_type` | VARCHAR | MIME type (default: `text/plain`) |
+| `description` | VARCHAR | Human-readable description (optional) |
+
+**Examples:**
+
+```sql
+-- Publish JSON configuration
+SELECT mcp_publish_resource(
+    'config://app-settings',
+    '{"theme": "dark", "language": "en"}',
+    'application/json',
+    'Application settings'
+);
+
+-- Publish plain text documentation
+SELECT mcp_publish_resource(
+    'docs://readme',
+    'Welcome to the API. Use the query tool to explore data.',
+    'text/plain',
+    'API documentation'
+);
+
+-- Publish with defaults (text/plain, no description)
+SELECT mcp_publish_resource(
+    'info://version',
+    'v1.3.2',
+    NULL,
+    NULL
+);
+```
+
+!!! tip "Publish Before Server Starts"
+    You can call `mcp_publish_resource` before starting the server. The registration will be queued and automatically applied when the server starts.
 
 ---
 
@@ -228,6 +284,9 @@ SELECT mcp_publish_tool(
     'markdown'
 );
 ```
+
+!!! tip "Publish Before Server Starts"
+    You can call `mcp_publish_tool` before starting the server. The registration will be queued and automatically applied when the server starts. This is useful for setting up tools in initialization scripts.
 
 ---
 

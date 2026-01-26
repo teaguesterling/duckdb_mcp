@@ -838,19 +838,12 @@ static void MCPPublishTableFunction(DataChunk &args, ExpressionState &state, Vec
     auto &table_vector = args.data[0];
     auto &uri_vector = args.data[1];
     auto &format_vector = args.data[2];
-    
+
     result.SetVectorType(VectorType::FLAT_VECTOR);
     auto result_data = FlatVector::GetData<string_t>(result);
-    
+
     for (idx_t i = 0; i < args.size(); i++) {
         try {
-            auto &server_manager = MCPServerManager::GetInstance();
-            
-            if (!server_manager.IsServerRunning()) {
-                result_data[i] = StringVector::AddString(result, "ERROR: MCP server is not running");
-                continue;
-            }
-            
             // Parse parameters
             string table_name = table_vector.GetValue(i).ToString();
             string resource_uri = uri_vector.GetValue(i).IsNull() ?
@@ -881,18 +874,38 @@ static void MCPPublishTableFunction(DataChunk &args, ExpressionState &state, Vec
                 continue;
             }
 
+            auto &server_manager = MCPServerManager::GetInstance();
+
+            if (!server_manager.IsServerRunning()) {
+                // Queue for when server starts
+                PendingResourceRegistration reg;
+                reg.uri = resource_uri;
+                reg.type = "table";
+                reg.source = table_name;
+                reg.format = format;
+                reg.mime_type = "";
+                reg.description = "";
+                reg.refresh_seconds = 0;
+                reg.db_instance = &db_instance;
+                server_manager.QueueResourceRegistration(std::move(reg));
+                result_data[i] = StringVector::AddString(result,
+                    "QUEUED: Table '" + table_name + "' will be published as resource '" +
+                    resource_uri + "' when server starts");
+                continue;
+            }
+
             // Create resource provider
             auto provider = make_uniq<TableResourceProvider>(table_name, format, db_instance);
-            
+
             // Publish resource
             auto server = server_manager.GetServer();
             if (server->PublishResource(resource_uri, std::move(provider))) {
-                result_data[i] = StringVector::AddString(result, "SUCCESS: Published table '" + table_name + 
+                result_data[i] = StringVector::AddString(result, "SUCCESS: Published table '" + table_name +
                     "' as resource '" + resource_uri + "' in " + format + " format");
             } else {
                 result_data[i] = StringVector::AddString(result, "ERROR: Failed to publish table");
             }
-            
+
         } catch (const std::exception &e) {
             result_data[i] = StringVector::AddString(result, "ERROR: " + string(e.what()));
         }
@@ -911,13 +924,6 @@ static void MCPPublishQueryFunction(DataChunk &args, ExpressionState &state, Vec
 
     for (idx_t i = 0; i < args.size(); i++) {
         try {
-            auto &server_manager = MCPServerManager::GetInstance();
-
-            if (!server_manager.IsServerRunning()) {
-                result_data[i] = StringVector::AddString(result, "ERROR: MCP server is not running");
-                continue;
-            }
-
             // Parse parameters
             string query = query_vector.GetValue(i).ToString();
             string resource_uri = uri_vector.GetValue(i).ToString();
@@ -934,6 +940,27 @@ static void MCPPublishQueryFunction(DataChunk &args, ExpressionState &state, Vec
             // Get database instance
             auto &context = state.GetContext();
             auto &db_instance = DatabaseInstance::GetDatabase(context);
+
+            auto &server_manager = MCPServerManager::GetInstance();
+
+            if (!server_manager.IsServerRunning()) {
+                // Queue for when server starts
+                PendingResourceRegistration reg;
+                reg.uri = resource_uri;
+                reg.type = "query";
+                reg.source = query;
+                reg.format = format;
+                reg.mime_type = "";
+                reg.description = "";
+                reg.refresh_seconds = refresh_seconds;
+                reg.db_instance = &db_instance;
+                server_manager.QueueResourceRegistration(std::move(reg));
+                string refresh_info = refresh_seconds > 0 ?
+                    " (refresh every " + std::to_string(refresh_seconds) + "s)" : "";
+                result_data[i] = StringVector::AddString(result,
+                    "QUEUED: Query will be published as resource '" + resource_uri + "' when server starts" + refresh_info);
+                continue;
+            }
 
             // Create resource provider
             auto provider = make_uniq<QueryResourceProvider>(query, format, db_instance, refresh_seconds);
@@ -955,50 +982,64 @@ static void MCPPublishQueryFunction(DataChunk &args, ExpressionState &state, Vec
     }
 }
 
-// Helper to parse properties JSON into ToolInputSchema
-static ToolInputSchema ParseToolInputSchema(const string &properties_json, const string &required_json) {
-    ToolInputSchema schema;
-    schema.type = "object";
+// Publish static content as MCP resource
+// mcp_publish_resource(uri, content, mime_type, description)
+static void MCPPublishResourceFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+    auto &uri_vector = args.data[0];
+    auto &content_vector = args.data[1];
+    auto &mime_type_vector = args.data[2];
+    auto &description_vector = args.data[3];
 
-    // Parse properties JSON: {"param_name": "type", ...}
-    if (!properties_json.empty() && properties_json != "{}") {
-        yyjson_doc *props_doc = JSONUtils::Parse(properties_json);
-        yyjson_val *props_root = yyjson_doc_get_root(props_doc);
-        if (props_root && yyjson_is_obj(props_root)) {
-            yyjson_obj_iter iter = yyjson_obj_iter_with(props_root);
-            yyjson_val *key;
-            while ((key = yyjson_obj_iter_next(&iter))) {
-                yyjson_val *val = yyjson_obj_iter_get_val(key);
-                if (yyjson_is_str(val)) {
-                    string prop_name = yyjson_get_str(key);
-                    string prop_type = yyjson_get_str(val);
-                    schema.properties[prop_name] = Value(prop_type);
-                }
+    result.SetVectorType(VectorType::FLAT_VECTOR);
+    auto result_data = FlatVector::GetData<string_t>(result);
+
+    for (idx_t i = 0; i < args.size(); i++) {
+        try {
+            // Parse parameters
+            string resource_uri = uri_vector.GetValue(i).ToString();
+            string content = content_vector.GetValue(i).ToString();
+            string mime_type = mime_type_vector.GetValue(i).IsNull() ? "text/plain" : mime_type_vector.GetValue(i).ToString();
+            string description = description_vector.GetValue(i).IsNull() ? "" : description_vector.GetValue(i).ToString();
+
+            auto &server_manager = MCPServerManager::GetInstance();
+
+            if (!server_manager.IsServerRunning()) {
+                // Queue for when server starts
+                PendingResourceRegistration reg;
+                reg.uri = resource_uri;
+                reg.type = "resource";
+                reg.source = content;
+                reg.format = "";
+                reg.mime_type = mime_type;
+                reg.description = description;
+                reg.refresh_seconds = 0;
+                reg.db_instance = nullptr;
+                server_manager.QueueResourceRegistration(std::move(reg));
+                result_data[i] = StringVector::AddString(result,
+                    "QUEUED: Resource '" + resource_uri + "' will be published when server starts");
+                continue;
             }
-        }
-        JSONUtils::FreeDocument(props_doc);
-    }
 
-    // Parse required JSON: ["param1", "param2", ...]
-    if (!required_json.empty() && required_json != "[]") {
-        yyjson_doc *req_doc = JSONUtils::Parse(required_json);
-        yyjson_val *req_root = yyjson_doc_get_root(req_doc);
-        if (req_root && yyjson_is_arr(req_root)) {
-            size_t idx, max;
-            yyjson_val *val;
-            yyjson_arr_foreach(req_root, idx, max, val) {
-                if (yyjson_is_str(val)) {
-                    schema.required_fields.push_back(yyjson_get_str(val));
-                }
+            // Create static resource provider
+            auto provider = make_uniq<StaticResourceProvider>(content, mime_type, description);
+
+            // Publish resource
+            auto server = server_manager.GetServer();
+            if (server->PublishResource(resource_uri, std::move(provider))) {
+                result_data[i] = StringVector::AddString(result, "SUCCESS: Published resource '" +
+                    resource_uri + "' (" + mime_type + ")");
+            } else {
+                result_data[i] = StringVector::AddString(result, "ERROR: Failed to publish resource");
             }
-        }
-        JSONUtils::FreeDocument(req_doc);
-    }
 
-    return schema;
+        } catch (const std::exception &e) {
+            result_data[i] = StringVector::AddString(result, "ERROR: " + string(e.what()));
+        }
+    }
 }
 
 // Publish tool with 5 parameters (format defaults to json)
+// Note: ParseToolInputSchema is now in tool_handlers.cpp
 static void MCPPublishToolFunction(DataChunk &args, ExpressionState &state, Vector &result) {
     auto &name_vector = args.data[0];
     auto &desc_vector = args.data[1];
@@ -1011,13 +1052,6 @@ static void MCPPublishToolFunction(DataChunk &args, ExpressionState &state, Vect
 
     for (idx_t i = 0; i < args.size(); i++) {
         try {
-            auto &server_manager = MCPServerManager::GetInstance();
-
-            if (!server_manager.IsServerRunning()) {
-                result_data[i] = StringVector::AddString(result, "ERROR: MCP server is not running");
-                continue;
-            }
-
             // Parse parameters
             string tool_name = name_vector.GetValue(i).ToString();
             string description = desc_vector.GetValue(i).ToString();
@@ -1029,6 +1063,24 @@ static void MCPPublishToolFunction(DataChunk &args, ExpressionState &state, Vect
             // Get database instance
             auto &context = state.GetContext();
             auto &db_instance = DatabaseInstance::GetDatabase(context);
+
+            auto &server_manager = MCPServerManager::GetInstance();
+
+            if (!server_manager.IsServerRunning()) {
+                // Queue for when server starts
+                PendingToolRegistration reg;
+                reg.name = tool_name;
+                reg.description = description;
+                reg.sql_template = sql_template;
+                reg.properties_json = properties_json;
+                reg.required_json = required_json;
+                reg.format = format;
+                reg.db_instance = &db_instance;
+                server_manager.QueueToolRegistration(std::move(reg));
+                result_data[i] = StringVector::AddString(result,
+                    "QUEUED: Tool '" + tool_name + "' will be registered when server starts");
+                continue;
+            }
 
             // Parse input schema from JSON
             ToolInputSchema input_schema = ParseToolInputSchema(properties_json, required_json);
@@ -1065,13 +1117,6 @@ static void MCPPublishToolWithFormatFunction(DataChunk &args, ExpressionState &s
 
     for (idx_t i = 0; i < args.size(); i++) {
         try {
-            auto &server_manager = MCPServerManager::GetInstance();
-
-            if (!server_manager.IsServerRunning()) {
-                result_data[i] = StringVector::AddString(result, "ERROR: MCP server is not running");
-                continue;
-            }
-
             // Parse parameters
             string tool_name = name_vector.GetValue(i).ToString();
             string description = desc_vector.GetValue(i).ToString();
@@ -1083,6 +1128,24 @@ static void MCPPublishToolWithFormatFunction(DataChunk &args, ExpressionState &s
             // Get database instance
             auto &context = state.GetContext();
             auto &db_instance = DatabaseInstance::GetDatabase(context);
+
+            auto &server_manager = MCPServerManager::GetInstance();
+
+            if (!server_manager.IsServerRunning()) {
+                // Queue for when server starts
+                PendingToolRegistration reg;
+                reg.name = tool_name;
+                reg.description = description;
+                reg.sql_template = sql_template;
+                reg.properties_json = properties_json;
+                reg.required_json = required_json;
+                reg.format = format;
+                reg.db_instance = &db_instance;
+                server_manager.QueueToolRegistration(std::move(reg));
+                result_data[i] = StringVector::AddString(result,
+                    "QUEUED: Tool '" + tool_name + "' will be registered when server starts");
+                continue;
+            }
 
             // Parse input schema from JSON
             ToolInputSchema input_schema = ParseToolInputSchema(properties_json, required_json);
@@ -1624,6 +1687,13 @@ static void LoadInternal(ExtensionLoader &loader) {
         LogicalType::VARCHAR, MCPPublishQueryFunction);
     publish_query_func.null_handling = FunctionNullHandling::SPECIAL_HANDLING;
     loader.RegisterFunction(publish_query_func);
+
+    // mcp_publish_resource(uri, content, mime_type, description)
+    auto publish_resource_func = ScalarFunction("mcp_publish_resource",
+        {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
+        LogicalType::VARCHAR, MCPPublishResourceFunction);
+    publish_resource_func.null_handling = FunctionNullHandling::SPECIAL_HANDLING;
+    loader.RegisterFunction(publish_resource_func);
 
     // Register tool publishing functions
     // mcp_publish_tool(name, description, sql_template, properties_json, required_json)

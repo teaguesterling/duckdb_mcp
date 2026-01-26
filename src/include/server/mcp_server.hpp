@@ -156,6 +156,29 @@ private:
     MCPMessage CreateErrorResponse(const Value &id, int code, const string &message) const;
 };
 
+// Pending registration for tools (before server starts)
+struct PendingToolRegistration {
+    string name;
+    string description;
+    string sql_template;
+    string properties_json;
+    string required_json;
+    string format;
+    DatabaseInstance *db_instance;
+};
+
+// Pending registration for resources (before server starts)
+struct PendingResourceRegistration {
+    string uri;
+    string type;  // "table", "query", or "resource"
+    string source;  // table name, query, or content
+    string format;
+    string mime_type;
+    string description;  // for static resources
+    uint32_t refresh_seconds;
+    DatabaseInstance *db_instance;
+};
+
 // Global server instance management
 class MCPServerManager {
 public:
@@ -169,9 +192,24 @@ public:
     // Send request to running server (for testing with memory transport)
     MCPMessage SendRequest(const MCPMessage &request);
 
+    // Queue registrations for when server starts
+    void QueueToolRegistration(PendingToolRegistration registration);
+    void QueueResourceRegistration(PendingResourceRegistration registration);
+
+    // Get pending registration counts (for status/debugging)
+    size_t GetPendingToolCount() const;
+    size_t GetPendingResourceCount() const;
+
 private:
     unique_ptr<MCPServer> server;
     mutable mutex manager_mutex;
+
+    // Pending registrations (applied when server starts)
+    vector<PendingToolRegistration> pending_tools;
+    vector<PendingResourceRegistration> pending_resources;
+
+    // Apply pending registrations to server
+    void ApplyPendingRegistrations();
 };
 
 } // namespace duckdb

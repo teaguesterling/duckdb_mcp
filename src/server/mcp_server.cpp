@@ -360,10 +360,35 @@ MCPMessage MCPServer::HandleRequest(const MCPMessage &request) {
     }
 }
 
-void MCPServer::HandleNotification(const MCPMessage &request) {
-    if (request.method == MCPMethods::INITIALIZED) {
+void MCPServer::HandleNotification(const MCPMessage &notification) {
+    // Handle MCP notifications (messages without id that don't expect a response)
+    // Per JSON-RPC 2.0 spec, notifications MUST NOT receive a response
+    // See: https://modelcontextprotocol.io/specification/2024-11-05/basic/lifecycle
+
+    if (notification.method == MCPMethods::INITIALIZED) {
+        // Client acknowledges initialization is complete
+        // This signals the client is ready to send requests
         return;
     }
+
+    if (notification.method == MCPMethods::NOTIFICATIONS_CANCELLED) {
+        // Client is cancelling an in-progress request
+        // We don't currently support request cancellation, but accept it gracefully
+        return;
+    }
+
+    if (notification.method == MCPMethods::NOTIFICATIONS_PROGRESS) {
+        // Progress update from client - typically ignored by servers
+        return;
+    }
+
+    if (notification.method == MCPMethods::NOTIFICATIONS_MESSAGE) {
+        // Log message from client - could be used for debugging
+        return;
+    }
+
+    // Unknown notifications are silently ignored per MCP spec
+    // (notifications don't get error responses)
 }
 
 MCPMessage MCPServer::HandleInitialize(const MCPMessage &request) {
@@ -707,13 +732,20 @@ MCPServerManager& MCPServerManager::GetInstance() {
 
 bool MCPServerManager::StartServer(const MCPServerConfig &config) {
     lock_guard<mutex> lock(manager_mutex);
-    
+
     if (server && server->IsRunning()) {
         return false; // Server already running
     }
-    
+
     server = make_uniq<MCPServer>(config);
-    return server->Start();
+    bool started = server->Start();
+
+    if (started) {
+        // Apply any pending registrations
+        ApplyPendingRegistrations();
+    }
+
+    return started;
 }
 
 void MCPServerManager::StopServer() {
@@ -739,6 +771,73 @@ MCPMessage MCPServerManager::SendRequest(const MCPMessage &request) {
     }
 
     return server->ProcessRequest(request);
+}
+
+void MCPServerManager::QueueToolRegistration(PendingToolRegistration registration) {
+    lock_guard<mutex> lock(manager_mutex);
+    pending_tools.push_back(std::move(registration));
+}
+
+void MCPServerManager::QueueResourceRegistration(PendingResourceRegistration registration) {
+    lock_guard<mutex> lock(manager_mutex);
+    pending_resources.push_back(std::move(registration));
+}
+
+size_t MCPServerManager::GetPendingToolCount() const {
+    lock_guard<mutex> lock(manager_mutex);
+    return pending_tools.size();
+}
+
+size_t MCPServerManager::GetPendingResourceCount() const {
+    lock_guard<mutex> lock(manager_mutex);
+    return pending_resources.size();
+}
+
+void MCPServerManager::ApplyPendingRegistrations() {
+    // Note: This is called from StartServer which already holds the lock
+
+    if (!server) {
+        return;
+    }
+
+    // Apply pending tool registrations
+    for (auto &reg : pending_tools) {
+        try {
+            ToolInputSchema input_schema = ParseToolInputSchema(reg.properties_json, reg.required_json);
+            auto handler = make_uniq<SQLToolHandler>(
+                reg.name, reg.description, reg.sql_template,
+                input_schema, *reg.db_instance, reg.format);
+            server->RegisterTool(reg.name, std::move(handler));
+        } catch (const std::exception &e) {
+            // Log error but continue with other registrations
+        }
+    }
+    pending_tools.clear();
+
+    // Apply pending resource registrations
+    for (auto &reg : pending_resources) {
+        try {
+            if (reg.type == "table") {
+                // TableResourceProvider(table_name, format, db)
+                auto provider = make_uniq<TableResourceProvider>(
+                    reg.source, reg.format, *reg.db_instance);
+                server->PublishResource(reg.uri, std::move(provider));
+            } else if (reg.type == "query") {
+                // QueryResourceProvider(query, format, db, refresh_interval_seconds)
+                auto provider = make_uniq<QueryResourceProvider>(
+                    reg.source, reg.format, *reg.db_instance, reg.refresh_seconds);
+                server->PublishResource(reg.uri, std::move(provider));
+            } else if (reg.type == "resource") {
+                // StaticResourceProvider(content, mime_type, description)
+                auto provider = make_uniq<StaticResourceProvider>(
+                    reg.source, reg.mime_type, reg.description);
+                server->PublishResource(reg.uri, std::move(provider));
+            }
+        } catch (const std::exception &e) {
+            // Log error but continue with other registrations
+        }
+    }
+    pending_resources.clear();
 }
 
 } // namespace duckdb

@@ -32,8 +32,6 @@ theme:
 
 plugins:
   - search
-  - mkdocstrings:
-      enabled: false
 
 markdown_extensions:
   - admonition

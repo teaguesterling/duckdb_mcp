@@ -61,6 +61,56 @@ Value ToolInputSchema::ToJSON() const {
     });
 }
 
+ToolInputSchema ParseToolInputSchema(const string &properties_json, const string &required_json) {
+    ToolInputSchema schema;
+    schema.type = "object";
+
+    // Parse properties JSON: {"param_name": "type", ...} or {"param_name": {"type": "...", ...}, ...}
+    if (!properties_json.empty() && properties_json != "{}") {
+        yyjson_doc *props_doc = JSONUtils::Parse(properties_json);
+        yyjson_val *props_root = yyjson_doc_get_root(props_doc);
+        if (props_root && yyjson_is_obj(props_root)) {
+            yyjson_obj_iter iter = yyjson_obj_iter_with(props_root);
+            yyjson_val *key;
+            while ((key = yyjson_obj_iter_next(&iter))) {
+                yyjson_val *val = yyjson_obj_iter_get_val(key);
+                string prop_name = yyjson_get_str(key);
+                if (yyjson_is_str(val)) {
+                    // Simple format: {"param": "type"}
+                    string prop_type = yyjson_get_str(val);
+                    schema.properties[prop_name] = Value(prop_type);
+                } else if (yyjson_is_obj(val)) {
+                    // Full JSON Schema format: {"param": {"type": "string", "description": "..."}}
+                    // Extract just the type for our internal schema
+                    yyjson_val *type_val = yyjson_obj_get(val, "type");
+                    if (type_val && yyjson_is_str(type_val)) {
+                        schema.properties[prop_name] = Value(yyjson_get_str(type_val));
+                    }
+                }
+            }
+        }
+        JSONUtils::FreeDocument(props_doc);
+    }
+
+    // Parse required JSON: ["param1", "param2", ...]
+    if (!required_json.empty() && required_json != "[]") {
+        yyjson_doc *req_doc = JSONUtils::Parse(required_json);
+        yyjson_val *req_root = yyjson_doc_get_root(req_doc);
+        if (req_root && yyjson_is_arr(req_root)) {
+            size_t idx, max;
+            yyjson_val *val;
+            yyjson_arr_foreach(req_root, idx, max, val) {
+                if (yyjson_is_str(val)) {
+                    schema.required_fields.push_back(yyjson_get_str(val));
+                }
+            }
+        }
+        JSONUtils::FreeDocument(req_doc);
+    }
+
+    return schema;
+}
+
 //===--------------------------------------------------------------------===//
 // QueryToolHandler Implementation
 //===--------------------------------------------------------------------===//
@@ -482,7 +532,8 @@ string SQLToolHandler::SubstituteParameters(const string &template_sql, const JS
     // Get all field names and substitute them
     auto field_names = parser.GetFieldNames();
     for (const auto &key : field_names) {
-        string value = parser.GetString(key);
+        // Use GetValueAsString to handle any JSON type (int, bool, string, etc.)
+        string value = parser.GetValueAsString(key);
 
         // Simple parameter substitution - replace $key with value
         string param = "$" + key;

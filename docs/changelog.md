@@ -4,6 +4,44 @@ All notable changes to the DuckDB MCP Extension.
 
 ---
 
+## Unreleased
+
+### New Features
+
+**`mcp_publish_resource` Function**
+
+- New SQL function for publishing static content as MCP resources
+- Parameters: `(uri, content, mime_type, description)`
+- Useful for configuration files, documentation, or any static data
+
+**Publish Before Server Starts (Queuing)**
+
+- All publish functions (`mcp_publish_tool`, `mcp_publish_table`, `mcp_publish_query`, `mcp_publish_resource`) can now be called before the server starts
+- Registrations are queued and automatically applied when the server starts
+- Enables cleaner initialization scripts
+
+**Improved Parameter Handling**
+
+- SQL tool parameters now correctly handle all JSON types (integer, boolean, string)
+- Previously, integer parameters like `{"id": 1}` were not substituted correctly
+
+### Bug Fixes
+
+- Fixed SQL parameter substitution for non-string JSON values in custom tools
+
+---
+
+## v1.3.1
+
+### Bug Fixes
+
+- **MCP notifications no longer cause "Method not found" errors** (Issue #9)
+    - Server now properly handles JSON-RPC notifications (messages without `id` field)
+    - `notifications/initialized`, `notifications/cancelled`, `notifications/progress` are now silently accepted
+    - Unknown notifications are ignored per MCP spec (no error response sent)
+
+---
+
 ## v1.3.0
 
 ### New Features
