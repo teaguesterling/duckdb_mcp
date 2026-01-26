@@ -4,7 +4,7 @@ All notable changes to the DuckDB MCP Extension.
 
 ---
 
-## Unreleased
+## v1.4.0
 
 ### New Features
 
