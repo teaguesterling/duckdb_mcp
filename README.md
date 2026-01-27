@@ -8,6 +8,7 @@ A [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) extension for
 ## Features
 
 - **Run as MCP Server**: Expose your DuckDB database to AI assistants with built-in tools for querying, describing, and exploring data
+- **HTTP Transport**: Run as an HTTP server with authentication for web-based clients
 - **Act as MCP Client**: Connect to external MCP servers and query their resources using SQL
 - **Custom Tools**: Publish parameterized SQL queries as tools that AI assistants can discover and call
 - **Multiple Formats**: Output results as JSON, Markdown (token-efficient), or CSV
@@ -41,6 +42,30 @@ Add to Claude Desktop configuration:
 ```
 
 Now Claude can query your database directly!
+
+### As an HTTP Server
+
+Run DuckDB as an HTTP server that any HTTP client can connect to:
+
+```sql
+LOAD 'duckdb_mcp';
+
+-- Start HTTP server with authentication
+SELECT mcp_server_start('http', 'localhost', 8080, '{"auth_token": "secret"}');
+```
+
+Then connect via HTTP:
+
+```bash
+# Health check
+curl http://localhost:8080/health
+
+# Query with authentication
+curl -X POST http://localhost:8080/mcp \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer secret" \
+    -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 1"}}}'
+```
 
 ### As an MCP Client
 
@@ -104,6 +129,7 @@ The `examples/` directory contains ready-to-use configurations:
 | [04-security](examples/04-security/) | Security hardening |
 | [05-custom-tools](examples/05-custom-tools/) | Custom SQL tools |
 | [06-comprehensive](examples/06-comprehensive/) | Full SaaS application |
+| [11-http-server](examples/11-http-server/) | HTTP server with authentication |
 
 ## Installation
 

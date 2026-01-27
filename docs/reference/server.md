@@ -27,8 +27,8 @@ mcp_server_start(transport, host, port, config) → VARCHAR
 |-----------|-------------|----------|
 | `stdio` | Standard input/output | CLI integration, Claude Desktop |
 | `memory` | In-process (no I/O) | Testing, unit tests |
-| `tcp` | TCP socket | Network servers |
-| `websocket` | WebSocket | Browser clients |
+| `http` | HTTP server | REST clients, web applications |
+| `https` | HTTPS server (SSL/TLS) | Secure web applications |
 
 **Examples:**
 
@@ -39,10 +39,22 @@ SELECT mcp_server_start('stdio', 'localhost', 0, '{}');
 -- Memory transport for testing
 SELECT mcp_server_start('memory', 'localhost', 0, '{}');
 
--- TCP server on port 8080
-SELECT mcp_server_start('tcp', '0.0.0.0', 8080, '{}');
+-- HTTP server on port 8080
+SELECT mcp_server_start('http', 'localhost', 8080, '{}');
 
--- With configuration
+-- HTTP with authentication
+SELECT mcp_server_start('http', 'localhost', 8080, '{
+    "auth_token": "your-secret-token"
+}');
+
+-- HTTPS with SSL certificates
+SELECT mcp_server_start('https', 'localhost', 8443, '{
+    "auth_token": "your-secret-token",
+    "ssl_cert_path": "/path/to/cert.pem",
+    "ssl_key_path": "/path/to/key.pem"
+}');
+
+-- With tool configuration
 SELECT mcp_server_start('stdio', 'localhost', 0, '{
     "enable_execute_tool": false,
     "default_result_format": "markdown"
@@ -450,3 +462,100 @@ SELECT mcp_server_send_request('{
 ```
 
 This is invaluable for writing automated tests that verify MCP protocol compliance.
+
+---
+
+## HTTP Transport
+
+The `http` and `https` transports provide an HTTP server for MCP clients, enabling browser-based applications and standard HTTP tools to interact with DuckDB.
+
+### Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Health check, returns `{"status":"ok"}` |
+| `/` | POST | MCP JSON-RPC endpoint |
+| `/mcp` | POST | Alternative MCP JSON-RPC endpoint |
+
+### Authentication
+
+When `auth_token` is configured, all MCP endpoints require Bearer token authentication:
+
+```bash
+curl -X POST http://localhost:8080/mcp \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer your-secret-token" \
+    -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+```
+
+**Response codes:**
+
+| Status | Condition |
+|--------|-----------|
+| 200 OK | Request successful |
+| 401 Unauthorized | No `Authorization` header provided |
+| 403 Forbidden | Invalid token provided |
+
+### CORS
+
+CORS is enabled by default, allowing browser-based clients to connect from any origin.
+
+### Example: Using curl
+
+```bash
+# Start server
+duckdb -c "LOAD 'duckdb_mcp'; SELECT mcp_server_start('http', 'localhost', 8080, '{}');"
+
+# Health check
+curl http://localhost:8080/health
+
+# Initialize
+curl -X POST http://localhost:8080/mcp \
+    -H "Content-Type: application/json" \
+    -d '{
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2024-11-05",
+            "clientInfo": {"name": "curl", "version": "1.0"},
+            "capabilities": {}
+        }
+    }'
+
+# List tools
+curl -X POST http://localhost:8080/mcp \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
+
+# Execute query
+curl -X POST http://localhost:8080/mcp \
+    -H "Content-Type: application/json" \
+    -d '{
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "tools/call",
+        "params": {
+            "name": "query",
+            "arguments": {"sql": "SELECT 1 + 1 as result"}
+        }
+    }'
+```
+
+### HTTPS Configuration
+
+For production use, enable HTTPS with SSL certificates:
+
+```sql
+SELECT mcp_server_start('https', '0.0.0.0', 8443, '{
+    "auth_token": "secure-token-here",
+    "ssl_cert_path": "/etc/ssl/certs/server.crt",
+    "ssl_key_path": "/etc/ssl/private/server.key"
+}');
+```
+
+!!! warning "Security Recommendations"
+    - Always use HTTPS in production
+    - Use strong, randomly-generated auth tokens
+    - Bind to specific interfaces rather than `0.0.0.0` when possible
+    - Consider firewall rules to restrict access

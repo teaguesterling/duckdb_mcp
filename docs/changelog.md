@@ -4,6 +4,55 @@ All notable changes to the DuckDB MCP Extension.
 
 ---
 
+## v1.4.0
+
+### New Features
+
+**HTTP/HTTPS Transport**
+
+- New `http` and `https` transport types for the MCP server
+- Enables browser-based clients and HTTP-compatible tools to connect
+- Built on cpp-httplib (bundled with DuckDB)
+
+**HTTP Authentication**
+
+- Bearer token authentication support
+- Configurable via `auth_token` in server config
+- Proper HTTP status codes:
+    - `401 Unauthorized` when no credentials provided
+    - `403 Forbidden` when invalid credentials provided
+- `WWW-Authenticate: Bearer` header for authentication challenges
+
+**HTTP Endpoints**
+
+- `/health` - Health check endpoint returning `{"status":"ok"}`
+- `/` and `/mcp` - MCP JSON-RPC endpoints (POST)
+- Full CORS support for browser clients
+
+**HTTPS Support**
+
+- SSL/TLS support when OpenSSL is available
+- Configure with `ssl_cert_path` and `ssl_key_path`
+
+### Configuration
+
+New config options for HTTP transport:
+
+```sql
+SELECT mcp_server_start('http', 'localhost', 8080, '{
+    "auth_token": "your-secret-token",
+    "ssl_cert_path": "/path/to/cert.pem",
+    "ssl_key_path": "/path/to/key.pem"
+}');
+```
+
+### Testing
+
+- Added HTTP transport test suite (`test/http/test_http_transport.sh`)
+- Tests cover health endpoint, authentication, MCP protocol, and CORS
+
+---
+
 ## v1.3.2
 
 ### New Features
