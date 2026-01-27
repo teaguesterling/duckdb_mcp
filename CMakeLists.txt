@@ -8,6 +8,7 @@ set(LOADABLE_EXTENSION_NAME ${TARGET_NAME}_loadable_extension)
 
 project(${TARGET_NAME})
 include_directories(src/include)
+include_directories(${CMAKE_SOURCE_DIR}/third_party/httplib)
 
 set(EXTENSION_SOURCES
   src/duckdb_mcp_extension.cpp
@@ -28,6 +29,7 @@ set(EXTENSION_SOURCES
   src/catalog/mcp_catalog.cpp
   src/catalog/mcp_schema_entry.cpp
   src/server/mcp_server.cpp
+  src/server/http_server_transport.cpp
   src/server/resource_providers.cpp
   src/server/tool_handlers.cpp
   src/server/stdio_server_transport.cpp

@@ -553,6 +553,11 @@ static Value MCPServerStartImpl(ExpressionState &state,
                     server_config.background = yyjson_get_bool(val);
                 }
 
+                // Parse HTTP-specific configuration
+                server_config.auth_token = JSONUtils::GetString(root, "auth_token", "");
+                server_config.ssl_cert_path = JSONUtils::GetString(root, "ssl_cert_path", "");
+                server_config.ssl_key_path = JSONUtils::GetString(root, "ssl_key_path", "");
+
                 // Parse default result format
                 server_config.default_result_format = JSONUtils::GetString(root, "default_result_format", "json");
             }

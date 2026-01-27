@@ -2,6 +2,7 @@
 #include "server/resource_providers.hpp"
 #include "server/tool_handlers.hpp"
 #include "server/stdio_server_transport.hpp"
+#include "server/http_server_transport.hpp"
 #include "duckdb_mcp_extension.hpp"
 #include "duckdb_mcp_logging.hpp"
 #include "protocol/mcp_transport.hpp"
@@ -123,8 +124,42 @@ bool MCPServer::Start() {
         // Memory transport: no I/O thread needed
         // Server just stays running and waits for ProcessRequest() calls
         return true;
+    } else if (config.transport == "http" || config.transport == "https") {
+        // HTTP/HTTPS transport
+        HTTPServerConfig http_config;
+        http_config.host = config.bind_address;
+        http_config.port = config.port;
+        http_config.auth_token = config.auth_token;
+        http_config.enable_cors = true;
+
+        if (config.transport == "https") {
+            http_config.use_ssl = true;
+            http_config.cert_path = config.ssl_cert_path;
+            http_config.key_path = config.ssl_key_path;
+        }
+
+        http_server = make_uniq<HTTPServerTransport>(http_config);
+
+        // Start HTTP server with a handler that routes to ProcessRequest
+        auto handler = [this](const string &request_json) -> string {
+            try {
+                MCPMessage request = MCPMessage::FromJSON(request_json);
+                MCPMessage response = ProcessRequest(request);
+                return response.ToJSON();
+            } catch (const std::exception &e) {
+                return R"({"jsonrpc":"2.0","error":{"code":-32700,"message":"Parse error: )" +
+                       string(e.what()) + R"("},"id":null})";
+            }
+        };
+
+        if (!http_server->Start(handler)) {
+            running = false;
+            http_server.reset();
+            return false;
+        }
+        return true;
     } else {
-        // TCP/WebSocket not implemented yet
+        // Unknown transport
         running = false;
         return false;
     }
@@ -159,13 +194,19 @@ void MCPServer::Stop() {
     if (!running.load()) {
         return;
     }
-    
+
     running = false;
-    
+
+    // Stop HTTP server if running
+    if (http_server) {
+        http_server->Stop();
+        http_server.reset();
+    }
+
     if (server_thread && server_thread->joinable()) {
         server_thread->join();
     }
-    
+
     server_thread.reset();
 }
 

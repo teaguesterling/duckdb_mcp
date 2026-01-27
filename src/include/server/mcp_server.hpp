@@ -14,12 +14,18 @@ namespace duckdb {
 // Forward declarations
 class ResourceProvider;
 class ToolHandler;
+class HTTPServerTransport;
 
 // MCP Server configuration
 struct MCPServerConfig {
-    string transport = "stdio";           // "stdio", "tcp", "websocket"
-    string bind_address = "localhost";    // For TCP/WebSocket
-    int port = 8080;                     // For TCP/WebSocket
+    string transport = "stdio";           // "stdio", "http", "https", "memory"
+    string bind_address = "localhost";    // For HTTP/HTTPS
+    int port = 8080;                     // For HTTP/HTTPS
+
+    // HTTP/HTTPS specific configuration
+    string auth_token;                   // Optional: Bearer token for HTTP auth
+    string ssl_cert_path;                // For HTTPS: path to certificate file
+    string ssl_key_path;                 // For HTTPS: path to private key file
 
     // Built-in tool configuration
     bool enable_query_tool = true;       // Execute SQL queries (SELECT)
@@ -41,7 +47,6 @@ struct MCPServerConfig {
     uint32_t max_requests = 0;           // Maximum requests before shutdown (0 = unlimited)
     bool background = false;             // Run server in background thread (for testing)
     bool require_auth = false;           // Authentication required
-    string auth_token;                   // Bearer token for authentication
     DatabaseInstance *db_instance = nullptr; // DuckDB instance
 };
 
@@ -130,7 +135,8 @@ private:
 
     unique_ptr<std::thread> server_thread;
     unique_ptr<MCPTransport> test_transport;  // For testing with custom transports
-    
+    unique_ptr<HTTPServerTransport> http_server;  // For HTTP/HTTPS transport
+
     // Request handling
     void ServerLoop();
     void HandleConnection(unique_ptr<MCPTransport> transport);
