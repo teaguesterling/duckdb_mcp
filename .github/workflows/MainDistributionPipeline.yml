@@ -44,6 +44,13 @@ jobs:
           name: duckdb_mcp-v1.4.3-extension-linux_amd64
           path: build/release/extension/duckdb_mcp/
 
+      - name: List extension files (debug)
+        run: |
+          echo "Contents of build/release/extension/duckdb_mcp/:"
+          ls -la build/release/extension/duckdb_mcp/
+          echo "Looking for extension file:"
+          find build/release -name "*.duckdb_extension" -type f
+
       - name: Download DuckDB binary
         run: |
           mkdir -p build/release
