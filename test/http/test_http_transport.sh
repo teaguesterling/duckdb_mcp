@@ -48,7 +48,7 @@ start_server() {
     {
         echo "LOAD '$EXTENSION';"
         echo "SELECT mcp_server_start('http', 'localhost', $port, '$config');"
-        for i in $(seq 1 30); do sleep 1; echo ""; done
+        for i in $(seq 1 30); do sleep 1; echo "" 2>/dev/null || true; done
         echo ".exit"
     } | "$DUCKDB" -unsigned &
     DUCKDB_PID=$!
