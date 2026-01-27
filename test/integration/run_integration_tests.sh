@@ -196,7 +196,7 @@ log_section "Stdio Transport Tests"
 # Test stdio transport with initialize request
 # For stdio, we pipe JSON-RPC requests to the process and read responses
 STDIO_RESULT=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}' | \
-    "$DUCKDB" -cmd "LOAD '$EXTENSION';" -cmd "SELECT mcp_server_start('stdio', 'localhost', 0, '{}');" 2>&1 || true)
+    "$DUCKDB" -unsigned -cmd "LOAD '$EXTENSION';" -cmd "SELECT mcp_server_start('stdio', 'localhost', 0, '{}');" 2>&1 || true)
 if echo "$STDIO_RESULT" | grep -q '"serverInfo"'; then
     pass "Stdio transport: Initialize returns serverInfo"
 else
@@ -205,7 +205,7 @@ fi
 
 # Test stdio transport with tools/list
 STDIO_RESULT=$(echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | \
-    "$DUCKDB" -cmd "LOAD '$EXTENSION';" -cmd "SELECT mcp_server_start('stdio', 'localhost', 0, '{}');" 2>&1 || true)
+    "$DUCKDB" -unsigned -cmd "LOAD '$EXTENSION';" -cmd "SELECT mcp_server_start('stdio', 'localhost', 0, '{}');" 2>&1 || true)
 if echo "$STDIO_RESULT" | grep -q '"name":"query"'; then
     pass "Stdio transport: tools/list returns query tool"
 else
@@ -214,7 +214,7 @@ fi
 
 # Test stdio transport with query execution
 STDIO_RESULT=$(echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 99 as value"}}}' | \
-    "$DUCKDB" -cmd "LOAD '$EXTENSION';" -cmd "SELECT mcp_server_start('stdio', 'localhost', 0, '{}');" 2>&1 || true)
+    "$DUCKDB" -unsigned -cmd "LOAD '$EXTENSION';" -cmd "SELECT mcp_server_start('stdio', 'localhost', 0, '{}');" 2>&1 || true)
 if echo "$STDIO_RESULT" | grep -q 'value.*99'; then
     pass "Stdio transport: Query execution works"
 else
@@ -225,7 +225,7 @@ fi
 STDIO_RESULT=$(printf '%s\n%s' \
     '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}' \
     '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' | \
-    "$DUCKDB" -cmd "LOAD '$EXTENSION';" -cmd "SELECT mcp_server_start('stdio', 'localhost', 0, '{}');" 2>&1 || true)
+    "$DUCKDB" -unsigned -cmd "LOAD '$EXTENSION';" -cmd "SELECT mcp_server_start('stdio', 'localhost', 0, '{}');" 2>&1 || true)
 if echo "$STDIO_RESULT" | grep -q '"serverInfo"' && echo "$STDIO_RESULT" | grep -q '"name":"query"'; then
     pass "Stdio transport: Multiple requests work"
 else
@@ -236,7 +236,7 @@ fi
 STDIO_RESULT=$(printf '%s\n%s' \
     '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}' \
     '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"describe","arguments":{"query":"SELECT 1 as col"}}}' | \
-    "$DUCKDB" -cmd "LOAD '$EXTENSION';" -cmd "SELECT mcp_server_start('stdio', 'localhost', 0, '{}');" 2>&1 || true)
+    "$DUCKDB" -unsigned -cmd "LOAD '$EXTENSION';" -cmd "SELECT mcp_server_start('stdio', 'localhost', 0, '{}');" 2>&1 || true)
 if echo "$STDIO_RESULT" | grep -q 'name.*col'; then
     pass "Stdio transport: Describe tool works"
 else
