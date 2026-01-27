@@ -27,3 +27,40 @@ jobs:
       duckdb_version: v1.4.3
       ci_tools_version: v1.4.3
       extension_name: duckdb_mcp
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: duckdb-stable-build
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: 'recursive'
+
+      - name: Download extension artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: duckdb_mcp-v1.4.3-extension-linux_amd64
+          path: build/release/extension/duckdb_mcp/
+
+      - name: Checkout DuckDB
+        run: |
+          git clone --depth 1 --branch v1.4.3 https://github.com/duckdb/duckdb.git duckdb
+
+      - name: Download DuckDB binary
+        run: |
+          mkdir -p build/release
+          wget -q https://github.com/duckdb/duckdb/releases/download/v1.4.3/duckdb_cli-linux-amd64.zip
+          unzip duckdb_cli-linux-amd64.zip -d build/release/
+          chmod +x build/release/duckdb
+
+      - name: Run integration tests
+        run: |
+          chmod +x test/integration/run_integration_tests.sh
+          ./test/integration/run_integration_tests.sh
+
+      - name: Run HTTP transport tests
+        run: |
+          chmod +x test/http/test_http_transport.sh
+          ./test/http/test_http_transport.sh
