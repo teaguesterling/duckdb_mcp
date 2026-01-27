@@ -67,12 +67,12 @@ skip() {
 
 run_sql() {
     local sql="$1"
-    echo "$sql" | "$DUCKDB" 2>&1
+    echo "$sql" | "$DUCKDB" 2>&1 || true
 }
 
 run_sql_with_extension() {
     local sql="$1"
-    echo "LOAD '$EXTENSION'; $sql" | "$DUCKDB" 2>&1
+    echo "LOAD '$EXTENSION'; $sql" | "$DUCKDB" 2>&1 || true
 }
 
 # Start a DuckDB server in background and return its PID
