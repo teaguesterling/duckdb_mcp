@@ -25,9 +25,10 @@ CREATE TABLE test_users AS SELECT 1 as id, 'Alice' as username UNION ALL SELECT 
 # SECTION 1: mcp_publish_table - Basic Functionality
 # =============================================================================
 
-# Server must be running to publish
+# With publish-before-server-start feature, publishing works even without server running
+# Resources are queued and registered when server starts
 query I
-SELECT mcp_publish_table('test_products', 'data://products', 'json') LIKE '%ERROR%server is not running%';
+SELECT mcp_publish_table('test_products', 'data://products', 'json') LIKE '%QUEUED%';
 ----
 true
 
@@ -406,12 +407,13 @@ SELECT mcp_server_stop();
 statement ok
 SELECT mcp_server_start('memory');
 
-# Server not running (already covered above, but explicit check)
+# Server not running - with publish-before-server-start feature, this now succeeds
 statement ok
 SELECT mcp_server_stop();
 
+# Tools are queued and registered when server starts
 query I
-SELECT mcp_publish_tool('bad_tool', 'desc', 'SELECT 1', '{}', '[]') LIKE '%ERROR%server is not running%';
+SELECT mcp_publish_tool('stored_tool', 'desc', 'SELECT 1', '{}', '[]') LIKE '%QUEUED%';
 ----
 true
 
