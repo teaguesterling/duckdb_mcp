@@ -67,12 +67,12 @@ skip() {
 
 run_sql() {
     local sql="$1"
-    echo "$sql" | "$DUCKDB" 2>&1 || true
+    echo "$sql" | "$DUCKDB" -unsigned 2>&1 || true
 }
 
 run_sql_with_extension() {
     local sql="$1"
-    echo "LOAD '$EXTENSION'; $sql" | "$DUCKDB" 2>&1 || true
+    echo "LOAD '$EXTENSION'; $sql" | "$DUCKDB" -unsigned 2>&1 || true
 }
 
 # Start a DuckDB server in background and return its PID
@@ -86,7 +86,7 @@ start_server() {
         echo "SELECT mcp_server_start('http', 'localhost', $port, '$config');"
         for i in $(seq 1 $keep_alive); do sleep 1; echo ""; done
         echo ".exit"
-    } | "$DUCKDB" &
+    } | "$DUCKDB" -unsigned &
     local pid=$!
     CLEANUP_PIDS+=($pid)
     sleep 2
