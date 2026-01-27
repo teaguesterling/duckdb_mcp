@@ -50,7 +50,7 @@ start_server() {
         echo "SELECT mcp_server_start('http', 'localhost', $port, '$config');"
         for i in $(seq 1 30); do sleep 1; echo ""; done
         echo ".exit"
-    } | "$DUCKDB" &
+    } | "$DUCKDB" -unsigned &
     DUCKDB_PID=$!
     sleep 2
 }
