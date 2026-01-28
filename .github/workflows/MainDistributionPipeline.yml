@@ -13,9 +13,9 @@ concurrency:
 
 jobs:
   duckdb-next-build:
-    if: false
     name: Build extension binaries (next)
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@main
+    if: false
     with:
       duckdb_version: main
       ci_tools_version: main
@@ -25,8 +25,8 @@ jobs:
     name: Build extension binaries
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.4.3
     with:
-      duckdb_version: v1.4.3
-      ci_tools_version: v1.4.3
+      duckdb_version: v1.4.4
+      ci_tools_version: v1.4.4
       extension_name: duckdb_mcp
 
   integration-tests:
@@ -42,7 +42,7 @@ jobs:
       - name: Download extension artifact
         uses: actions/download-artifact@v4
         with:
-          name: duckdb_mcp-v1.4.3-extension-linux_amd64
+          name: duckdb_mcp-v1.4.4-extension-linux_amd64
           path: build/release/extension/duckdb_mcp/
 
       - name: List extension files (debug)
@@ -55,7 +55,7 @@ jobs:
       - name: Download DuckDB binary
         run: |
           mkdir -p build/release
-          wget -q https://github.com/duckdb/duckdb/releases/download/v1.4.3/duckdb_cli-linux-amd64.zip
+          wget -q https://github.com/duckdb/duckdb/releases/download/v1.4.4/duckdb_cli-linux-amd64.zip
           unzip duckdb_cli-linux-amd64.zip -d build/release/
           chmod +x build/release/duckdb
 
