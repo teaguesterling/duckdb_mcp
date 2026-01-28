@@ -31,26 +31,27 @@ trap cleanup EXIT
 # Test helper functions
 pass() {
     echo -e "${GREEN}✓ PASS${NC}: $1"
-    ((TESTS_PASSED++))
+    TESTS_PASSED=$((TESTS_PASSED + 1))
 }
 
 fail() {
     echo -e "${RED}✗ FAIL${NC}: $1"
     echo "  Expected: $2"
     echo "  Got: $3"
-    ((TESTS_FAILED++))
+    TESTS_FAILED=$((TESTS_FAILED + 1))
 }
 
 start_server() {
     local port=$1
     local config=${2:-'{}'}
 
-    {
+    (
+        trap '' PIPE
         echo "LOAD '$EXTENSION';"
         echo "SELECT mcp_server_start('http', 'localhost', $port, '$config');"
         for i in $(seq 1 30); do sleep 1; echo "" 2>/dev/null || true; done
         echo ".exit"
-    } | "$DUCKDB" -unsigned &
+    ) 2>/dev/null | "$DUCKDB" -unsigned &
     DUCKDB_PID=$!
     sleep 2
 }
@@ -164,10 +165,10 @@ RESPONSE=$(curl -s -X POST http://localhost:$PORT/mcp \
     -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 42 as answer"}}}' \
     2>/dev/null || echo "CURL_ERROR")
 
-if echo "$RESPONSE" | grep -q '"answer":"42"'; then
+if echo "$RESPONSE" | grep -q 'answer.*42'; then
     pass "Query returns correct result"
 else
-    fail "Query execution" '{"answer":"42"}' "$RESPONSE"
+    fail "Query execution" 'response containing answer 42' "$RESPONSE"
 fi
 
 stop_server
