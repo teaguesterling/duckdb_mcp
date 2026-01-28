@@ -13,7 +13,8 @@ concurrency:
 
 jobs:
   duckdb-next-build:
-    name: Build extension binaries
+    name: Build extension binaries (next)
+    continue-on-error: true
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@main
     with:
       duckdb_version: main
