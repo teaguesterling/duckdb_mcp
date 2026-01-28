@@ -582,6 +582,8 @@ static Value MCPServerStartImpl(ExpressionState &state,
                     return CreateMCPStatus(false, false, "Failed to initialize MCP server",
                                            transport, bind_address, port, false);
                 }
+                // Apply any pending tool/resource registrations from server_manager
+                server_manager.ApplyPendingRegistrationsTo(&server);
                 try {
                     server.RunMainLoop(); // Blocks until max_requests or shutdown
                     return CreateMCPStatus(true, false, "MCP server completed",

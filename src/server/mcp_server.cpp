@@ -881,4 +881,48 @@ void MCPServerManager::ApplyPendingRegistrations() {
     pending_resources.clear();
 }
 
+void MCPServerManager::ApplyPendingRegistrationsTo(MCPServer* external_server) {
+    lock_guard<mutex> lock(manager_mutex);
+
+    if (!external_server) {
+        return;
+    }
+
+    // Apply pending tool registrations to the external server
+    for (auto &reg : pending_tools) {
+        try {
+            ToolInputSchema input_schema = ParseToolInputSchema(reg.properties_json, reg.required_json);
+            auto handler = make_uniq<SQLToolHandler>(
+                reg.name, reg.description, reg.sql_template,
+                input_schema, *reg.db_instance, reg.format);
+            external_server->RegisterTool(reg.name, std::move(handler));
+        } catch (const std::exception &e) {
+            // Log error but continue with other registrations
+        }
+    }
+    pending_tools.clear();
+
+    // Apply pending resource registrations to the external server
+    for (auto &reg : pending_resources) {
+        try {
+            if (reg.type == "table") {
+                auto provider = make_uniq<TableResourceProvider>(
+                    reg.source, reg.format, *reg.db_instance);
+                external_server->PublishResource(reg.uri, std::move(provider));
+            } else if (reg.type == "query") {
+                auto provider = make_uniq<QueryResourceProvider>(
+                    reg.source, reg.format, *reg.db_instance, reg.refresh_seconds);
+                external_server->PublishResource(reg.uri, std::move(provider));
+            } else if (reg.type == "resource") {
+                auto provider = make_uniq<StaticResourceProvider>(
+                    reg.source, reg.mime_type, reg.description);
+                external_server->PublishResource(reg.uri, std::move(provider));
+            }
+        } catch (const std::exception &e) {
+            // Log error but continue with other registrations
+        }
+    }
+    pending_resources.clear();
+}
+
 } // namespace duckdb

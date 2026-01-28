@@ -206,6 +206,9 @@ public:
     size_t GetPendingToolCount() const;
     size_t GetPendingResourceCount() const;
 
+    // Apply pending registrations to an external server (for foreground mode)
+    void ApplyPendingRegistrationsTo(MCPServer* external_server);
+
 private:
     unique_ptr<MCPServer> server;
     mutable mutex manager_mutex;
