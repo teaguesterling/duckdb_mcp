@@ -535,12 +535,37 @@ string SQLToolHandler::SubstituteParameters(const string &template_sql, const JS
         // Use GetValueAsString to handle any JSON type (int, bool, string, etc.)
         string value = parser.GetValueAsString(key);
 
-        // Simple parameter substitution - replace $key with value
+        // Determine the parameter type from input schema
+        string param_type = "string";  // Default to string for safety
+        auto it = input_schema.properties.find(key);
+        if (it != input_schema.properties.end()) {
+            param_type = it->second.ToString();
+        }
+
+        // For string parameters, properly quote and escape for SQL
+        string sql_value;
+        if (param_type == "string") {
+            // Escape single quotes by doubling them, then wrap in quotes
+            string escaped;
+            for (char c : value) {
+                if (c == '\'') {
+                    escaped += "''";
+                } else {
+                    escaped += c;
+                }
+            }
+            sql_value = "'" + escaped + "'";
+        } else {
+            // For numeric/boolean types, use value as-is
+            sql_value = value;
+        }
+
+        // Parameter substitution - replace $key with properly formatted value
         string param = "$" + key;
         size_t pos = 0;
         while ((pos = result.find(param, pos)) != string::npos) {
-            result.replace(pos, param.length(), value);
-            pos += value.length();
+            result.replace(pos, param.length(), sql_value);
+            pos += sql_value.length();
         }
     }
 
