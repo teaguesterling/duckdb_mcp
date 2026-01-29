@@ -326,9 +326,9 @@ SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":110,"method":"tools/call",
 ----
 true
 
-# Optional parameter (max_price not required)
+# Both parameters provided (testing Gadget product)
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":111,"method":"tools/call","params":{"name":"search_products","arguments":{"pattern":"%Gadget%"}}}') LIKE '%Gadget%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":111,"method":"tools/call","params":{"name":"search_products","arguments":{"pattern":"%Gadget%","max_price":"50"}}}') LIKE '%Gadget%';
 ----
 true
 
