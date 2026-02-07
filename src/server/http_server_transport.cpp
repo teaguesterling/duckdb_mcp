@@ -101,6 +101,21 @@ bool HTTPServerTransport::Start(RequestHandler handler) {
     return running.load();
 }
 
+bool HTTPServerTransport::Run(RequestHandler handler) {
+    if (running.load()) {
+        return false; // Already running
+    }
+
+    request_handler = std::move(handler);
+    stop_requested = false;
+    running = true;
+
+    // Run server in calling thread (blocks until Stop() is called)
+    ServerLoop();
+
+    return true;
+}
+
 void HTTPServerTransport::Stop() {
     stop_requested = true;
     running = false;

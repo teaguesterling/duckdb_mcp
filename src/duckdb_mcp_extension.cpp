@@ -608,8 +608,41 @@ static Value MCPServerStartImpl(ExpressionState &state,
                 return CreateMCPStatus(false, false, "Failed to start MCP server",
                                        transport, bind_address, port, true);
             }
+        } else if (transport == "http" || transport == "https") {
+            // HTTP/HTTPS transport
+            if (server_config.background) {
+                // Background mode: use server manager (non-blocking, starts thread)
+                if (server_manager.StartServer(server_config)) {
+                    return CreateMCPStatus(true, true, "MCP server started on " + transport + " (background mode)",
+                                           transport, bind_address, port, true);
+                } else {
+                    return CreateMCPStatus(false, false, "Failed to start MCP server",
+                                           transport, bind_address, port, true);
+                }
+            } else {
+                // Foreground mode: handle HTTP in calling thread (blocking)
+                MCPServer server(server_config);
+                if (!server.StartForeground()) {
+                    return CreateMCPStatus(false, false, "Failed to initialize MCP server",
+                                           transport, bind_address, port, false);
+                }
+                // Apply any pending tool/resource registrations from server_manager
+                server_manager.ApplyPendingRegistrationsTo(&server);
+                try {
+                    server.RunHTTPLoop(); // Blocks until Stop() is called or server shuts down
+                    return CreateMCPStatus(true, false, "MCP server completed",
+                                           transport, bind_address, port, false,
+                                           server.GetRequestsReceived(), server.GetResponsesSent(),
+                                           server.GetErrorsReturned());
+                } catch (const std::exception &e) {
+                    return CreateMCPStatus(false, false, string(e.what()),
+                                           transport, bind_address, port, false,
+                                           server.GetRequestsReceived(), server.GetResponsesSent(),
+                                           server.GetErrorsReturned());
+                }
+            }
         } else {
-            // For non-stdio/memory transports (TCP/WebSocket), use background thread
+            // For other transports (TCP/WebSocket), use background thread
             if (server_manager.StartServer(server_config)) {
                 return CreateMCPStatus(true, true, "MCP server started on " + transport,
                                        transport, bind_address, port, true);

@@ -111,6 +111,9 @@ public:
     // Main loop for stdio mode (blocks until process ends)
     void RunMainLoop();
 
+    // Main loop for HTTP mode (blocks until Stop() is called)
+    bool RunHTTPLoop();
+
     // Testing support: process a single request directly (no transport)
     MCPMessage ProcessRequest(const MCPMessage &request);
 
