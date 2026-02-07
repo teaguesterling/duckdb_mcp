@@ -267,11 +267,11 @@ void MCPServer::RunMainLoop() {
     if (config.transport != "stdio") {
         throw InvalidInputException("RunMainLoop() is only supported for stdio transport");
     }
-    
+
     if (!running.load()) {
         throw InvalidInputException("Server must be started before calling RunMainLoop()");
     }
-    
+
     // Create server-side stdio transport using std::cin/std::cout
     auto transport = make_uniq<FdServerTransport>();
 
@@ -279,6 +279,52 @@ void MCPServer::RunMainLoop() {
     if (transport->Connect()) {
         HandleConnection(std::move(transport));
     }
+}
+
+bool MCPServer::RunHTTPLoop() {
+    if (config.transport != "http" && config.transport != "https") {
+        throw InvalidInputException("RunHTTPLoop() is only supported for http/https transport");
+    }
+
+    if (!running.load()) {
+        throw InvalidInputException("Server must be started before calling RunHTTPLoop()");
+    }
+
+    // Set up HTTP server configuration
+    HTTPServerConfig http_config;
+    http_config.host = config.bind_address;
+    http_config.port = config.port;
+    http_config.auth_token = config.auth_token;
+    http_config.enable_cors = true;
+
+    if (config.transport == "https") {
+        http_config.use_ssl = true;
+        http_config.cert_path = config.ssl_cert_path;
+        http_config.key_path = config.ssl_key_path;
+    }
+
+    http_server = make_uniq<HTTPServerTransport>(http_config);
+
+    // Create handler that routes requests to ProcessRequest
+    auto handler = [this](const string &request_json) -> string {
+        try {
+            MCPMessage request = MCPMessage::FromJSON(request_json);
+            MCPMessage response = ProcessRequest(request);
+            return response.ToJSON();
+        } catch (const std::exception &e) {
+            return R"({"jsonrpc":"2.0","error":{"code":-32700,"message":"Parse error: )" +
+                   string(e.what()) + R"("},"id":null})";
+        }
+    };
+
+    // Run HTTP server in blocking mode (blocks until Stop() is called)
+    bool result = http_server->Run(handler);
+
+    // Clean up
+    http_server.reset();
+    running = false;
+
+    return result;
 }
 
 void MCPServer::ServerLoop() {

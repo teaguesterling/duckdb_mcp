@@ -37,6 +37,9 @@ public:
     //! Start the HTTP server (non-blocking, runs in background thread)
     bool Start(RequestHandler handler);
 
+    //! Run the HTTP server (blocking, runs in calling thread until Stop() is called)
+    bool Run(RequestHandler handler);
+
     //! Stop the HTTP server
     void Stop();
 
