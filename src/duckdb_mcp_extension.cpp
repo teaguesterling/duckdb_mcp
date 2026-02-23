@@ -26,6 +26,11 @@ using namespace duckdb_yyjson;
 #include "duckdb/main/database.hpp"
 #include "duckdb/main/config.hpp"
 
+// Detect DuckDB v1.5+ (storage_extensions moved to StorageExtension::Register)
+#if __has_include("duckdb/common/column_index_map.hpp")
+#define DUCKDB_V15
+#endif
+
 namespace duckdb {
 
 // Get MCP resource content
@@ -1593,7 +1598,11 @@ static void LoadInternal(ExtensionLoader &loader) {
 
 	// Register MCP storage extension for ATTACH support
 	auto &config = DBConfig::GetConfig(db);
+#ifdef DUCKDB_V15
 	StorageExtension::Register(config, "mcp", MCPStorageExtension::Create());
+#else
+	config.storage_extensions["mcp"] = MCPStorageExtension::Create();
+#endif
 
 	// Register MCP configuration options
 	config.AddExtensionOption("allowed_mcp_commands",
