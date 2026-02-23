@@ -16,40 +16,35 @@ class MCPConnection;
 // MCP Storage Extension for handling ATTACH statements
 class MCPStorageExtension {
 public:
-    static unique_ptr<StorageExtension> Create();
-    
-private:
-    // Main attach function called when ATTACH ... (TYPE mcp) is executed
-    static unique_ptr<Catalog> MCPStorageAttach(optional_ptr<StorageExtensionInfo> storage_info,
-                                               ClientContext &context,
-                                               AttachedDatabase &db,
-                                               const string &name,
-                                               AttachInfo &info,
-                                               AttachOptions &options);
+	static unique_ptr<StorageExtension> Create();
 
-    // Transaction manager creator
-    static unique_ptr<TransactionManager> MCPStorageTransactionManager(optional_ptr<StorageExtensionInfo> storage_info,
-                                                                       AttachedDatabase &db,
-                                                                       Catalog &catalog);
-    
-    // Helper methods
-    static shared_ptr<MCPConnection> CreateMCPConnection(const AttachInfo &info);
-    static void RegisterMCPConnection(ClientContext &context, const string &name, 
-                                     shared_ptr<MCPConnection> connection);
+private:
+	// Main attach function called when ATTACH ... (TYPE mcp) is executed
+	static unique_ptr<Catalog> MCPStorageAttach(optional_ptr<StorageExtensionInfo> storage_info, ClientContext &context,
+	                                            AttachedDatabase &db, const string &name, AttachInfo &info,
+	                                            AttachOptions &options);
+
+	// Transaction manager creator
+	static unique_ptr<TransactionManager> MCPStorageTransactionManager(optional_ptr<StorageExtensionInfo> storage_info,
+	                                                                   AttachedDatabase &db, Catalog &catalog);
+
+	// Helper methods
+	static shared_ptr<MCPConnection> CreateMCPConnection(const AttachInfo &info);
+	static void RegisterMCPConnection(ClientContext &context, const string &name, shared_ptr<MCPConnection> connection);
 };
 
 // Simple MCP connection registry for storing MCP connections
 class MCPConnectionRegistry {
 public:
-    static MCPConnectionRegistry& GetInstance();
-    
-    void RegisterConnection(const string &name, shared_ptr<MCPConnection> connection);
-    void UnregisterConnection(const string &name);
-    shared_ptr<MCPConnection> GetConnection(const string &name);
-    
+	static MCPConnectionRegistry &GetInstance();
+
+	void RegisterConnection(const string &name, shared_ptr<MCPConnection> connection);
+	void UnregisterConnection(const string &name);
+	shared_ptr<MCPConnection> GetConnection(const string &name);
+
 private:
-    mutex registry_mutex;
-    unordered_map<string, shared_ptr<MCPConnection>> connections;
+	mutex registry_mutex;
+	unordered_map<string, shared_ptr<MCPConnection>> connections;
 };
 
 } // namespace duckdb

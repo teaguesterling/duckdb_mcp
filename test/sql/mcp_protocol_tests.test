@@ -1,6 +1,6 @@
 # name: test/sql/mcp_protocol_tests.test
 # description: Test MCP protocol handling via mcp_server_test function
-# group: [duckdb_mcp]
+# group: [sql]
 
 # Load the MCP extension
 require duckdb_mcp

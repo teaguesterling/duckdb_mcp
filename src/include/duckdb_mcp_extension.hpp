@@ -11,9 +11,13 @@ constexpr const char *DUCKDB_MCP_VERSION = "1.4.0";
 
 class DuckdbMcpExtension : public Extension {
 public:
-    void Load(ExtensionLoader &loader) override;
-    std::string Name() override { return "duckdb_mcp"; }
-    std::string Version() const override { return DUCKDB_MCP_VERSION; }
+	void Load(ExtensionLoader &loader) override;
+	std::string Name() override {
+		return "duckdb_mcp";
+	}
+	std::string Version() const override {
+		return DUCKDB_MCP_VERSION;
+	}
 };
 
 // Function declarations for any non-static functions if needed

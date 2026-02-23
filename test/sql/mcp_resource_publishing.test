@@ -1,6 +1,6 @@
 # name: test/sql/mcp_resource_publishing.test
 # description: Test MCP resource and tool publishing functions
-# group: [duckdb_mcp]
+# group: [sql]
 
 # Load the MCP extension
 require duckdb_mcp

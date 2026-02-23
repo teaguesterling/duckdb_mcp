@@ -14,356 +14,361 @@
 
 namespace duckdb {
 
-StdioTransport::StdioTransport(const StdioConfig &config) 
-    : config(config), connected(false), process_pid(-1), 
-      stdin_fd(-1), stdout_fd(-1), stderr_fd(-1) {
+StdioTransport::StdioTransport(const StdioConfig &config)
+    : config(config), connected(false), process_pid(-1), stdin_fd(-1), stdout_fd(-1), stderr_fd(-1) {
 }
 
 StdioTransport::~StdioTransport() {
-    if (connected) {
-        Disconnect();
-    }
+	if (connected) {
+		Disconnect();
+	}
 }
 
 bool StdioTransport::Connect() {
-    lock_guard<mutex> lock(io_mutex);
-    
-    if (connected) {
-        MCP_LOG_DEBUG("TRANSPORT", "Already connected to %s", config.command_path);
-        return true;
-    }
-    
-    MCP_LOG_INFO("TRANSPORT", "Connecting to MCP server: %s", config.command_path);
-    
-    if (!StartProcess()) {
-        MCP_LOG_ERROR("TRANSPORT", "Failed to start MCP server process: %s", config.command_path);
-        return false;
-    }
-    
-    connected = true;
-    MCP_LOG_INFO("TRANSPORT", "Successfully connected to MCP server: %s", config.command_path);
-    return true;
+	lock_guard<mutex> lock(io_mutex);
+
+	if (connected) {
+		MCP_LOG_DEBUG("TRANSPORT", "Already connected to %s", config.command_path);
+		return true;
+	}
+
+	MCP_LOG_INFO("TRANSPORT", "Connecting to MCP server: %s", config.command_path);
+
+	if (!StartProcess()) {
+		MCP_LOG_ERROR("TRANSPORT", "Failed to start MCP server process: %s", config.command_path);
+		return false;
+	}
+
+	connected = true;
+	MCP_LOG_INFO("TRANSPORT", "Successfully connected to MCP server: %s", config.command_path);
+	return true;
 }
 
 void StdioTransport::Disconnect() {
-    lock_guard<mutex> lock(io_mutex);
-    
-    if (!connected) {
-        return;
-    }
-    
-    MCP_LOG_INFO("TRANSPORT", "Disconnecting from MCP server: %s", config.command_path);
-    StopProcess();
-    connected = false;
-    MCP_LOG_DEBUG("TRANSPORT", "Disconnected from MCP server: %s", config.command_path);
+	lock_guard<mutex> lock(io_mutex);
+
+	if (!connected) {
+		return;
+	}
+
+	MCP_LOG_INFO("TRANSPORT", "Disconnecting from MCP server: %s", config.command_path);
+	StopProcess();
+	connected = false;
+	MCP_LOG_DEBUG("TRANSPORT", "Disconnected from MCP server: %s", config.command_path);
 }
 
 bool StdioTransport::IsConnected() const {
-    return connected && IsProcessRunning();
+	return connected && IsProcessRunning();
 }
 
 void StdioTransport::Send(const MCPMessage &message) {
-    if (!IsConnected()) {
-        MCP_LOG_ERROR("TRANSPORT", "Attempted to send message when not connected to %s", config.command_path);
-        throw IOException("Transport not connected");
-    }
-    
-    try {
-        string json = message.ToJSON();
-        MCP_LOG_PROTOCOL(true, config.command_path, json);
-        
-        MCP_PERF_TIMER("mcp_send", config.command_path);
-        WriteToProcess(json + "\n");
-    } catch (const std::exception &e) {
-        MCP_LOG_ERROR("TRANSPORT", "Failed to send message to %s: %s", config.command_path, e.what());
-        throw;
-    }
+	if (!IsConnected()) {
+		MCP_LOG_ERROR("TRANSPORT", "Attempted to send message when not connected to %s", config.command_path);
+		throw IOException("Transport not connected");
+	}
+
+	try {
+		string json = message.ToJSON();
+		MCP_LOG_PROTOCOL(true, config.command_path, json);
+
+		MCP_PERF_TIMER("mcp_send", config.command_path);
+		WriteToProcess(json + "\n");
+	} catch (const std::exception &e) {
+		MCP_LOG_ERROR("TRANSPORT", "Failed to send message to %s: %s", config.command_path, e.what());
+		throw;
+	}
 }
 
 MCPMessage StdioTransport::Receive() {
-    if (!IsConnected()) {
-        MCP_LOG_ERROR("TRANSPORT", "Attempted to receive message when not connected to %s", config.command_path);
-        throw IOException("Transport not connected");
-    }
-    
-    try {
-        MCP_PERF_TIMER("mcp_receive", config.command_path);
-        string response = ReadFromProcess();
-        
-        MCP_LOG_PROTOCOL(false, config.command_path, response);
-        
-        return MCPMessage::FromJSON(response);
-    } catch (const std::exception &e) {
-        MCP_LOG_ERROR("TRANSPORT", "Failed to receive message from %s: %s", config.command_path, e.what());
-        throw;
-    }
+	if (!IsConnected()) {
+		MCP_LOG_ERROR("TRANSPORT", "Attempted to receive message when not connected to %s", config.command_path);
+		throw IOException("Transport not connected");
+	}
+
+	try {
+		MCP_PERF_TIMER("mcp_receive", config.command_path);
+		string response = ReadFromProcess();
+
+		MCP_LOG_PROTOCOL(false, config.command_path, response);
+
+		return MCPMessage::FromJSON(response);
+	} catch (const std::exception &e) {
+		MCP_LOG_ERROR("TRANSPORT", "Failed to receive message from %s: %s", config.command_path, e.what());
+		throw;
+	}
 }
 
 MCPMessage StdioTransport::SendAndReceive(const MCPMessage &message) {
-    Send(message);
-    return Receive();
+	Send(message);
+	return Receive();
 }
 
 bool StdioTransport::Ping() {
-    if (!IsConnected()) {
-        return false;
-    }
-    
-    try {
-        auto ping_msg = MCPMessage::CreateRequest(MCPMethods::PING, Value(), Value::BIGINT(1));
-        auto response = SendAndReceive(ping_msg);
-        return response.IsResponse() && !response.IsError();
-    } catch (...) {
-        return false;
-    }
+	if (!IsConnected()) {
+		return false;
+	}
+
+	try {
+		auto ping_msg = MCPMessage::CreateRequest(MCPMethods::PING, Value(), Value::BIGINT(1));
+		auto response = SendAndReceive(ping_msg);
+		return response.IsResponse() && !response.IsError();
+	} catch (...) {
+		return false;
+	}
 }
 
 string StdioTransport::GetConnectionInfo() const {
-    return "stdio://" + config.command_path + " (pid: " + std::to_string(process_pid) + ")";
+	return "stdio://" + config.command_path + " (pid: " + std::to_string(process_pid) + ")";
 }
 
 bool StdioTransport::StartProcess() {
 #ifdef _WIN32
-    // Windows process creation not implemented yet
-    throw NotImplementedException("Stdio transport not supported on Windows yet");
+	// Windows process creation not implemented yet
+	throw NotImplementedException("Stdio transport not supported on Windows yet");
 #else
-    int stdin_pipe[2], stdout_pipe[2], stderr_pipe[2];
-    
-    // Create pipes
-    if (pipe(stdin_pipe) == -1 || pipe(stdout_pipe) == -1 || pipe(stderr_pipe) == -1) {
-        return false;
-    }
-    
-    process_pid = fork();
-    
-    if (process_pid == -1) {
-        // Fork failed
-        close(stdin_pipe[0]); close(stdin_pipe[1]);
-        close(stdout_pipe[0]); close(stdout_pipe[1]);
-        close(stderr_pipe[0]); close(stderr_pipe[1]);
-        return false;
-    }
-    
-    if (process_pid == 0) {
-        // Child process
-        
-        // Redirect stdin, stdout, stderr
-        dup2(stdin_pipe[0], STDIN_FILENO);
-        dup2(stdout_pipe[1], STDOUT_FILENO);
-        dup2(stderr_pipe[1], STDERR_FILENO);
-        
-        // Close pipe ends
-        close(stdin_pipe[0]); close(stdin_pipe[1]);
-        close(stdout_pipe[0]); close(stdout_pipe[1]);
-        close(stderr_pipe[0]); close(stderr_pipe[1]);
-        
-        // Set working directory
-        if (!config.working_directory.empty()) {
-            if (chdir(config.working_directory.c_str()) != 0) {
-                // Could log error but continue anyway
-            }
-        }
-        
-        // Set environment variables
-        for (const auto &env_pair : config.environment) {
-            setenv(env_pair.first.c_str(), env_pair.second.c_str(), 1);
-        }
-        
-        // Prepare arguments
-        vector<char*> args;
-        args.push_back(const_cast<char*>(config.command_path.c_str()));
-        for (const auto &arg : config.arguments) {
-            args.push_back(const_cast<char*>(arg.c_str()));
-        }
-        args.push_back(nullptr);
-        
-        
-        // Execute command
-        execvp(config.command_path.c_str(), args.data());
-        
-        // If we get here, exec failed
-        exit(1);
-    }
-    
-    // Parent process
-    
-    // Close child ends of pipes
-    close(stdin_pipe[0]);
-    close(stdout_pipe[1]);
-    close(stderr_pipe[1]);
-    
-    // Store parent ends
-    stdin_fd = stdin_pipe[1];
-    stdout_fd = stdout_pipe[0];
-    stderr_fd = stderr_pipe[0];
-    
-    // Set non-blocking mode
-    fcntl(stdout_fd, F_SETFL, O_NONBLOCK);
-    fcntl(stderr_fd, F_SETFL, O_NONBLOCK);
-    
-    // Give the child process a moment to start and potentially fail
-    usleep(100000); // 100ms
-    
-    // Check if process is still running (if it failed quickly, it might be dead)
-    if (!IsProcessRunning()) {
-        return false;
-    }
-    
-    return true;
+	int stdin_pipe[2], stdout_pipe[2], stderr_pipe[2];
+
+	// Create pipes
+	if (pipe(stdin_pipe) == -1 || pipe(stdout_pipe) == -1 || pipe(stderr_pipe) == -1) {
+		return false;
+	}
+
+	process_pid = fork();
+
+	if (process_pid == -1) {
+		// Fork failed
+		close(stdin_pipe[0]);
+		close(stdin_pipe[1]);
+		close(stdout_pipe[0]);
+		close(stdout_pipe[1]);
+		close(stderr_pipe[0]);
+		close(stderr_pipe[1]);
+		return false;
+	}
+
+	if (process_pid == 0) {
+		// Child process
+
+		// Redirect stdin, stdout, stderr
+		dup2(stdin_pipe[0], STDIN_FILENO);
+		dup2(stdout_pipe[1], STDOUT_FILENO);
+		dup2(stderr_pipe[1], STDERR_FILENO);
+
+		// Close pipe ends
+		close(stdin_pipe[0]);
+		close(stdin_pipe[1]);
+		close(stdout_pipe[0]);
+		close(stdout_pipe[1]);
+		close(stderr_pipe[0]);
+		close(stderr_pipe[1]);
+
+		// Set working directory
+		if (!config.working_directory.empty()) {
+			if (chdir(config.working_directory.c_str()) != 0) {
+				// Could log error but continue anyway
+			}
+		}
+
+		// Set environment variables
+		for (const auto &env_pair : config.environment) {
+			setenv(env_pair.first.c_str(), env_pair.second.c_str(), 1);
+		}
+
+		// Prepare arguments
+		vector<char *> args;
+		args.push_back(const_cast<char *>(config.command_path.c_str()));
+		for (const auto &arg : config.arguments) {
+			args.push_back(const_cast<char *>(arg.c_str()));
+		}
+		args.push_back(nullptr);
+
+		// Execute command
+		execvp(config.command_path.c_str(), args.data());
+
+		// If we get here, exec failed
+		exit(1);
+	}
+
+	// Parent process
+
+	// Close child ends of pipes
+	close(stdin_pipe[0]);
+	close(stdout_pipe[1]);
+	close(stderr_pipe[1]);
+
+	// Store parent ends
+	stdin_fd = stdin_pipe[1];
+	stdout_fd = stdout_pipe[0];
+	stderr_fd = stderr_pipe[0];
+
+	// Set non-blocking mode
+	fcntl(stdout_fd, F_SETFL, O_NONBLOCK);
+	fcntl(stderr_fd, F_SETFL, O_NONBLOCK);
+
+	// Give the child process a moment to start and potentially fail
+	usleep(100000); // 100ms
+
+	// Check if process is still running (if it failed quickly, it might be dead)
+	if (!IsProcessRunning()) {
+		return false;
+	}
+
+	return true;
 #endif
 }
 
 void StdioTransport::StopProcess() {
 #ifdef _WIN32
-    // Windows process termination not implemented yet
+	// Windows process termination not implemented yet
 #else
-    if (process_pid > 0) {
-        // Close file descriptors
-        if (stdin_fd >= 0) {
-            close(stdin_fd);
-            stdin_fd = -1;
-        }
-        if (stdout_fd >= 0) {
-            close(stdout_fd);
-            stdout_fd = -1;
-        }
-        if (stderr_fd >= 0) {
-            close(stderr_fd);
-            stderr_fd = -1;
-        }
-        
-        // Terminate process
-        kill(process_pid, SIGTERM);
-        
-        // Wait for process to exit
-        int status;
-        waitpid(process_pid, &status, WNOHANG);
-        
-        process_pid = -1;
-    }
+	if (process_pid > 0) {
+		// Close file descriptors
+		if (stdin_fd >= 0) {
+			close(stdin_fd);
+			stdin_fd = -1;
+		}
+		if (stdout_fd >= 0) {
+			close(stdout_fd);
+			stdout_fd = -1;
+		}
+		if (stderr_fd >= 0) {
+			close(stderr_fd);
+			stderr_fd = -1;
+		}
+
+		// Terminate process
+		kill(process_pid, SIGTERM);
+
+		// Wait for process to exit
+		int status;
+		waitpid(process_pid, &status, WNOHANG);
+
+		process_pid = -1;
+	}
 #endif
 }
 
 bool StdioTransport::IsProcessRunning() const {
 #ifdef _WIN32
-    return false; // Windows process checking not implemented yet
+	return false; // Windows process checking not implemented yet
 #else
-    if (process_pid <= 0) {
-        return false;
-    }
-    
-    int status;
-    int result = waitpid(process_pid, &status, WNOHANG);
-    
-    return result == 0; // Process is still running
+	if (process_pid <= 0) {
+		return false;
+	}
+
+	int status;
+	int result = waitpid(process_pid, &status, WNOHANG);
+
+	return result == 0; // Process is still running
 #endif
 }
 
 void StdioTransport::WriteToProcess(const string &data) {
 #ifdef _WIN32
-    throw NotImplementedException("Stdio transport not supported on Windows yet");
+	throw NotImplementedException("Stdio transport not supported on Windows yet");
 #else
-    if (stdin_fd < 0) {
-        throw IOException("Process stdin not available");
-    }
-    
-    ssize_t written = write(stdin_fd, data.c_str(), data.length());
-    if (written != static_cast<ssize_t>(data.length())) {
-        throw IOException("Failed to write to process stdin");
-    }
+	if (stdin_fd < 0) {
+		throw IOException("Process stdin not available");
+	}
+
+	ssize_t written = write(stdin_fd, data.c_str(), data.length());
+	if (written != static_cast<ssize_t>(data.length())) {
+		throw IOException("Failed to write to process stdin");
+	}
 #endif
 }
 
 string StdioTransport::ReadFromProcess() {
 #ifdef _WIN32
-    throw NotImplementedException("Stdio transport not supported on Windows yet");
+	throw NotImplementedException("Stdio transport not supported on Windows yet");
 #else
-    if (stdout_fd < 0) {
-        throw IOException("Process stdout not available");
-    }
-    
-    if (!WaitForData()) {
-        throw IOException("Timeout waiting for process response");
-    }
-    
-    char buffer[4096];
-    string result;
-    
-    while (true) {
-        ssize_t bytes_read = read(stdout_fd, buffer, sizeof(buffer) - 1);
-        
-        if (bytes_read > 0) {
-            buffer[bytes_read] = '\0';
-            result += buffer;
-            
-            // Check if we have a complete line
-            if (result.find('\n') != string::npos) {
-                break;
-            }
-        } else if (bytes_read == 0) {
-            // EOF
-            break;
-        } else {
-            // Error or would block
-            if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                throw IOException("Error reading from process stdout");
-            }
-            break;
-        }
-    }
-    
-    StringUtil::RTrim(result);
-    return result;
+	if (stdout_fd < 0) {
+		throw IOException("Process stdout not available");
+	}
+
+	if (!WaitForData()) {
+		throw IOException("Timeout waiting for process response");
+	}
+
+	char buffer[4096];
+	string result;
+
+	while (true) {
+		ssize_t bytes_read = read(stdout_fd, buffer, sizeof(buffer) - 1);
+
+		if (bytes_read > 0) {
+			buffer[bytes_read] = '\0';
+			result += buffer;
+
+			// Check if we have a complete line
+			if (result.find('\n') != string::npos) {
+				break;
+			}
+		} else if (bytes_read == 0) {
+			// EOF
+			break;
+		} else {
+			// Error or would block
+			if (errno != EAGAIN && errno != EWOULDBLOCK) {
+				throw IOException("Error reading from process stdout");
+			}
+			break;
+		}
+	}
+
+	StringUtil::RTrim(result);
+	return result;
 #endif
 }
 
 bool StdioTransport::WaitForData(int timeout_ms) {
 #ifdef _WIN32
-    return false; // Windows polling not implemented yet
+	return false; // Windows polling not implemented yet
 #else
-    struct pollfd pfd;
-    pfd.fd = stdout_fd;
-    pfd.events = POLLIN;
-    
-    int result = poll(&pfd, 1, timeout_ms);
-    return result > 0 && (pfd.revents & POLLIN);
+	struct pollfd pfd;
+	pfd.fd = stdout_fd;
+	pfd.events = POLLIN;
+
+	int result = poll(&pfd, 1, timeout_ms);
+	return result > 0 && (pfd.revents & POLLIN);
 #endif
 }
 
 // TCP Transport placeholder implementations
-TCPTransport::TCPTransport(const TCPConfig &config) : config(config) {}
+TCPTransport::TCPTransport(const TCPConfig &config) : config(config) {
+}
 
 bool TCPTransport::Connect() {
-    // Placeholder - Phase 2 implementation
-    throw NotImplementedException("TCP transport not implemented yet");
+	// Placeholder - Phase 2 implementation
+	throw NotImplementedException("TCP transport not implemented yet");
 }
 
 void TCPTransport::Disconnect() {
-    connected = false;
+	connected = false;
 }
 
 bool TCPTransport::IsConnected() const {
-    return connected;
+	return connected;
 }
 
 void TCPTransport::Send(const MCPMessage &message) {
-    throw NotImplementedException("TCP transport not implemented yet");
+	throw NotImplementedException("TCP transport not implemented yet");
 }
 
 MCPMessage TCPTransport::Receive() {
-    throw NotImplementedException("TCP transport not implemented yet");
+	throw NotImplementedException("TCP transport not implemented yet");
 }
 
 MCPMessage TCPTransport::SendAndReceive(const MCPMessage &message) {
-    throw NotImplementedException("TCP transport not implemented yet");
+	throw NotImplementedException("TCP transport not implemented yet");
 }
 
 bool TCPTransport::Ping() {
-    return false;
+	return false;
 }
 
 string TCPTransport::GetConnectionInfo() const {
-    return "tcp://" + config.host + ":" + std::to_string(config.port);
+	return "tcp://" + config.host + ":" + std::to_string(config.port);
 }
 
 } // namespace duckdb
