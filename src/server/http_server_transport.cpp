@@ -8,6 +8,26 @@
 
 namespace duckdb {
 
+// Constant-time string comparison to prevent timing attacks on auth tokens.
+// Always compares the full length regardless of where a mismatch occurs.
+static bool ConstantTimeEquals(const string &a, const string &b) {
+	if (a.size() != b.size()) {
+		// Still do a dummy loop to avoid leaking length difference via timing.
+		// XOR against b (or a dummy) to keep constant work.
+		volatile unsigned char dummy = 0;
+		for (size_t i = 0; i < a.size(); i++) {
+			dummy |= static_cast<unsigned char>(a[i]);
+		}
+		(void)dummy;
+		return false;
+	}
+	volatile unsigned char result = 0;
+	for (size_t i = 0; i < a.size(); i++) {
+		result |= static_cast<unsigned char>(a[i]) ^ static_cast<unsigned char>(b[i]);
+	}
+	return result == 0;
+}
+
 // Helper to set up common routes on a server (works with both Server and SSLServer)
 template <typename ServerType>
 void SetupRoutes(ServerType &server, const HTTPServerConfig &config,
@@ -39,7 +59,7 @@ void SetupRoutes(ServerType &server, const HTTPServerConfig &config,
 				return;
 			}
 			string expected = "Bearer " + config.auth_token;
-			if (auth_header != expected) {
+			if (!ConstantTimeEquals(auth_header, expected)) {
 				// Invalid credentials provided
 				res.status = 403;
 				res.set_content(
