@@ -1,6 +1,6 @@
 # name: test/sql/duckdb_mcp.test
 # description: test duckdb_mcp extension
-# group: [duckdb_mcp]
+# group: [sql]
 
 # Test MCP extension can be loaded
 require duckdb_mcp

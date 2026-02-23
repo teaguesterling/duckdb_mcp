@@ -1,6 +1,6 @@
 # name: test/sql/mcp_server_lifecycle.test
 # description: Test MCP server lifecycle (start/status/stop) with memory transport
-# group: [mcp]
+# group: [sql]
 
 require duckdb_mcp
 

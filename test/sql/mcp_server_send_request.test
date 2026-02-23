@@ -1,6 +1,6 @@
 # name: test/sql/mcp_server_send_request.test
 # description: Test MCP server using mcp_server_send_request() function
-# group: [mcp]
+# group: [sql]
 
 require duckdb_mcp
 

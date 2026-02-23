@@ -1,6 +1,6 @@
 # name: test/sql/mcp_nested_ecosystem.test
 # description: Test complete nested MCP ecosystem simulation
-# group: [duckdb_mcp]
+# group: [sql]
 
 # Load the MCP extension
 require duckdb_mcp

@@ -1,6 +1,6 @@
 # name: test/sql/mcp_server_config.test
 # description: Test MCP server configuration options
-# group: [duckdb_mcp]
+# group: [sql]
 
 # Load the MCP extension
 require duckdb_mcp

@@ -1,6 +1,6 @@
 # name: test/sql/mcp_publish_before_start.test
 # description: Test publishing tools and resources before server starts
-# group: [duckdb_mcp]
+# group: [sql]
 
 # Load the MCP extension
 require duckdb_mcp

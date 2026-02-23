@@ -1,6 +1,6 @@
 # name: test/sql/mcp_memory_transport.test
 # description: Comprehensive MCP server tests using memory transport
-# group: [duckdb_mcp]
+# group: [sql]
 
 # Load the MCP extension
 require duckdb_mcp

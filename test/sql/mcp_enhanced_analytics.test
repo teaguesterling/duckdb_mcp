@@ -1,6 +1,6 @@
-# name: test/sql/mcp_enhanced_analytics.test  
+# name: test/sql/mcp_enhanced_analytics.test
 # description: Test Layer 2 enhanced analytics capabilities
-# group: [duckdb_mcp]
+# group: [sql]
 
 # Load the MCP extension
 require duckdb_mcp

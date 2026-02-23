@@ -1,6 +1,6 @@
 # name: test/sql/mcp_error_handling.test
 # description: Test MCP error handling and edge cases
-# group: [duckdb_mcp]
+# group: [sql]
 
 # Load the MCP extension
 require duckdb_mcp
