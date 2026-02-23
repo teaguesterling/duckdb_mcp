@@ -1593,7 +1593,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 
 	// Register MCP storage extension for ATTACH support
 	auto &config = DBConfig::GetConfig(db);
-	config.storage_extensions["mcp"] = MCPStorageExtension::Create();
+	StorageExtension::Register(config, "mcp", MCPStorageExtension::Create());
 
 	// Register MCP configuration options
 	config.AddExtensionOption("allowed_mcp_commands",
