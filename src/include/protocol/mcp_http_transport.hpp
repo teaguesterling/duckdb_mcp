@@ -6,6 +6,8 @@
 
 namespace duckdb {
 
+#ifndef __EMSCRIPTEN__
+
 class DatabaseInstance;
 class HTTPResponse;
 
@@ -46,5 +48,7 @@ private:
 	//! Send HTTP request and return response
 	unique_ptr<HTTPResponse> SendHTTPRequest(const string &json_data);
 };
+
+#endif // !__EMSCRIPTEN__
 
 } // namespace duckdb

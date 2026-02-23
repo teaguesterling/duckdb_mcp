@@ -5,7 +5,9 @@
 #include "protocol/mcp_message.hpp"
 #include "duckdb/main/database.hpp"
 #include <atomic>
+#ifndef __EMSCRIPTEN__
 #include <thread>
+#endif
 #include <unordered_map>
 #include <ctime>
 
@@ -14,7 +16,9 @@ namespace duckdb {
 // Forward declarations
 class ResourceProvider;
 class ToolHandler;
+#ifndef __EMSCRIPTEN__
 class HTTPServerTransport;
+#endif
 
 // MCP Server configuration
 struct MCPServerConfig {
@@ -118,11 +122,13 @@ public:
 	bool UnregisterTool(const string &name);
 	vector<string> ListRegisteredTools() const;
 
+#ifndef __EMSCRIPTEN__
 	// Main loop for stdio mode (blocks until process ends)
 	void RunMainLoop();
 
 	// Main loop for HTTP mode (blocks until Stop() is called)
 	bool RunHTTPLoop();
+#endif
 
 	// Testing support: process a single request directly (no transport)
 	MCPMessage ProcessRequest(const MCPMessage &request);
@@ -146,12 +152,16 @@ private:
 	ResourceRegistry resource_registry;
 	ToolRegistry tool_registry;
 
+#ifndef __EMSCRIPTEN__
 	unique_ptr<std::thread> server_thread;
-	unique_ptr<MCPTransport> test_transport;     // For testing with custom transports
 	unique_ptr<HTTPServerTransport> http_server; // For HTTP/HTTPS transport
+#endif
+	unique_ptr<MCPTransport> test_transport;     // For testing with custom transports
 
 	// Request handling
+#ifndef __EMSCRIPTEN__
 	void ServerLoop();
+#endif
 	void HandleConnection(unique_ptr<MCPTransport> transport);
 	MCPMessage HandleRequest(const MCPMessage &request);
 	void HandleNotification(const MCPMessage &request);

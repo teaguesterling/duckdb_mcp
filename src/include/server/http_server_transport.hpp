@@ -8,6 +8,8 @@
 
 namespace duckdb {
 
+#ifndef __EMSCRIPTEN__
+
 // Forward declaration
 class MCPServer;
 
@@ -67,5 +69,7 @@ private:
 	//! Internal server loop
 	void ServerLoop();
 };
+
+#endif // !__EMSCRIPTEN__
 
 } // namespace duckdb

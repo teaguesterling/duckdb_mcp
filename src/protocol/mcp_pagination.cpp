@@ -1,7 +1,9 @@
 #include "protocol/mcp_pagination.hpp"
 #include "protocol/mcp_message.hpp"
+#ifndef __EMSCRIPTEN__
 #include "protocol/mcp_connection.hpp"
 #include "client/mcp_storage_extension.hpp"
+#endif
 #include "duckdb_mcp_logging.hpp"
 #include "duckdb/common/exception.hpp"
 #include "yyjson.hpp"
@@ -110,6 +112,8 @@ MCPPaginationParams MCPPaginationParams::FromRPCParams(const Value &params) {
 	return result;
 }
 
+#ifndef __EMSCRIPTEN__
+
 // MCPPaginationIterator implementation
 MCPPaginationIterator::MCPPaginationIterator(const string &server, const string &method)
     : server_name(server), method_name(method), is_initialized(false), is_finished(false) {
@@ -211,6 +215,8 @@ string MCPPaginationIterator::GetLastError() const {
 	return "";
 }
 
+#endif // !__EMSCRIPTEN__
+
 // Pagination utilities implementation
 namespace MCPPagination {
 
@@ -281,6 +287,8 @@ bool IsValidCursor(const string &cursor) {
 
 } // namespace MCPPagination
 
+#ifndef __EMSCRIPTEN__
+
 // MCPConnectionWithPagination implementation
 MCPPaginationResult MCPConnectionWithPagination::ListResources(const MCPPaginationParams &params) {
 	auto request = MCPPagination::CreatePaginatedRequest("resources/list", params, Value::BIGINT(1));
@@ -326,5 +334,7 @@ unique_ptr<MCPPaginationIterator> MCPConnectionWithPagination::CreatePromptsIter
 unique_ptr<MCPPaginationIterator> MCPConnectionWithPagination::CreateToolsIterator() {
 	return make_uniq<MCPPaginationIterator>(connection->GetServerName(), "tools/list");
 }
+
+#endif // !__EMSCRIPTEN__
 
 } // namespace duckdb

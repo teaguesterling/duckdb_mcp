@@ -28,6 +28,8 @@ public:
 	virtual string GetConnectionInfo() const = 0;
 };
 
+#ifndef __EMSCRIPTEN__
+
 // Process-based stdio transport implementation
 class StdioTransport : public MCPTransport {
 public:
@@ -102,5 +104,7 @@ private:
 	TCPConfig config;
 	bool connected = false;
 };
+
+#endif // !__EMSCRIPTEN__
 
 } // namespace duckdb

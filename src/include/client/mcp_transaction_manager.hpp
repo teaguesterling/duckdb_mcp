@@ -5,6 +5,8 @@
 
 namespace duckdb {
 
+#ifndef __EMSCRIPTEN__
+
 //! Minimal MCP transaction manager for read-only operations
 //! MCP resources are read-only, so this provides minimal transaction support
 class MCPTransactionManager : public TransactionManager {
@@ -27,5 +29,7 @@ private:
 	vector<unique_ptr<Transaction>> active_transactions;
 	transaction_t next_transaction_id = 1;
 };
+
+#endif // !__EMSCRIPTEN__
 
 } // namespace duckdb

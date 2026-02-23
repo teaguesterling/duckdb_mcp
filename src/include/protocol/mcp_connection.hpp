@@ -7,6 +7,8 @@
 
 namespace duckdb {
 
+#ifndef __EMSCRIPTEN__
+
 // MCP server capabilities
 struct MCPCapabilities {
 	bool supports_resources = false;
@@ -118,5 +120,7 @@ private:
 	// Automatic retry logic
 	bool SendRequestWithRetry(const string &method, const Value &params, MCPMessage &response, int max_retries = 3);
 };
+
+#endif // !__EMSCRIPTEN__
 
 } // namespace duckdb

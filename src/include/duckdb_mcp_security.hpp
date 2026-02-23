@@ -81,6 +81,8 @@ private:
 	vector<string> ParseDelimitedString(const string &input, char delimiter) const;
 };
 
+#ifndef __EMSCRIPTEN__
+
 //! Structured MCP connection parameters
 struct MCPConnectionParams {
 	string command;                    // Command path or URL
@@ -112,5 +114,7 @@ MCPConnectionParams ParseMCPAttachParams(const class AttachInfo &info);
 
 //! Parse .mcp.json configuration file and extract server parameters
 MCPConnectionParams ParseMCPConfigFile(const string &config_file_path, const string &server_name);
+
+#endif // !__EMSCRIPTEN__
 
 } // namespace duckdb

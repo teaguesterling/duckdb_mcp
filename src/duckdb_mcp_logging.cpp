@@ -1,6 +1,8 @@
 #include "duckdb_mcp_logging.hpp"
 #include <iostream>
+#ifndef __EMSCRIPTEN__
 #include <fstream>
+#endif
 #include <iomanip>
 #include <sstream>
 
@@ -19,9 +21,11 @@ MCPLogger::MCPLogger() {
 
 MCPLogger::~MCPLogger() {
 	std::lock_guard<std::mutex> lock(log_mutex);
+#ifndef __EMSCRIPTEN__
 	if (log_file.is_open()) {
 		log_file.close();
 	}
+#endif
 }
 
 void MCPLogger::SetLogLevel(MCPLogLevel level) {
@@ -37,6 +41,13 @@ MCPLogLevel MCPLogger::GetLogLevel() const {
 void MCPLogger::SetLogFile(const string &file_path) {
 	std::lock_guard<std::mutex> lock(log_mutex);
 
+#ifdef __EMSCRIPTEN__
+	// File logging is not available in WASM — use console logging instead
+	if (!file_path.empty()) {
+		std::cerr << "[MCP-WARN] File logging not available in WASM, ignoring log file: " << file_path << std::endl;
+	}
+	return;
+#else
 	// Close existing file if open
 	if (log_file.is_open()) {
 		log_file.close();
@@ -52,6 +63,7 @@ void MCPLogger::SetLogFile(const string &file_path) {
 	} else {
 		log_file_path.clear();
 	}
+#endif
 }
 
 void MCPLogger::EnableConsoleLogging(bool enable) {
@@ -73,11 +85,13 @@ void MCPLogger::LogMessage(MCPLogLevel level, const string &component, const str
 		}
 	}
 
+#ifndef __EMSCRIPTEN__
 	// Write to file if available
 	if (log_file.is_open()) {
 		log_file << formatted_message << std::endl;
 		log_file.flush();
 	}
+#endif
 }
 
 string MCPLogger::FormatLogEntry(MCPLogLevel level, const string &component, const string &message) {

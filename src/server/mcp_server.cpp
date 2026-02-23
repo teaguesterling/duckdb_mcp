@@ -1,11 +1,15 @@
 #include "server/mcp_server.hpp"
 #include "server/resource_providers.hpp"
 #include "server/tool_handlers.hpp"
+#ifndef __EMSCRIPTEN__
 #include "server/stdio_server_transport.hpp"
 #include "server/http_server_transport.hpp"
+#endif
 #include "duckdb_mcp_extension.hpp"
 #include "duckdb_mcp_logging.hpp"
+#ifndef __EMSCRIPTEN__
 #include "protocol/mcp_transport.hpp"
+#endif
 #include "duckdb/common/exception.hpp"
 #include "duckdb_mcp_security.hpp"
 #include "json_utils.hpp"
@@ -117,13 +121,15 @@ bool MCPServer::Start() {
 	start_time = time(nullptr);
 
 	// Handle different transport types
-	if (config.transport == "stdio") {
-		// For background mode, start thread. For foreground mode, caller will use RunMainLoop()
-		server_thread = make_uniq<std::thread>(&MCPServer::ServerLoop, this);
-		return true;
-	} else if (config.transport == "memory") {
+	if (config.transport == "memory") {
 		// Memory transport: no I/O thread needed
 		// Server just stays running and waits for ProcessRequest() calls
+		return true;
+	}
+#ifndef __EMSCRIPTEN__
+	else if (config.transport == "stdio") {
+		// For background mode, start thread. For foreground mode, caller will use RunMainLoop()
+		server_thread = make_uniq<std::thread>(&MCPServer::ServerLoop, this);
 		return true;
 	} else if (config.transport == "http" || config.transport == "https") {
 		// HTTP/HTTPS transport
@@ -159,7 +165,9 @@ bool MCPServer::Start() {
 			return false;
 		}
 		return true;
-	} else {
+	}
+#endif // !__EMSCRIPTEN__
+	else {
 		// Unknown transport
 		running = false;
 		return false;
@@ -198,6 +206,7 @@ void MCPServer::Stop() {
 
 	running = false;
 
+#ifndef __EMSCRIPTEN__
 	// Stop HTTP server if running
 	if (http_server) {
 		http_server->Stop();
@@ -209,6 +218,7 @@ void MCPServer::Stop() {
 	}
 
 	server_thread.reset();
+#endif
 }
 
 string MCPServer::GetStatus() const {
@@ -263,6 +273,8 @@ bool MCPServer::UnregisterTool(const string &name) {
 vector<string> MCPServer::ListRegisteredTools() const {
 	return tool_registry.ListTools();
 }
+
+#ifndef __EMSCRIPTEN__
 
 void MCPServer::RunMainLoop() {
 	if (config.transport != "stdio") {
@@ -339,6 +351,8 @@ void MCPServer::ServerLoop() {
 		}
 	}
 }
+
+#endif // !__EMSCRIPTEN__
 
 MCPMessage MCPServer::ProcessRequest(const MCPMessage &request) {
 	// Public wrapper for HandleRequest - allows direct testing without transport

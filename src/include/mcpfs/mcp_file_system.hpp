@@ -7,6 +7,8 @@
 
 namespace duckdb {
 
+#ifndef __EMSCRIPTEN__
+
 // Forward declarations
 class MCPConnection;
 class MCPTransport;
@@ -91,5 +93,7 @@ private:
 	MCPPath ValidateAndParsePath(const string &path);
 	void EnsureConnectionExists(const string &server_name);
 };
+
+#endif // !__EMSCRIPTEN__
 
 } // namespace duckdb

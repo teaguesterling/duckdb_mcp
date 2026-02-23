@@ -10,6 +10,8 @@
 
 namespace duckdb {
 
+#ifndef __EMSCRIPTEN__
+
 // Forward declarations
 class MCPConnection;
 
@@ -46,5 +48,7 @@ private:
 	mutex registry_mutex;
 	unordered_map<string, shared_ptr<MCPConnection>> connections;
 };
+
+#endif // !__EMSCRIPTEN__
 
 } // namespace duckdb

@@ -1,13 +1,17 @@
 #include "duckdb_mcp_security.hpp"
+#ifndef __EMSCRIPTEN__
 #include "client/mcp_storage_extension.hpp"
+#endif
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/common/file_system.hpp"
 #include "duckdb/common/types/value.hpp"
 #include "duckdb/storage/storage_extension.hpp"
 #include "duckdb/common/serializer/buffered_file_reader.hpp"
 #include "include/json_utils.hpp"
+#ifndef __EMSCRIPTEN__
 #include <fstream>
 #include <sstream>
+#endif
 #ifndef _WIN32
 #include <climits>
 #include <cstdlib>
@@ -174,6 +178,8 @@ vector<string> MCPSecurityConfig::ParseDelimitedString(const string &input, char
 
 	return result;
 }
+
+#ifndef __EMSCRIPTEN__
 
 MCPConnectionParams ParseMCPAttachParams(const AttachInfo &info) {
 	MCPConnectionParams params;
@@ -442,5 +448,7 @@ MCPConnectionParams ParseMCPConfigFile(const string &config_file_path, const str
 
 	return params;
 }
+
+#endif // !__EMSCRIPTEN__
 
 } // namespace duckdb

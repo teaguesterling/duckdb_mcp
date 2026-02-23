@@ -8,9 +8,11 @@
 #include <cstdlib>
 
 using namespace duckdb_yyjson;
+#ifndef __EMSCRIPTEN__
 #include "mcpfs/mcp_file_system.hpp"
 #include "client/mcp_storage_extension.hpp"
 #include "protocol/mcp_connection.hpp"
+#endif
 #include "protocol/mcp_message.hpp"
 #include "protocol/mcp_template.hpp"
 #include "protocol/mcp_pagination.hpp"
@@ -32,6 +34,8 @@ using namespace duckdb_yyjson;
 #endif
 
 namespace duckdb {
+
+#ifndef __EMSCRIPTEN__
 
 // Get MCP resource content
 static void MCPGetResourceFunction(DataChunk &args, ExpressionState &state, Vector &result) {
@@ -455,6 +459,8 @@ static void MCPServerHealthFunction(DataChunk &args, ExpressionState &state, Vec
 	}
 }
 
+#endif // !__EMSCRIPTEN__
+
 // MCPStatus struct type definition
 static LogicalType GetMCPStatusType() {
 	child_list_t<LogicalType> members;
@@ -596,7 +602,19 @@ static Value MCPServerStartImpl(ExpressionState &state, const string &transport,
 		}
 
 		// Handle different transport types
-		if (transport == "stdio") {
+		if (transport == "memory") {
+			// Memory transport is always background mode (for testing with mcp_server_send_request)
+			// The server doesn't do I/O - it just waits for requests via ProcessRequest()
+			server_config.background = true;
+			if (server_manager.StartServer(server_config)) {
+				return CreateMCPStatus(true, true, "MCP server started on memory transport (background mode)",
+				                       transport, bind_address, port, true);
+			} else {
+				return CreateMCPStatus(false, false, "Failed to start MCP server", transport, bind_address, port, true);
+			}
+		}
+#ifndef __EMSCRIPTEN__
+		else if (transport == "stdio") {
 			if (server_config.background) {
 				// Background mode: use server manager (non-blocking, starts thread)
 				if (server_manager.StartServer(server_config)) {
@@ -625,16 +643,6 @@ static Value MCPServerStartImpl(ExpressionState &state, const string &transport,
 					                       server.GetRequestsReceived(), server.GetResponsesSent(),
 					                       server.GetErrorsReturned());
 				}
-			}
-		} else if (transport == "memory") {
-			// Memory transport is always background mode (for testing with mcp_server_send_request)
-			// The server doesn't do I/O - it just waits for requests via ProcessRequest()
-			server_config.background = true;
-			if (server_manager.StartServer(server_config)) {
-				return CreateMCPStatus(true, true, "MCP server started on memory transport (background mode)",
-				                       transport, bind_address, port, true);
-			} else {
-				return CreateMCPStatus(false, false, "Failed to start MCP server", transport, bind_address, port, true);
 			}
 		} else if (transport == "http" || transport == "https") {
 			// HTTP/HTTPS transport
@@ -667,7 +675,14 @@ static Value MCPServerStartImpl(ExpressionState &state, const string &transport,
 					                       server.GetErrorsReturned());
 				}
 			}
-		} else {
+		}
+#endif // !__EMSCRIPTEN__
+		else {
+			// Unknown transport (or non-memory transport in WASM)
+#ifdef __EMSCRIPTEN__
+			return CreateMCPStatus(false, false, "Only 'memory' transport is available in WASM", transport,
+			                       bind_address, port, false);
+#else
 			// For other transports (TCP/WebSocket), use background thread
 			if (server_manager.StartServer(server_config)) {
 				return CreateMCPStatus(true, true, "MCP server started on " + transport, transport, bind_address, port,
@@ -675,6 +690,7 @@ static Value MCPServerStartImpl(ExpressionState &state, const string &transport,
 			} else {
 				return CreateMCPStatus(false, false, "Failed to start MCP server", transport, bind_address, port, true);
 			}
+#endif
 		}
 
 	} catch (const std::exception &e) {
@@ -1300,10 +1316,12 @@ static void MCPGetDiagnosticsFunction(DataChunk &args, ExpressionState &state, V
 }
 
 // Callback functions for MCP configuration settings
+#ifndef __EMSCRIPTEN__
 static void SetAllowedMCPCommands(ClientContext &context, SetScope scope, Value &parameter) {
 	auto &security = MCPSecurityConfig::GetInstance();
 	security.SetAllowedCommands(parameter.ToString());
 }
+#endif
 
 static void SetMCPLogLevel(ClientContext &context, SetScope scope, Value &parameter) {
 	auto level_str = parameter.ToString();
@@ -1325,14 +1343,17 @@ static void SetMCPLogLevel(ClientContext &context, SetScope scope, Value &parame
 	MCPLogger::GetInstance().SetLogLevel(level);
 }
 
+#ifndef __EMSCRIPTEN__
 static void SetMCPLogFile(ClientContext &context, SetScope scope, Value &parameter) {
 	MCPLogger::GetInstance().SetLogFile(parameter.ToString());
 }
+#endif
 
 static void SetMCPConsoleLogging(ClientContext &context, SetScope scope, Value &parameter) {
 	MCPLogger::GetInstance().EnableConsoleLogging(parameter.GetValue<bool>());
 }
 
+#ifndef __EMSCRIPTEN__
 static void SetAllowedMCPUrls(ClientContext &context, SetScope scope, Value &parameter) {
 	auto &security = MCPSecurityConfig::GetInstance();
 	security.SetAllowedUrls(parameter.ToString());
@@ -1348,12 +1369,15 @@ static void SetMCPLockServers(ClientContext &context, SetScope scope, Value &par
 	bool lock = parameter.GetValue<bool>();
 	security.LockServers(lock);
 }
+#endif
 
 static void SetMCPDisableServing(ClientContext &context, SetScope scope, Value &parameter) {
 	auto &security = MCPSecurityConfig::GetInstance();
 	bool disable = parameter.GetValue<bool>();
 	security.SetServingDisabled(disable);
 }
+
+#ifndef __EMSCRIPTEN__
 
 // MCP-Compliant Pagination Functions
 
@@ -1489,6 +1513,8 @@ static void MCPListPromptsWithCursorFunction(DataChunk &args, ExpressionState &s
 	}
 }
 
+#endif // !__EMSCRIPTEN__
+
 // MCP Template Functions
 
 static void MCPRegisterPromptTemplateFunction(DataChunk &args, ExpressionState &state, Vector &result) {
@@ -1619,20 +1645,21 @@ static void MCPRenderPromptTemplateFunction(DataChunk &args, ExpressionState &st
 
 static void LoadInternal(ExtensionLoader &loader) {
 	auto &db = loader.GetDatabaseInstance();
+	auto &config = DBConfig::GetConfig(db);
 
+#ifndef __EMSCRIPTEN__
 	// Register MCPFS file system
 	auto &fs = FileSystem::GetFileSystem(db);
 	fs.RegisterSubSystem(make_uniq<MCPFileSystem>());
 
 	// Register MCP storage extension for ATTACH support
-	auto &config = DBConfig::GetConfig(db);
 #ifdef DUCKDB_V15
 	StorageExtension::Register(config, "mcp", MCPStorageExtension::Create());
 #else
 	config.storage_extensions["mcp"] = MCPStorageExtension::Create();
 #endif
 
-	// Register MCP configuration options
+	// Register native-only MCP configuration options
 	config.AddExtensionOption("allowed_mcp_commands",
 	                          "Colon-delimited list of executable paths allowed for MCP servers (security: executable "
 	                          "paths only, no arguments)",
@@ -1648,45 +1675,38 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                          "Lock MCP server configuration to prevent runtime changes (security feature)",
 	                          LogicalType::BOOLEAN, Value(false), SetMCPLockServers);
 
-	config.AddExtensionOption("mcp_disable_serving", "Disable MCP server functionality entirely (client-only mode)",
-	                          LogicalType::BOOLEAN, Value(false), SetMCPDisableServing);
-
-	// Register MCP logging configuration options
-	config.AddExtensionOption("mcp_log_level", "MCP logging level (trace, debug, info, warn, error, off)",
-	                          LogicalType::VARCHAR, Value("warn"), SetMCPLogLevel);
-
 	config.AddExtensionOption("mcp_log_file", "Path to MCP log file (empty for no file logging)", LogicalType::VARCHAR,
 	                          Value(""), SetMCPLogFile);
 
-	config.AddExtensionOption("mcp_console_logging", "Enable MCP logging to console/stderr", LogicalType::BOOLEAN,
-	                          Value(false), SetMCPConsoleLogging);
-
 	// Initialize default security settings only if not already configured.
-	// The singleton may already be locked from a previous LoadInternal call
-	// (e.g., multiple database instances) or from user SET commands.
-	// Avoid resetting locked state — doing so could widen permissions.
 	auto &security = MCPSecurityConfig::GetInstance();
 	if (!security.AreCommandsLocked()) {
-		// Set defaults for URL and server file (these don't lock).
-		// Do NOT call SetAllowedCommands("") here — the constructor defaults
-		// (empty + unlocked) are sufficient. The user's first explicit
-		// SET allowed_mcp_commands will lock commands.
 		security.SetAllowedUrls("");
 		security.SetServerFile("./.mcp.json");
 		security.LockServers(false);
 	}
+#endif // !__EMSCRIPTEN__
 
-	// Register MCP resource functions
+	// Configuration options available on all platforms (including WASM)
+	config.AddExtensionOption("mcp_disable_serving", "Disable MCP server functionality entirely (client-only mode)",
+	                          LogicalType::BOOLEAN, Value(false), SetMCPDisableServing);
+
+	config.AddExtensionOption("mcp_log_level", "MCP logging level (trace, debug, info, warn, error, off)",
+	                          LogicalType::VARCHAR, Value("warn"), SetMCPLogLevel);
+
+	config.AddExtensionOption("mcp_console_logging", "Enable MCP logging to console/stderr", LogicalType::BOOLEAN,
+	                          Value(false), SetMCPConsoleLogging);
+
+#ifndef __EMSCRIPTEN__
+	// Register client-side MCP functions (require MCPConnectionRegistry)
 	auto get_resource_func = ScalarFunction("mcp_get_resource", {LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                                        LogicalType::JSON(), MCPGetResourceFunction);
 	loader.RegisterFunction(get_resource_func);
 
-	// Create overloaded versions for list_resources (with and without cursor)
 	auto list_resources_func_simple =
 	    ScalarFunction("mcp_list_resources", {LogicalType::VARCHAR}, LogicalType::JSON(), MCPListResourcesFunction);
 	auto list_resources_func_cursor = ScalarFunction("mcp_list_resources", {LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                                                 LogicalType::JSON(), MCPListResourcesWithCursorFunction);
-
 	loader.RegisterFunction(list_resources_func_simple);
 	loader.RegisterFunction(list_resources_func_cursor);
 
@@ -1695,7 +1715,6 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                   LogicalType::JSON(), MCPCallToolFunction);
 	loader.RegisterFunction(call_tool_func);
 
-	// Register MCP tool functions (with and without cursor)
 	auto list_tools_func_simple =
 	    ScalarFunction("mcp_list_tools", {LogicalType::VARCHAR}, LogicalType::JSON(), MCPListToolsFunction);
 	auto list_tools_func_cursor = ScalarFunction("mcp_list_tools", {LogicalType::VARCHAR, LogicalType::VARCHAR},
@@ -1703,7 +1722,6 @@ static void LoadInternal(ExtensionLoader &loader) {
 	loader.RegisterFunction(list_tools_func_simple);
 	loader.RegisterFunction(list_tools_func_cursor);
 
-	// Register MCP prompt functions (with and without cursor)
 	auto list_prompts_func_simple =
 	    ScalarFunction("mcp_list_prompts", {LogicalType::VARCHAR}, LogicalType::JSON(), MCPListPromptsFunction);
 	auto list_prompts_func_cursor = ScalarFunction("mcp_list_prompts", {LogicalType::VARCHAR, LogicalType::VARCHAR},
@@ -1716,7 +1734,6 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                   LogicalType::JSON(), MCPGetPromptFunction);
 	loader.RegisterFunction(get_prompt_func);
 
-	// Register MCP connection management functions
 	auto reconnect_func = ScalarFunction("mcp_reconnect_server", {LogicalType::VARCHAR}, LogicalType::VARCHAR,
 	                                     MCPReconnectServerFunction);
 	loader.RegisterFunction(reconnect_func);
@@ -1724,9 +1741,9 @@ static void LoadInternal(ExtensionLoader &loader) {
 	auto health_func =
 	    ScalarFunction("mcp_server_health", {LogicalType::VARCHAR}, LogicalType::VARCHAR, MCPServerHealthFunction);
 	loader.RegisterFunction(health_func);
+#endif // !__EMSCRIPTEN__
 
-	// Register MCP server functions (multiple overloads for convenience)
-	// All server management functions return MCPStatus struct type
+	// Server-side functions (work via memory transport in WASM)
 	LogicalType mcp_status_type = GetMCPStatusType();
 
 	// mcp_server_start(transport) - simplest form for stdio
