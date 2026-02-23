@@ -711,12 +711,14 @@ void MCPServer::RegisterBuiltinTools() {
 	}
 
 	if (config.enable_describe_tool) {
-		auto describe_tool = make_uniq<DescribeToolHandler>(*config.db_instance);
+		auto describe_tool =
+		    make_uniq<DescribeToolHandler>(*config.db_instance, config.allowed_queries, config.denied_queries);
 		tool_registry.RegisterTool("describe", std::move(describe_tool));
 	}
 
 	if (config.enable_export_tool) {
-		auto export_tool = make_uniq<ExportToolHandler>(*config.db_instance);
+		auto export_tool =
+		    make_uniq<ExportToolHandler>(*config.db_instance, config.allowed_queries, config.denied_queries);
 		tool_registry.RegisterTool("export", std::move(export_tool));
 	}
 
@@ -767,10 +769,12 @@ bool MCPServer::ValidateAuthentication(const MCPMessage &request) const {
 	if (!config.require_auth) {
 		return true;
 	}
-
-	// TODO: Implement proper authentication validation
-	// For now, just check if auth_token is provided in the message
-	return !config.auth_token.empty();
+	// HTTP transport handles auth at the transport layer (in HTTPServerTransport).
+	// For other transports, auth is not yet implemented — fail closed.
+	if (config.transport == "http" || config.transport == "https") {
+		return true; // Auth enforced by HTTPServerTransport
+	}
+	return false; // No auth mechanism for this transport — deny by default
 }
 
 MCPMessage MCPServer::CreateErrorResponse(const Value &id, int code, const string &message) const {

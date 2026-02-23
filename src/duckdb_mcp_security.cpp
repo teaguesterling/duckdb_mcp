@@ -8,6 +8,10 @@
 #include "include/json_utils.hpp"
 #include <fstream>
 #include <sstream>
+#ifndef _WIN32
+#include <climits>
+#include <cstdlib>
+#endif
 
 namespace duckdb {
 
@@ -22,10 +26,10 @@ void MCPSecurityConfig::SetAllowedCommands(const string &commands) {
 	// Parse and set commands
 	allowed_commands = ParseDelimitedString(commands, ':');
 
-	// Lock commands immediately after first setting (security requirement)
-	if (!allowed_commands.empty()) {
-		commands_locked = true;
-	}
+	// Lock commands immediately after being explicitly set (security requirement).
+	// This prevents re-initialization from widening permissions.
+	// An empty list means "deny all" rather than "permissive mode".
+	commands_locked = true;
 }
 
 void MCPSecurityConfig::SetAllowedUrls(const string &urls) {
@@ -68,23 +72,11 @@ bool MCPSecurityConfig::IsCommandAllowed(const string &command_path) const {
 		return false;
 	}
 
-	// Check against allowlist
+	// Check against allowlist - exact string match only.
+	// Allowlist entries should use the same form (absolute or relative) as the command.
 	for (const auto &allowed : allowed_commands) {
-		// Exact match
 		if (command_path == allowed) {
 			return true;
-		}
-
-		// If the allowed path is absolute and command is relative,
-		// check if the command matches the basename of the allowed path
-		if (allowed.length() > 0 && allowed[0] == '/' && (command_path.empty() || command_path[0] != '/')) {
-			auto last_slash = allowed.find_last_of('/');
-			if (last_slash != string::npos) {
-				string basename = allowed.substr(last_slash + 1);
-				if (command_path == basename) {
-					return true;
-				}
-			}
 		}
 	}
 
@@ -192,6 +184,38 @@ MCPConnectionParams ParseMCPAttachParams(const AttachInfo &info) {
 		if (!config_file_value.IsNull()) {
 			params.config_file_path = config_file_value.ToString();
 			params.server_name = info.path; // The ATTACH path becomes the server name
+
+			// Security: Validate that the config file path matches the configured mcp_server_file.
+			// This prevents attackers from using from_config_file to load arbitrary config files.
+			auto &sec = MCPSecurityConfig::GetInstance();
+			string configured_file = sec.GetServerFile();
+#ifndef _WIN32
+			char resolved_requested[PATH_MAX];
+			char resolved_configured[PATH_MAX];
+			// Resolve both paths to canonical form for comparison
+			if (realpath(params.config_file_path.c_str(), resolved_requested) &&
+			    realpath(configured_file.c_str(), resolved_configured)) {
+				if (string(resolved_requested) != string(resolved_configured)) {
+					throw InvalidInputException(
+					    "from_config_file path does not match configured mcp_server_file. "
+					    "Set mcp_server_file to the desired config path first.");
+				}
+			} else {
+				// If either path can't be resolved, compare the raw strings as a fallback
+				if (params.config_file_path != configured_file) {
+					throw InvalidInputException(
+					    "from_config_file path does not match configured mcp_server_file. "
+					    "Set mcp_server_file to the desired config path first.");
+				}
+			}
+#else
+			// On Windows, fall back to simple string comparison
+			if (params.config_file_path != configured_file) {
+				throw InvalidInputException(
+				    "from_config_file path does not match configured mcp_server_file. "
+				    "Set mcp_server_file to the desired config path first.");
+			}
+#endif
 
 			// Load parameters from config file
 			auto config_params = ParseMCPConfigFile(params.config_file_path, params.server_name);
