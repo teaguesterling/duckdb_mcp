@@ -556,10 +556,38 @@ static Value MCPServerStartImpl(ExpressionState &state, const string &transport,
 					server_config.background = yyjson_get_bool(val);
 				}
 
+				// Parse authentication configuration
+				val = yyjson_obj_get(root, "require_auth");
+				if (val && yyjson_is_bool(val)) {
+					server_config.require_auth = yyjson_get_bool(val);
+				}
+
 				// Parse HTTP-specific configuration
 				server_config.auth_token = JSONUtils::GetString(root, "auth_token", "");
 				server_config.ssl_cert_path = JSONUtils::GetString(root, "ssl_cert_path", "");
 				server_config.ssl_key_path = JSONUtils::GetString(root, "ssl_key_path", "");
+
+				// Parse query allowlist/denylist (JSON arrays of strings)
+				val = yyjson_obj_get(root, "allowed_queries");
+				if (val && yyjson_is_arr(val)) {
+					size_t arr_idx, arr_max;
+					yyjson_val *arr_val;
+					yyjson_arr_foreach(val, arr_idx, arr_max, arr_val) {
+						if (yyjson_is_str(arr_val)) {
+							server_config.allowed_queries.push_back(yyjson_get_str(arr_val));
+						}
+					}
+				}
+				val = yyjson_obj_get(root, "denied_queries");
+				if (val && yyjson_is_arr(val)) {
+					size_t arr_idx, arr_max;
+					yyjson_val *arr_val;
+					yyjson_arr_foreach(val, arr_idx, arr_max, arr_val) {
+						if (yyjson_is_str(arr_val)) {
+							server_config.denied_queries.push_back(yyjson_get_str(arr_val));
+						}
+					}
+				}
 
 				// Parse default result format
 				server_config.default_result_format = JSONUtils::GetString(root, "default_result_format", "json");
@@ -1633,13 +1661,20 @@ static void LoadInternal(ExtensionLoader &loader) {
 	config.AddExtensionOption("mcp_console_logging", "Enable MCP logging to console/stderr", LogicalType::BOOLEAN,
 	                          Value(false), SetMCPConsoleLogging);
 
-	// Initialize default security settings
+	// Initialize default security settings only if not already configured.
+	// The singleton may already be locked from a previous LoadInternal call
+	// (e.g., multiple database instances) or from user SET commands.
+	// Avoid resetting locked state — doing so could widen permissions.
 	auto &security = MCPSecurityConfig::GetInstance();
-	// Set secure defaults - no commands or URLs allowed initially
-	security.SetAllowedCommands("");
-	security.SetAllowedUrls("");
-	security.SetServerFile("./.mcp.json");
-	security.LockServers(false);
+	if (!security.AreCommandsLocked()) {
+		// Set defaults for URL and server file (these don't lock).
+		// Do NOT call SetAllowedCommands("") here — the constructor defaults
+		// (empty + unlocked) are sufficient. The user's first explicit
+		// SET allowed_mcp_commands will lock commands.
+		security.SetAllowedUrls("");
+		security.SetServerFile("./.mcp.json");
+		security.LockServers(false);
+	}
 
 	// Register MCP resource functions
 	auto get_resource_func = ScalarFunction("mcp_get_resource", {LogicalType::VARCHAR, LogicalType::VARCHAR},

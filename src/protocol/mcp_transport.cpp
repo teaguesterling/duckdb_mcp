@@ -10,6 +10,9 @@
 #include <signal.h>
 #include <fcntl.h>
 #include <poll.h>
+#include <climits>
+#include <cstring>
+#include <sys/stat.h>
 #endif
 
 namespace duckdb {
@@ -127,11 +130,30 @@ bool StdioTransport::StartProcess() {
 	throw NotImplementedException("Stdio transport not supported on Windows yet");
 #else
 	int stdin_pipe[2], stdout_pipe[2], stderr_pipe[2];
+	bool stdin_ok = false, stdout_ok = false;
 
-	// Create pipes
-	if (pipe(stdin_pipe) == -1 || pipe(stdout_pipe) == -1 || pipe(stderr_pipe) == -1) {
+	// Create pipes with O_CLOEXEC to prevent FD leaks to child processes
+	if (pipe2(stdin_pipe, O_CLOEXEC) == -1) {
 		return false;
 	}
+	stdin_ok = true;
+
+	if (pipe2(stdout_pipe, O_CLOEXEC) == -1) {
+		close(stdin_pipe[0]);
+		close(stdin_pipe[1]);
+		return false;
+	}
+	stdout_ok = true;
+
+	if (pipe2(stderr_pipe, O_CLOEXEC) == -1) {
+		close(stdin_pipe[0]);
+		close(stdin_pipe[1]);
+		close(stdout_pipe[0]);
+		close(stdout_pipe[1]);
+		return false;
+	}
+	(void)stdin_ok;
+	(void)stdout_ok;
 
 	process_pid = fork();
 
@@ -154,25 +176,66 @@ bool StdioTransport::StartProcess() {
 		dup2(stdout_pipe[1], STDOUT_FILENO);
 		dup2(stderr_pipe[1], STDERR_FILENO);
 
-		// Close pipe ends
-		close(stdin_pipe[0]);
-		close(stdin_pipe[1]);
-		close(stdout_pipe[0]);
-		close(stdout_pipe[1]);
-		close(stderr_pipe[0]);
-		close(stderr_pipe[1]);
+		// Close all FDs > STDERR to prevent leaking parent's file descriptors
+		// (pipe2 O_CLOEXEC handles the pipe FDs, but other inherited FDs need closing)
+		long max_fd = sysconf(_SC_OPEN_MAX);
+		if (max_fd < 0) {
+			max_fd = 1024; // Reasonable default
+		}
+		for (int fd = STDERR_FILENO + 1; fd < max_fd; fd++) {
+			close(fd);
+		}
 
 		// Set working directory
 		if (!config.working_directory.empty()) {
 			if (chdir(config.working_directory.c_str()) != 0) {
-				// Could log error but continue anyway
+				_exit(127);
 			}
 		}
 
-		// Set environment variables
-		for (const auto &env_pair : config.environment) {
-			setenv(env_pair.first.c_str(), env_pair.second.c_str(), 1);
+		// Build a sanitized environment instead of inheriting the parent's.
+		// Only pass through a minimal safe set of variables plus user-configured ones.
+		vector<string> env_strings;
+
+		// Safe passthrough variables from parent environment
+		static const char *safe_vars[] = {"HOME", "USER", "LANG", "TZ", "PATH", "TERM", "SHELL", nullptr};
+		for (const char **var = safe_vars; *var != nullptr; var++) {
+			const char *val = getenv(*var);
+			if (val) {
+				env_strings.push_back(string(*var) + "=" + val);
+			}
 		}
+
+		// Dangerous environment variable keys that must be blocked
+		// (even if user tries to set them via config.environment)
+		static const char *blocked_keys[] = {"LD_PRELOAD",
+		                                     "LD_LIBRARY_PATH",
+		                                     "LD_AUDIT",
+		                                     "DYLD_INSERT_LIBRARIES",
+		                                     "DYLD_LIBRARY_PATH",
+		                                     "DYLD_FRAMEWORK_PATH",
+		                                     nullptr};
+
+		// Add user-supplied environment variables (from config), blocking dangerous ones
+		for (const auto &env_pair : config.environment) {
+			bool is_blocked = false;
+			for (const char **bk = blocked_keys; *bk != nullptr; bk++) {
+				if (env_pair.first == *bk) {
+					is_blocked = true;
+					break;
+				}
+			}
+			if (!is_blocked) {
+				env_strings.push_back(env_pair.first + "=" + env_pair.second);
+			}
+		}
+
+		// Build envp array for execve
+		vector<char *> envp;
+		for (auto &s : env_strings) {
+			envp.push_back(const_cast<char *>(s.c_str()));
+		}
+		envp.push_back(nullptr);
 
 		// Prepare arguments
 		vector<char *> args;
@@ -182,11 +245,41 @@ bool StdioTransport::StartProcess() {
 		}
 		args.push_back(nullptr);
 
-		// Execute command
-		execvp(config.command_path.c_str(), args.data());
+		// Resolve command path: execve does not search PATH, so we must resolve it manually
+		string resolved_command = config.command_path;
+		if (!config.command_path.empty() && config.command_path[0] != '/') {
+			// Search PATH for the command
+			const char *path_env = getenv("PATH");
+			if (path_env) {
+				string path_str(path_env);
+				size_t start = 0;
+				bool found = false;
+				while (start < path_str.size()) {
+					size_t end = path_str.find(':', start);
+					if (end == string::npos) {
+						end = path_str.size();
+					}
+					string dir = path_str.substr(start, end - start);
+					string candidate = dir + "/" + config.command_path;
+					struct stat st;
+					if (stat(candidate.c_str(), &st) == 0 && (st.st_mode & S_IXUSR)) {
+						resolved_command = candidate;
+						found = true;
+						break;
+					}
+					start = end + 1;
+				}
+				if (!found) {
+					_exit(127); // Command not found
+				}
+			}
+		}
+
+		// Execute command with sanitized environment
+		execve(resolved_command.c_str(), args.data(), envp.data());
 
 		// If we get here, exec failed
-		exit(1);
+		_exit(127);
 	}
 
 	// Parent process
@@ -236,12 +329,20 @@ void StdioTransport::StopProcess() {
 			stderr_fd = -1;
 		}
 
-		// Terminate process
+		// Send SIGTERM for graceful shutdown
 		kill(process_pid, SIGTERM);
 
-		// Wait for process to exit
+		// Wait briefly for process to exit gracefully
+		usleep(100000); // 100ms
+
 		int status;
-		waitpid(process_pid, &status, WNOHANG);
+		int wait_result = waitpid(process_pid, &status, WNOHANG);
+		if (wait_result == 0) {
+			// Process still running after SIGTERM - force kill
+			kill(process_pid, SIGKILL);
+			// Blocking wait to reap the zombie
+			waitpid(process_pid, &status, 0);
+		}
 
 		process_pid = -1;
 	}

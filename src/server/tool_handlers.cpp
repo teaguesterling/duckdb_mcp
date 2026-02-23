@@ -1,10 +1,53 @@
 #include "server/tool_handlers.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/string_util.hpp"
+#include "duckdb/parser/keyword_helper.hpp"
 #include "json_utils.hpp"
 #include "result_formatter.hpp"
 
 namespace duckdb {
+
+// Escape a string for safe inclusion in a JSON string value.
+// Handles quotes, backslashes, and control characters.
+static string EscapeJsonString(const string &input) {
+	string result;
+	result.reserve(input.size());
+	for (char c : input) {
+		switch (c) {
+		case '"':
+			result += "\\\"";
+			break;
+		case '\\':
+			result += "\\\\";
+			break;
+		case '\n':
+			result += "\\n";
+			break;
+		case '\r':
+			result += "\\r";
+			break;
+		case '\t':
+			result += "\\t";
+			break;
+		default:
+			if (static_cast<unsigned char>(c) < 0x20) {
+				// Control character - encode as \u00XX
+				char buf[8];
+				snprintf(buf, sizeof(buf), "\\u%04x", static_cast<unsigned char>(c));
+				result += buf;
+			} else {
+				result += c;
+			}
+			break;
+		}
+	}
+	return result;
+}
+
+// Escape single quotes in a string for SQL string literals
+static string EscapeSQLString(const string &input) {
+	return StringUtil::Replace(input, "'", "''");
+}
 
 //===--------------------------------------------------------------------===//
 // ToolInputSchema Implementation
@@ -206,7 +249,9 @@ string QueryToolHandler::FormatResult(QueryResult &result, const string &format)
 // DescribeToolHandler Implementation
 //===--------------------------------------------------------------------===//
 
-DescribeToolHandler::DescribeToolHandler(DatabaseInstance &db) : db_instance(db) {
+DescribeToolHandler::DescribeToolHandler(DatabaseInstance &db, const vector<string> &allowed_queries,
+                                         const vector<string> &denied_queries)
+    : db_instance(db), allowed_queries(allowed_queries), denied_queries(denied_queries) {
 }
 
 CallToolResult DescribeToolHandler::Execute(const Value &arguments) {
@@ -247,7 +292,9 @@ ToolInputSchema DescribeToolHandler::GetInputSchema() const {
 }
 
 Value DescribeToolHandler::DescribeTable(const string &table_name) const {
-	string describe_query = "DESCRIBE " + table_name;
+	// Quote table name as an identifier to prevent SQL injection
+	string quoted_table = KeywordHelper::WriteOptionallyQuoted(table_name);
+	string describe_query = "DESCRIBE " + quoted_table;
 	Connection conn(db_instance);
 	auto result = conn.Query(describe_query);
 
@@ -256,7 +303,8 @@ Value DescribeToolHandler::DescribeTable(const string &table_name) const {
 	}
 
 	// Build JSON directly to avoid STRUCT type issues
-	string json = "{\"table\":\"" + table_name + "\",\"columns\":[";
+	// Escape user-supplied table name for safe JSON inclusion
+	string json = "{\"table\":\"" + EscapeJsonString(table_name) + "\",\"columns\":[";
 	bool first_col = true;
 
 	while (auto chunk = result->Fetch()) {
@@ -267,14 +315,17 @@ Value DescribeToolHandler::DescribeTable(const string &table_name) const {
 			first_col = false;
 
 			json += "{";
-			json += "\"name\":\"" + chunk->GetValue(0, i).ToString() + "\",";
-			json += "\"type\":\"" + chunk->GetValue(1, i).ToString() + "\",";
-			json += "\"null\":\"" + chunk->GetValue(2, i).ToString() + "\",";
-			json += "\"key\":\"" + chunk->GetValue(3, i).ToString() + "\",";
+			json += "\"name\":\"" + EscapeJsonString(chunk->GetValue(0, i).ToString()) + "\",";
+			json += "\"type\":\"" + EscapeJsonString(chunk->GetValue(1, i).ToString()) + "\",";
+			json += "\"null\":\"" + EscapeJsonString(chunk->GetValue(2, i).ToString()) + "\",";
+			json += "\"key\":\"" + EscapeJsonString(chunk->GetValue(3, i).ToString()) + "\",";
 			json += "\"default\":" +
-			        (chunk->GetValue(4, i).IsNull() ? "null" : "\"" + chunk->GetValue(4, i).ToString() + "\"") + ",";
+			        (chunk->GetValue(4, i).IsNull() ? "null"
+			                                        : "\"" + EscapeJsonString(chunk->GetValue(4, i).ToString()) + "\"") +
+			        ",";
 			json += "\"extra\":" +
-			        (chunk->GetValue(5, i).IsNull() ? "null" : "\"" + chunk->GetValue(5, i).ToString() + "\"");
+			        (chunk->GetValue(5, i).IsNull() ? "null"
+			                                        : "\"" + EscapeJsonString(chunk->GetValue(5, i).ToString()) + "\"");
 			json += "}";
 		}
 	}
@@ -284,6 +335,11 @@ Value DescribeToolHandler::DescribeTable(const string &table_name) const {
 }
 
 Value DescribeToolHandler::DescribeQuery(const string &query) const {
+	// Security check: validate query against allowlist/denylist
+	if (!IsQueryAllowed(query)) {
+		throw InvalidInputException("Query not allowed by security policy");
+	}
+
 	// Use DESCRIBE with subquery syntax - wrap query in parentheses
 	string describe_query = "DESCRIBE (" + query + ")";
 	Connection conn(db_instance);
@@ -294,7 +350,8 @@ Value DescribeToolHandler::DescribeQuery(const string &query) const {
 	}
 
 	// Build JSON directly to avoid STRUCT type issues
-	string json = "{\"query\":\"" + query + "\",\"columns\":[";
+	// Escape user-supplied query for safe JSON inclusion
+	string json = "{\"query\":\"" + EscapeJsonString(query) + "\",\"columns\":[";
 	bool first_col = true;
 
 	while (auto chunk = describe_result->Fetch()) {
@@ -305,8 +362,8 @@ Value DescribeToolHandler::DescribeQuery(const string &query) const {
 			first_col = false;
 
 			json += "{";
-			json += "\"name\":\"" + chunk->GetValue(0, i).ToString() + "\",";
-			json += "\"type\":\"" + chunk->GetValue(1, i).ToString() + "\"";
+			json += "\"name\":\"" + EscapeJsonString(chunk->GetValue(0, i).ToString()) + "\",";
+			json += "\"type\":\"" + EscapeJsonString(chunk->GetValue(1, i).ToString()) + "\"";
 			json += "}";
 		}
 	}
@@ -315,11 +372,36 @@ Value DescribeToolHandler::DescribeQuery(const string &query) const {
 	return Value(json);
 }
 
+bool DescribeToolHandler::IsQueryAllowed(const string &query) const {
+	string lower_query = StringUtil::Lower(query);
+
+	// Check denylist first
+	for (const auto &denied : denied_queries) {
+		if (lower_query.find(StringUtil::Lower(denied)) != string::npos) {
+			return false;
+		}
+	}
+
+	// Check allowlist if it exists
+	if (!allowed_queries.empty()) {
+		for (const auto &allowed : allowed_queries) {
+			if (lower_query.find(StringUtil::Lower(allowed)) != string::npos) {
+				return true;
+			}
+		}
+		return false; // Not in allowlist
+	}
+
+	return true; // No restrictions
+}
+
 //===--------------------------------------------------------------------===//
 // ExportToolHandler Implementation
 //===--------------------------------------------------------------------===//
 
-ExportToolHandler::ExportToolHandler(DatabaseInstance &db) : db_instance(db) {
+ExportToolHandler::ExportToolHandler(DatabaseInstance &db, const vector<string> &allowed_queries,
+                                     const vector<string> &denied_queries)
+    : db_instance(db), allowed_queries(allowed_queries), denied_queries(denied_queries) {
 }
 
 CallToolResult ExportToolHandler::Execute(const Value &arguments) {
@@ -357,6 +439,11 @@ CallToolResult ExportToolHandler::Execute(const Value &arguments) {
 				return CallToolResult::Error("Unsupported format '" + format +
 				                             "' for file export. Supported formats: json, csv, parquet");
 			}
+		}
+
+		// Security check
+		if (!IsQueryAllowed(query)) {
+			return CallToolResult::Error("Query not allowed by security policy");
 		}
 
 		// Execute query
@@ -398,14 +485,17 @@ ToolInputSchema ExportToolHandler::GetInputSchema() const {
 bool ExportToolHandler::ExportToFile(QueryResult &result, const string &format, const string &output_path,
                                      const string &query) const {
 	try {
+		// Escape single quotes in the output path to prevent SQL injection
+		string safe_path = EscapeSQLString(output_path);
+
 		// Use DuckDB's COPY TO functionality
 		string copy_query;
 		if (format == "csv") {
-			copy_query = "COPY (" + query + ") TO '" + output_path + "' (FORMAT CSV, HEADER)";
+			copy_query = "COPY (" + query + ") TO '" + safe_path + "' (FORMAT CSV, HEADER)";
 		} else if (format == "json") {
-			copy_query = "COPY (" + query + ") TO '" + output_path + "' (FORMAT JSON)";
+			copy_query = "COPY (" + query + ") TO '" + safe_path + "' (FORMAT JSON)";
 		} else if (format == "parquet") {
-			copy_query = "COPY (" + query + ") TO '" + output_path + "' (FORMAT PARQUET)";
+			copy_query = "COPY (" + query + ") TO '" + safe_path + "' (FORMAT PARQUET)";
 		} else {
 			return false; // Unsupported format
 		}
@@ -418,6 +508,29 @@ bool ExportToolHandler::ExportToFile(QueryResult &result, const string &format, 
 	} catch (const std::exception &e) {
 		return false;
 	}
+}
+
+bool ExportToolHandler::IsQueryAllowed(const string &query) const {
+	string lower_query = StringUtil::Lower(query);
+
+	// Check denylist first
+	for (const auto &denied : denied_queries) {
+		if (lower_query.find(StringUtil::Lower(denied)) != string::npos) {
+			return false;
+		}
+	}
+
+	// Check allowlist if it exists
+	if (!allowed_queries.empty()) {
+		for (const auto &allowed : allowed_queries) {
+			if (lower_query.find(StringUtil::Lower(allowed)) != string::npos) {
+				return true;
+			}
+		}
+		return false; // Not in allowlist
+	}
+
+	return true; // No restrictions
 }
 
 string ExportToolHandler::FormatData(QueryResult &result, const string &format) const {
@@ -557,9 +670,47 @@ string SQLToolHandler::SubstituteParameters(const string &template_sql, const JS
 				}
 			}
 			sql_value = "'" + escaped + "'";
+		} else if (param_type == "integer" || param_type == "number") {
+			// Validate that the value is actually numeric before interpolation.
+			// SECURITY: Use the pos output parameter to verify the ENTIRE string was consumed.
+			// std::stod("1 OR 1=1") would silently parse "1" and ignore the injection payload.
+			try {
+				size_t pos = 0;
+				if (param_type == "integer") {
+					long long int_val = std::stoll(value, &pos);
+					if (pos != value.size()) {
+						throw std::invalid_argument("trailing characters");
+					}
+					sql_value = std::to_string(int_val);
+				} else {
+					double numeric_val = std::stod(value, &pos);
+					if (pos != value.size()) {
+						throw std::invalid_argument("trailing characters");
+					}
+					sql_value = std::to_string(numeric_val);
+				}
+			} catch (const std::exception &) {
+				throw InvalidInputException("Parameter '" + key + "' must be a valid " + param_type +
+				                            ", got: " + value);
+			}
+		} else if (param_type == "boolean") {
+			// Validate boolean values strictly
+			if (value == "true" || value == "false") {
+				sql_value = value;
+			} else {
+				throw InvalidInputException("Parameter '" + key + "' must be 'true' or 'false', got: " + value);
+			}
 		} else {
-			// For numeric/boolean types, use value as-is
-			sql_value = value;
+			// Unknown type - treat as string for safety
+			string escaped;
+			for (char c : value) {
+				if (c == '\'') {
+					escaped += "''";
+				} else {
+					escaped += c;
+				}
+			}
+			sql_value = "'" + escaped + "'";
 		}
 
 		// Parameter substitution - replace $key with properly formatted value
@@ -609,11 +760,15 @@ CallToolResult ListTablesToolHandler::Execute(const Value &arguments) {
             WHERE NOT internal
         )";
 
+		// Escape filter values to prevent SQL injection
+		string safe_schema = EscapeSQLString(schema_filter);
+		string safe_database = EscapeSQLString(database_filter);
+
 		if (!schema_filter.empty()) {
-			tables_query += " AND schema_name = '" + schema_filter + "'";
+			tables_query += " AND schema_name = '" + safe_schema + "'";
 		}
 		if (!database_filter.empty()) {
-			tables_query += " AND database_name = '" + database_filter + "'";
+			tables_query += " AND database_name = '" + safe_database + "'";
 		}
 
 		string full_query = tables_query;
@@ -633,10 +788,10 @@ CallToolResult ListTablesToolHandler::Execute(const Value &arguments) {
             )";
 
 			if (!schema_filter.empty()) {
-				views_query += " AND schema_name = '" + schema_filter + "'";
+				views_query += " AND schema_name = '" + safe_schema + "'";
 			}
 			if (!database_filter.empty()) {
-				views_query += " AND database_name = '" + database_filter + "'";
+				views_query += " AND database_name = '" + safe_database + "'";
 			}
 
 			full_query = "(" + tables_query + ") UNION ALL (" + views_query + ")";

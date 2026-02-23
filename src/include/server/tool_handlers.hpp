@@ -83,7 +83,8 @@ private:
 // Describe tool handler - describes tables and queries
 class DescribeToolHandler : public ToolHandler {
 public:
-	DescribeToolHandler(DatabaseInstance &db);
+	DescribeToolHandler(DatabaseInstance &db, const vector<string> &allowed_queries = {},
+	                    const vector<string> &denied_queries = {});
 
 	CallToolResult Execute(const Value &arguments) override;
 	string GetName() const override {
@@ -96,15 +97,19 @@ public:
 
 private:
 	DatabaseInstance &db_instance;
+	vector<string> allowed_queries;
+	vector<string> denied_queries;
 
 	Value DescribeTable(const string &table_name) const;
 	Value DescribeQuery(const string &query) const;
+	bool IsQueryAllowed(const string &query) const;
 };
 
 // Export tool handler - exports query results to various formats
 class ExportToolHandler : public ToolHandler {
 public:
-	ExportToolHandler(DatabaseInstance &db);
+	ExportToolHandler(DatabaseInstance &db, const vector<string> &allowed_queries = {},
+	                  const vector<string> &denied_queries = {});
 
 	CallToolResult Execute(const Value &arguments) override;
 	string GetName() const override {
@@ -118,9 +123,12 @@ public:
 
 private:
 	DatabaseInstance &db_instance;
+	vector<string> allowed_queries;
+	vector<string> denied_queries;
 
 	bool ExportToFile(QueryResult &result, const string &format, const string &output_path, const string &query) const;
 	string FormatData(QueryResult &result, const string &format) const;
+	bool IsQueryAllowed(const string &query) const;
 };
 
 // SQL tool handler - executes predefined SQL templates with parameters

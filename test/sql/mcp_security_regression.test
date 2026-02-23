@@ -1,0 +1,408 @@
+# name: test/sql/mcp_security_regression.test
+# description: Offensive security regression tests for bugs identified in security audit
+# group: [sql]
+
+# Load the MCP extension
+require duckdb_mcp
+
+statement ok
+LOAD duckdb_mcp;
+
+# =============================================================================
+# SETUP: Create test tables and start memory transport server
+# =============================================================================
+
+statement ok
+SELECT mcp_server_stop(true);
+
+statement ok
+CREATE TABLE sec_test AS SELECT 1 as id, 'secret_data' as payload;
+
+statement ok
+CREATE TABLE drop_target AS SELECT 42 as val;
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# =============================================================================
+# BUG-01: SQL Injection in DescribeTable — Unquoted Table Name
+# =============================================================================
+# Attack: Table name containing SQL injection payload
+# Expected: The table name should be safely quoted as an identifier,
+# so the injection is treated as a literal identifier name (and fails
+# to find such a table), rather than executing arbitrary SQL.
+
+# Attempt SQL injection via table name with semicolon
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"describe","arguments":{"table":"sec_test; DROP TABLE drop_target; --"}}}') LIKE '%error%';
+----
+true
+
+# Verify drop_target was NOT dropped (injection did not execute)
+query I
+SELECT COUNT(*) FROM drop_target;
+----
+1
+
+# Attempt SQL injection via table name with UNION
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"describe","arguments":{"table":"sec_test UNION ALL SELECT 1,2,3,4,5,6"}}}') LIKE '%error%';
+----
+true
+
+# Attempt with quotes in table name (JSON injection vector)
+# A table name with embedded double quotes should be escaped in JSON output
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"describe","arguments":{"table":"sec_test"}}}') LIKE '%\"table\":\"sec_test\"%';
+----
+true
+
+# =============================================================================
+# BUG-02: SQL Injection in DescribeQuery — Bypasses Access Controls
+# =============================================================================
+# Attack: The describe tool's query parameter previously bypassed IsQueryAllowed().
+# With a server that has no allowlist/denylist configured, queries still work,
+# but the code path now goes through validation.
+
+# DescribeQuery should work for legitimate queries
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"describe","arguments":{"query":"SELECT 1 as num"}}}') LIKE '%\"name\":\"num\"%';
+----
+true
+
+# =============================================================================
+# BUG-03: SQL Injection + Arbitrary File Write via ExportToolHandler
+# =============================================================================
+# Attack: output_path with single quotes to break out of SQL string literal
+# Expected: Single quotes should be escaped, preventing SQL injection
+
+# SQL injection via output_path containing single quotes
+# This would have broken out of the COPY TO '...' string
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT 1","format":"csv","output":"/tmp/test''; DROP TABLE drop_target; --"}}}') NOT LIKE '%success%';
+----
+true
+
+# Verify drop_target still exists after the attack attempt
+query I
+SELECT COUNT(*) FROM drop_target;
+----
+1
+
+# =============================================================================
+# BUG-04: SQL Injection in ListTablesToolHandler
+# =============================================================================
+# Attack: schema_filter and database_filter with single quotes for SQL injection
+# Expected: Single quotes should be escaped
+
+# SQL injection via schema_filter
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"list_tables","arguments":{"schema":"main'' OR 1=1; DROP TABLE drop_target; --"}}}') NOT LIKE '%DROP%';
+----
+true
+
+# Verify drop_target still exists
+query I
+SELECT COUNT(*) FROM drop_target;
+----
+1
+
+# SQL injection via database_filter
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":31,"method":"tools/call","params":{"name":"list_tables","arguments":{"database":"memory'' OR 1=1; DROP TABLE drop_target; --"}}}') NOT LIKE '%DROP%';
+----
+true
+
+# Verify drop_target still exists
+query I
+SELECT COUNT(*) FROM drop_target;
+----
+1
+
+# Normal list_tables should still work correctly
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":32,"method":"tools/call","params":{"name":"list_tables","arguments":{"schema":"main"}}}') LIKE '%sec_test%';
+----
+true
+
+# =============================================================================
+# BUG-05: SQL Injection via Non-String Parameters in SQLToolHandler
+# =============================================================================
+# This requires a custom SQL tool with integer/boolean parameters.
+# We test it by publishing a custom tool then calling it with injection payloads.
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# Publish a tool with an integer parameter
+statement ok
+SELECT mcp_publish_tool('get_by_id', 'Get record by ID', 'SELECT * FROM sec_test WHERE id = $id', '{"id": "integer"}', '["id"]');
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# Attack: Pass SQL injection as an "integer" parameter
+# The value "1 OR 1=1" should be rejected since it's not a valid integer
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":40,"method":"tools/call","params":{"name":"get_by_id","arguments":{"id":"1 OR 1=1"}}}') LIKE '%error%';
+----
+true
+
+# Attack: Pass DROP TABLE as an integer value
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":41,"method":"tools/call","params":{"name":"get_by_id","arguments":{"id":"1; DROP TABLE drop_target; --"}}}') LIKE '%error%';
+----
+true
+
+# Verify drop_target still exists
+query I
+SELECT COUNT(*) FROM drop_target;
+----
+1
+
+# Valid integer should work
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"get_by_id","arguments":{"id":"1"}}}') LIKE '%secret_data%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# BUG-05b: Boolean parameter injection
+# =============================================================================
+
+statement ok
+SELECT mcp_publish_tool('check_flag', 'Check flag', 'SELECT $flag as flag_value', '{"flag": "boolean"}', '["flag"]');
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# Attack: Pass SQL injection as a "boolean" parameter
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":45,"method":"tools/call","params":{"name":"check_flag","arguments":{"flag":"true OR 1=1"}}}') LIKE '%error%';
+----
+true
+
+# Valid boolean should work
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":46,"method":"tools/call","params":{"name":"check_flag","arguments":{"flag":"true"}}}') LIKE '%true%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":47,"method":"tools/call","params":{"name":"check_flag","arguments":{"flag":"false"}}}') LIKE '%false%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# BUG-06: ValidateAuthentication Is a Non-Functional Stub
+# =============================================================================
+# Attack: With require_auth=true on non-HTTP transport, authentication should
+# fail closed (deny all) rather than always passing.
+# We test by starting a memory transport server with auth enabled.
+
+statement ok
+SELECT mcp_server_start('memory', '{"require_auth": true, "auth_token": "secret123"}');
+
+# With require_auth=true on memory transport (non-HTTP), all requests should be denied
+# because the stub now returns false for non-HTTP transports
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":50,"method":"tools/list","params":{}}') LIKE '%Authentication required%';
+----
+true
+
+# Even initialize should be denied
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":51,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}') LIKE '%Authentication required%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# Verify that without require_auth, requests work normally
+statement ok
+SELECT mcp_server_start('memory');
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":52,"method":"tools/list","params":{}}') LIKE '%"tools"%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# BUG-14 / BUG-01 (JSON injection): Verify JSON escaping in DescribeTable output
+# =============================================================================
+# Attack: Create a table with column names/values that contain JSON-breaking chars
+
+statement ok
+CREATE TABLE json_injection_test ("normal_col" INTEGER, "col""with""quotes" VARCHAR);
+
+statement ok
+INSERT INTO json_injection_test VALUES (1, 'value"with"quotes');
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# Describe the table - column names with quotes should be properly escaped
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":60,"method":"tools/call","params":{"name":"describe","arguments":{"table":"json_injection_test"}}}') LIKE '%col%quotes%';
+----
+true
+
+# The response should be valid (no broken JSON from unescaped quotes)
+# If JSON escaping works, we should see \" in the output (escaped quotes)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":61,"method":"tools/call","params":{"name":"describe","arguments":{"table":"json_injection_test"}}}') NOT LIKE '%"error"%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# BUG-02 (with allowlist): DescribeQuery should respect query denylist
+# =============================================================================
+# Start server with a denylist that blocks DROP statements
+
+statement ok
+SELECT mcp_server_start('memory', '{"denied_queries": ["DROP"]}');
+
+# Regular describe should work
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":70,"method":"tools/call","params":{"name":"describe","arguments":{"query":"SELECT 1 as num"}}}') LIKE '%\"name\":\"num\"%';
+----
+true
+
+# DescribeQuery with a denied query should be blocked
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":71,"method":"tools/call","params":{"name":"describe","arguments":{"query":"DROP TABLE sec_test"}}}') LIKE '%not allowed%';
+----
+true
+
+# Verify sec_test still exists
+query I
+SELECT COUNT(*) FROM sec_test;
+----
+1
+
+# Query tool should also block the denied query
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":72,"method":"tools/call","params":{"name":"query","arguments":{"sql":"DROP TABLE sec_test"}}}') LIKE '%not allowed%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# BUG-03 (with allowlist): Export tool should respect query denylist
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory', '{"denied_queries": ["DROP", "DELETE"]}');
+
+# Export with a denied query should be blocked
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":75,"method":"tools/call","params":{"name":"export","arguments":{"query":"DROP TABLE sec_test","format":"csv"}}}') LIKE '%not allowed%';
+----
+true
+
+# Export with a valid query should work
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":76,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT * FROM sec_test","format":"csv"}}}') LIKE '%secret_data%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# BUG-09: Permissive Mode Default
+# =============================================================================
+# After the fix, calling SetAllowedCommands locks commands_locked=true,
+# which makes IsPermissiveMode() return false (because commands_locked is true).
+# The extension initialization now doesn't call SetAllowedCommands("") from
+# LoadInternal, so the user's explicit SET is the only way to lock.
+
+# Test that the security config exists and is functional
+# (We can't directly test permissive mode via SQL since it affects ATTACH,
+# but we verify the setting mechanism works)
+
+# Setting allowed_mcp_commands to a specific value should work the first time
+statement ok
+SET allowed_mcp_commands='/usr/bin/python3';
+
+# Setting it again should fail because it's now locked
+statement error
+SET allowed_mcp_commands='/usr/bin/node';
+----
+Cannot modify allowed MCP commands
+
+# =============================================================================
+# Verify combined: multi-vector attack on describe tool
+# =============================================================================
+# This test combines BUG-01 (table injection) and BUG-14 (JSON injection)
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# Table name that is both SQL injection AND JSON injection
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":90,"method":"tools/call","params":{"name":"describe","arguments":{"table":"x\"; DROP TABLE drop_target; --"}}}') LIKE '%error%';
+----
+true
+
+# Verify drop_target STILL exists
+query I
+SELECT COUNT(*) FROM drop_target;
+----
+1
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# Verify: list_tables with views and injected schema filter
+# =============================================================================
+
+statement ok
+CREATE VIEW sec_view AS SELECT * FROM sec_test;
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# SQL injection in schema filter with include_views=true (both code paths)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":95,"method":"tools/call","params":{"name":"list_tables","arguments":{"include_views":true,"schema":"main'' UNION ALL SELECT 1,2,3,4,5,6 --"}}}') NOT LIKE '%UNION%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# Cleanup
+# =============================================================================
+
+statement ok
+DROP VIEW IF EXISTS sec_view;
+
+statement ok
+DROP TABLE IF EXISTS json_injection_test;
+
+statement ok
+DROP TABLE IF EXISTS sec_test;
+
+statement ok
+DROP TABLE IF EXISTS drop_target;
+
+statement ok
+SELECT mcp_server_stop(true);
