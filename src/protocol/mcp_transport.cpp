@@ -130,30 +130,40 @@ bool StdioTransport::StartProcess() {
 	throw NotImplementedException("Stdio transport not supported on Windows yet");
 #else
 	int stdin_pipe[2], stdout_pipe[2], stderr_pipe[2];
-	bool stdin_ok = false, stdout_ok = false;
+
+	// Helper lambda: create a pipe and set O_CLOEXEC on both ends.
+	// Uses pipe2() on Linux (atomic), falls back to pipe()+fcntl on macOS.
+	auto create_pipe = [](int pipefd[2]) -> bool {
+#ifdef __linux__
+		return pipe2(pipefd, O_CLOEXEC) == 0;
+#else
+		if (pipe(pipefd) == -1) {
+			return false;
+		}
+		fcntl(pipefd[0], F_SETFD, FD_CLOEXEC);
+		fcntl(pipefd[1], F_SETFD, FD_CLOEXEC);
+		return true;
+#endif
+	};
 
 	// Create pipes with O_CLOEXEC to prevent FD leaks to child processes
-	if (pipe2(stdin_pipe, O_CLOEXEC) == -1) {
+	if (!create_pipe(stdin_pipe)) {
 		return false;
 	}
-	stdin_ok = true;
 
-	if (pipe2(stdout_pipe, O_CLOEXEC) == -1) {
+	if (!create_pipe(stdout_pipe)) {
 		close(stdin_pipe[0]);
 		close(stdin_pipe[1]);
 		return false;
 	}
-	stdout_ok = true;
 
-	if (pipe2(stderr_pipe, O_CLOEXEC) == -1) {
+	if (!create_pipe(stderr_pipe)) {
 		close(stdin_pipe[0]);
 		close(stdin_pipe[1]);
 		close(stdout_pipe[0]);
 		close(stdout_pipe[1]);
 		return false;
 	}
-	(void)stdin_ok;
-	(void)stdout_ok;
 
 	process_pid = fork();
 
