@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DuckDB-WASM + WebMCP Demo</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
+    pre { background: #f4f4f4; padding: 1rem; overflow-x: auto; border-radius: 4px; }
+    button { padding: 0.5rem 1rem; margin: 0.25rem; cursor: pointer; }
+    #output { white-space: pre-wrap; font-family: monospace; }
+    .step { margin: 1rem 0; padding: 1rem; border: 1px solid #ddd; border-radius: 4px; }
+    .step h3 { margin-top: 0; }
+    .status { font-weight: bold; }
+    .status.ok { color: green; }
+    .status.error { color: red; }
+    .status.pending { color: gray; }
+  </style>
+</head>
+<body>
+  <h1>DuckDB-WASM + WebMCP Demo</h1>
+  <p>
+    This demo shows DuckDB-WASM publishing MCP tools to the browser via
+    <a href="https://webmachinelearning.github.io/webmcp/">WebMCP</a>
+    (<code>navigator.modelContext</code>).
+  </p>
+  <p>
+    <strong>Requirements:</strong> Chrome 146+ with WebMCP flag enabled
+    (<code>chrome://flags/#model-context-protocol</code>).
+  </p>
+
+  <div class="step">
+    <h3>Step 1: Check WebMCP availability</h3>
+    <button onclick="checkWebMCP()">Check</button>
+    <span id="webmcp-status" class="status pending">Not checked</span>
+  </div>
+
+  <div class="step">
+    <h3>Step 2: Initialize DuckDB-WASM</h3>
+    <button onclick="initDuckDB()">Initialize</button>
+    <span id="duckdb-status" class="status pending">Not initialized</span>
+  </div>
+
+  <div class="step">
+    <h3>Step 3: Create sample data &amp; publish resources</h3>
+    <button onclick="createData()">Create Data</button>
+    <span id="data-status" class="status pending">No data</span>
+  </div>
+
+  <div class="step">
+    <h3>Step 4: Start WebMCP server</h3>
+    <button onclick="startWebMCP()">Start</button>
+    <button onclick="stopWebMCP()">Stop</button>
+    <span id="server-status" class="status pending">Stopped</span>
+    <p><em>After starting, open Chrome DevTools &rarr; Model Context Tool Inspector to see registered tools.</em></p>
+  </div>
+
+  <div class="step">
+    <h3>Step 5: Discover page tools</h3>
+    <button onclick="listPageTools()">List Page Tools</button>
+    <p><em>Shows tools registered by the demo "weather" tool below.</em></p>
+  </div>
+
+  <h3>Output</h3>
+  <pre id="output"></pre>
+
+  <!-- Load WebMCP client interceptor BEFORE other scripts -->
+  <script src="../../src/webmcp/webmcp_client.js"></script>
+
+  <!-- Register a demo page tool (simulates another script on the page) -->
+  <script>
+    if (typeof navigator !== 'undefined' && navigator.modelContext) {
+      navigator.modelContext.registerTool({
+        name: 'get_weather',
+        description: 'Get current weather for a city (demo)',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            city: { type: 'string', description: 'City name' }
+          },
+          required: ['city']
+        },
+        annotations: { readOnlyHint: true },
+        execute: async function(input) {
+          return { content: 'Sunny, 22C in ' + (input.city || 'unknown') };
+        }
+      });
+    }
+  </script>
+
+  <script type="module">
+    // DuckDB-WASM CDN imports — adjust paths for your setup
+    // Using jsdelivr CDN for the demo
+    const DUCKDB_CDN = 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@latest/dist';
+
+    let db = null;
+    let conn = null;
+
+    function log(msg) {
+      document.getElementById('output').textContent += msg + '\n';
+    }
+
+    window.checkWebMCP = function() {
+      const el = document.getElementById('webmcp-status');
+      if (typeof navigator !== 'undefined' && navigator.modelContext) {
+        el.textContent = 'Available';
+        el.className = 'status ok';
+        log('[WebMCP] navigator.modelContext is available');
+      } else {
+        el.textContent = 'Not available';
+        el.className = 'status error';
+        log('[WebMCP] navigator.modelContext is NOT available.');
+        log('  Enable: chrome://flags/#model-context-protocol');
+      }
+    };
+
+    window.initDuckDB = async function() {
+      const el = document.getElementById('duckdb-status');
+      try {
+        el.textContent = 'Loading...';
+        el.className = 'status pending';
+
+        // Dynamic import of DuckDB-WASM
+        const duckdb = await import(DUCKDB_CDN + '/duckdb-esm.js');
+
+        const DUCKDB_BUNDLES = {
+          mvp: { mainModule: DUCKDB_CDN + '/duckdb-mvp.wasm', mainWorker: DUCKDB_CDN + '/duckdb-browser-mvp.worker.js' },
+          eh: { mainModule: DUCKDB_CDN + '/duckdb-eh.wasm', mainWorker: DUCKDB_CDN + '/duckdb-browser-eh.worker.js' },
+        };
+
+        const bundle = await duckdb.selectBundle(DUCKDB_BUNDLES);
+        const worker = new Worker(bundle.mainWorker);
+        const logger = new duckdb.ConsoleLogger();
+        db = new duckdb.AsyncDuckDB(logger, worker);
+        await db.instantiate(bundle.mainModule);
+
+        conn = await db.connect();
+
+        // Try loading the extension (may not be available in CDN build)
+        try {
+          await conn.query("LOAD duckdb_mcp");
+          log('[DuckDB] Extension loaded successfully');
+        } catch (e) {
+          log('[DuckDB] Note: duckdb_mcp extension not bundled in CDN build.');
+          log('  For a full demo, use a custom DuckDB-WASM build with the extension.');
+        }
+
+        el.textContent = 'Initialized';
+        el.className = 'status ok';
+        log('[DuckDB] DuckDB-WASM initialized');
+
+      } catch (e) {
+        el.textContent = 'Error';
+        el.className = 'status error';
+        log('[DuckDB] Error: ' + e.message);
+      }
+    };
+
+    window.createData = async function() {
+      const el = document.getElementById('data-status');
+      if (!conn) { log('[Error] Initialize DuckDB first'); return; }
+
+      try {
+        await conn.query("CREATE TABLE IF NOT EXISTS users (id INT, name VARCHAR, email VARCHAR)");
+        await conn.query("INSERT INTO users VALUES (1, 'Alice', 'alice@example.com'), (2, 'Bob', 'bob@example.com'), (3, 'Carol', 'carol@example.com')");
+        await conn.query("SELECT mcp_publish_table('users', 'data://tables/users', 'json')");
+        await conn.query(`SELECT mcp_publish_resource('info://about', 'DuckDB-WASM + WebMCP demo database', 'text/plain', 'About this database')`);
+
+        el.textContent = 'Created';
+        el.className = 'status ok';
+        log('[Data] Created users table and published resources');
+
+      } catch (e) {
+        el.textContent = 'Error';
+        el.className = 'status error';
+        log('[Data] Error: ' + e.message);
+      }
+    };
+
+    window.startWebMCP = async function() {
+      const el = document.getElementById('server-status');
+      if (!conn) { log('[Error] Initialize DuckDB first'); return; }
+
+      try {
+        const result = await conn.query("SELECT mcp_server_start('webmcp')");
+        const row = result.toArray()[0];
+        log('[Server] ' + JSON.stringify(row, null, 2));
+
+        el.textContent = 'Running';
+        el.className = 'status ok';
+
+      } catch (e) {
+        el.textContent = 'Error';
+        el.className = 'status error';
+        log('[Server] Error: ' + e.message);
+      }
+    };
+
+    window.stopWebMCP = async function() {
+      const el = document.getElementById('server-status');
+      if (!conn) { log('[Error] Initialize DuckDB first'); return; }
+
+      try {
+        const result = await conn.query("SELECT mcp_server_stop()");
+        el.textContent = 'Stopped';
+        el.className = 'status pending';
+        log('[Server] Stopped');
+      } catch (e) {
+        log('[Server] Error: ' + e.message);
+      }
+    };
+
+    window.listPageTools = async function() {
+      if (!conn) { log('[Error] Initialize DuckDB first'); return; }
+
+      try {
+        const result = await conn.query("SELECT webmcp_list_page_tools()");
+        const row = result.toArray()[0];
+        log('[Page Tools] ' + JSON.stringify(row, null, 2));
+      } catch (e) {
+        // Fallback: use the JS catalog directly
+        if (window.__duckdb_webmcp_catalog) {
+          const tools = window.__duckdb_webmcp_catalog.listTools();
+          log('[Page Tools (JS)] ' + JSON.stringify(tools, null, 2));
+        } else {
+          log('[Page Tools] Error: ' + e.message);
+        }
+      }
+    };
+
+    // Auto-check WebMCP on load
+    window.checkWebMCP();
+  </script>
+</body>
+</html>

@@ -46,6 +46,13 @@ if(NOT EMSCRIPTEN)
   )
 endif()
 
+# WASM-only sources (WebMCP browser integration)
+if(EMSCRIPTEN)
+  list(APPEND EXTENSION_SOURCES
+    src/server/webmcp_transport.cpp
+  )
+endif()
+
 build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
 build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})
 

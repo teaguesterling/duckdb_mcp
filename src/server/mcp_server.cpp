@@ -4,6 +4,8 @@
 #ifndef __EMSCRIPTEN__
 #include "server/stdio_server_transport.hpp"
 #include "server/http_server_transport.hpp"
+#else
+#include "server/webmcp_transport.hpp"
 #endif
 #include "duckdb_mcp_extension.hpp"
 #include "duckdb_mcp_logging.hpp"
@@ -126,6 +128,21 @@ bool MCPServer::Start() {
 		// Server just stays running and waits for ProcessRequest() calls
 		return true;
 	}
+#ifdef __EMSCRIPTEN__
+	else if (config.transport == "webmcp") {
+		// WebMCP transport: register tools with navigator.modelContext
+		WebMCPConfig wmcp_config;
+		wmcp_config.wrap_resources = true;
+		wmcp_config.wrap_prompts = true;
+		webmcp_transport = make_uniq<WebMCPTransport>(this, wmcp_config);
+		if (!webmcp_transport->Activate()) {
+			running = false;
+			webmcp_transport.reset();
+			return false;
+		}
+		return true;
+	}
+#endif // __EMSCRIPTEN__
 #ifndef __EMSCRIPTEN__
 	else if (config.transport == "stdio") {
 		// For background mode, start thread. For foreground mode, caller will use RunMainLoop()
@@ -208,7 +225,13 @@ void MCPServer::Stop() {
 
 	running = false;
 
-#ifndef __EMSCRIPTEN__
+#ifdef __EMSCRIPTEN__
+	// Deactivate WebMCP transport if running
+	if (webmcp_transport) {
+		webmcp_transport->Deactivate();
+		webmcp_transport.reset();
+	}
+#else
 	// Stop HTTP server if running
 	if (http_server) {
 		http_server->Stop();

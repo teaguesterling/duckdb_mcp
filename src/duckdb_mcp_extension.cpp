@@ -12,6 +12,8 @@ using namespace duckdb_yyjson;
 #include "mcpfs/mcp_file_system.hpp"
 #include "client/mcp_storage_extension.hpp"
 #include "protocol/mcp_connection.hpp"
+#else
+#include "server/webmcp_transport.hpp"
 #endif
 #include "protocol/mcp_message.hpp"
 #include "protocol/mcp_template.hpp"
@@ -654,6 +656,22 @@ static Value MCPServerStartImpl(ExpressionState &state, const string &transport,
 				return CreateMCPStatus(false, false, "Failed to start MCP server", transport, bind_address, port, true);
 			}
 		}
+#ifdef __EMSCRIPTEN__
+		else if (transport == "webmcp") {
+			// WebMCP transport: register tools with navigator.modelContext (WASM only)
+			server_config.background = true;
+			if (server_manager.StartServer(server_config)) {
+				return CreateMCPStatus(true, true,
+				                       "MCP server started on WebMCP transport (browser navigator.modelContext)",
+				                       transport, bind_address, port, true);
+			} else {
+				return CreateMCPStatus(false, false,
+				                       "Failed to start MCP server on WebMCP transport. "
+				                       "Is navigator.modelContext available?",
+				                       transport, bind_address, port, true);
+			}
+		}
+#endif // __EMSCRIPTEN__
 #ifndef __EMSCRIPTEN__
 		else if (transport == "stdio") {
 			if (server_config.background) {
@@ -721,8 +739,8 @@ static Value MCPServerStartImpl(ExpressionState &state, const string &transport,
 		else {
 			// Unknown transport (or non-memory transport in WASM)
 #ifdef __EMSCRIPTEN__
-			return CreateMCPStatus(false, false, "Only 'memory' transport is available in WASM", transport,
-			                       bind_address, port, false);
+			return CreateMCPStatus(false, false, "Only 'memory' and 'webmcp' transports are available in WASM",
+			                       transport, bind_address, port, false);
 #else
 			// For other transports (TCP/WebSocket), use background thread
 			if (server_manager.StartServer(server_config)) {
@@ -1693,6 +1711,56 @@ static void MCPRenderPromptTemplateFunction(DataChunk &args, ExpressionState &st
 	}
 }
 
+#ifdef __EMSCRIPTEN__
+
+// Sync WebMCP tool registrations with navigator.modelContext
+// Call after publishing new tools/resources to update the browser
+static void MCPWebMCPSyncFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	result.SetVectorType(VectorType::FLAT_VECTOR);
+	auto result_data = FlatVector::GetData<string_t>(result);
+
+	for (idx_t i = 0; i < args.size(); i++) {
+		try {
+			auto &server_manager = MCPServerManager::GetInstance();
+			if (!server_manager.IsServerRunning()) {
+				result_data[i] = StringVector::AddString(result, "ERROR: No MCP server running");
+				continue;
+			}
+
+			auto *transport = GetActiveWebMCPTransport();
+			if (!transport || !transport->IsActive()) {
+				result_data[i] = StringVector::AddString(
+				    result, "ERROR: No active WebMCP transport. Start server with mcp_server_start('webmcp')");
+				continue;
+			}
+
+			transport->SyncTools();
+			result_data[i] = StringVector::AddString(result, "SUCCESS: WebMCP tools synced with navigator.modelContext");
+
+		} catch (const std::exception &e) {
+			result_data[i] = StringVector::AddString(result, "ERROR: " + string(e.what()));
+		}
+	}
+}
+
+// List WebMCP tools registered by other scripts on the page
+// Requires webmcp_client.js interceptor to be loaded
+static void WebMCPListPageToolsFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	result.SetVectorType(VectorType::FLAT_VECTOR);
+	auto result_data = FlatVector::GetData<string_t>(result);
+
+	for (idx_t i = 0; i < args.size(); i++) {
+		try {
+			string tools_json = WebMCPTransport::ListPageTools();
+			result_data[i] = StringVector::AddString(result, tools_json);
+		} catch (const std::exception &e) {
+			result_data[i] = StringVector::AddString(result, "[]");
+		}
+	}
+}
+
+#endif // __EMSCRIPTEN__
+
 static void LoadInternal(ExtensionLoader &loader) {
 	auto &db = loader.GetDatabaseInstance();
 	auto &config = DBConfig::GetConfig(db);
@@ -1891,6 +1959,20 @@ static void LoadInternal(ExtensionLoader &loader) {
 	// Register MCP diagnostics functions
 	auto diagnostics_func = ScalarFunction("mcp_get_diagnostics", {}, LogicalType::JSON(), MCPGetDiagnosticsFunction);
 	loader.RegisterFunction(diagnostics_func);
+
+#ifdef __EMSCRIPTEN__
+	// Register WebMCP-specific functions (WASM only)
+
+	// mcp_webmcp_sync() - re-sync tools with navigator.modelContext after publishing new tools/resources
+	auto webmcp_sync_func =
+	    ScalarFunction("mcp_webmcp_sync", {}, LogicalType::VARCHAR, MCPWebMCPSyncFunction);
+	loader.RegisterFunction(webmcp_sync_func);
+
+	// webmcp_list_page_tools() - list tools registered by other page scripts
+	auto webmcp_list_page_tools_func =
+	    ScalarFunction("webmcp_list_page_tools", {}, LogicalType::JSON(), WebMCPListPageToolsFunction);
+	loader.RegisterFunction(webmcp_list_page_tools_func);
+#endif // __EMSCRIPTEN__
 }
 
 void DuckdbMcpExtension::Load(ExtensionLoader &loader) {

@@ -18,11 +18,13 @@ class ResourceProvider;
 class ToolHandler;
 #ifndef __EMSCRIPTEN__
 class HTTPServerTransport;
+#else
+class WebMCPTransport;
 #endif
 
 // MCP Server configuration
 struct MCPServerConfig {
-	string transport = "stdio";        // "stdio", "http", "https", "memory"
+	string transport = "stdio";        // "stdio", "http", "https", "memory", "webmcp" (WASM only)
 	string bind_address = "localhost"; // For HTTP/HTTPS
 	int port = 8080;                   // For HTTP/HTTPS
 
@@ -185,6 +187,8 @@ private:
 #ifndef __EMSCRIPTEN__
 	unique_ptr<std::thread> server_thread;
 	unique_ptr<HTTPServerTransport> http_server; // For HTTP/HTTPS transport
+#else
+	unique_ptr<WebMCPTransport> webmcp_transport; // For WebMCP browser transport (WASM only)
 #endif
 	unique_ptr<MCPTransport> test_transport;     // For testing with custom transports
 
