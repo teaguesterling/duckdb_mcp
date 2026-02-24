@@ -205,20 +205,24 @@ SELECT mcp_server_stop(true);
 # Attack: With require_auth=true on non-HTTP transport, authentication should
 # fail closed (deny all) rather than always passing.
 # We test by starting a memory transport server with auth enabled.
+# Note: CTRL-06 (security hardening) now auto-disables mcp_server_send_request
+# when require_auth=true, so the error is "Direct requests are disabled" instead
+# of "Authentication required". This is the correct, more secure behavior —
+# the SQL function is gated before the request even reaches the auth layer.
 
 statement ok
 SELECT mcp_server_start('memory', '{"require_auth": true, "auth_token": "secret123"}');
 
-# With require_auth=true on memory transport (non-HTTP), all requests should be denied
-# because the stub now returns false for non-HTTP transports
+# With require_auth=true, mcp_server_send_request is auto-disabled (CTRL-06)
+# to prevent bypassing HTTP auth via the SQL function
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":50,"method":"tools/list","params":{}}') LIKE '%Authentication required%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":50,"method":"tools/list","params":{}}') LIKE '%Direct requests are disabled%';
 ----
 true
 
 # Even initialize should be denied
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":51,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}') LIKE '%Authentication required%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":51,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}') LIKE '%Direct requests are disabled%';
 ----
 true
 

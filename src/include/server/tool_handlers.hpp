@@ -6,6 +6,14 @@
 
 namespace duckdb {
 
+//! Check if a query is allowed based on its parsed statement type.
+//! Uses conn.Prepare() to get the actual StatementType, then checks against
+//! allowed/denied type name lists (e.g., "SELECT", "INSERT", "DROP").
+//! Fails closed: unparseable queries are denied.
+bool IsQueryAllowedByType(DatabaseInstance &db, const string &query,
+                          const vector<string> &allowed_types,
+                          const vector<string> &denied_types);
+
 // Result structure for tool calls
 struct CallToolResult {
 	bool success = false;
@@ -76,7 +84,6 @@ private:
 	vector<string> denied_queries;
 	string default_result_format;
 
-	bool IsQueryAllowed(const string &query) const;
 	string FormatResult(QueryResult &result, const string &format) const;
 };
 
@@ -102,7 +109,6 @@ private:
 
 	Value DescribeTable(const string &table_name) const;
 	Value DescribeQuery(const string &query) const;
-	bool IsQueryAllowed(const string &query) const;
 };
 
 // Export tool handler - exports query results to various formats
@@ -128,7 +134,6 @@ private:
 
 	bool ExportToFile(QueryResult &result, const string &format, const string &output_path, const string &query) const;
 	string FormatData(QueryResult &result, const string &format) const;
-	bool IsQueryAllowed(const string &query) const;
 };
 
 // SQL tool handler - executes predefined SQL templates with parameters
@@ -206,7 +211,8 @@ private:
 // Execute tool handler - executes DDL/DML statements (INSERT, UPDATE, DELETE, CREATE, etc.)
 class ExecuteToolHandler : public ToolHandler {
 public:
-	ExecuteToolHandler(DatabaseInstance &db, bool allow_ddl = true, bool allow_dml = true);
+	ExecuteToolHandler(DatabaseInstance &db, bool allow_ddl = true, bool allow_dml = true,
+	                   bool allow_load = false, bool allow_attach = false, bool allow_set = false);
 
 	CallToolResult Execute(const Value &arguments) override;
 	string GetName() const override {
@@ -222,9 +228,15 @@ private:
 	DatabaseInstance &db_instance;
 	bool allow_ddl;
 	bool allow_dml;
+	bool allow_load;   // LOAD, UPDATE_EXTENSIONS
+	bool allow_attach; // ATTACH, DETACH, COPY_DATABASE
+	bool allow_set;    // SET, VARIABLE_SET, PRAGMA
 
 	// Uses DuckDB's StatementType enum for robust statement classification
-	bool IsDDLStatement(StatementType type) const;
+	bool IsSafeDDLStatement(StatementType type) const;
+	bool IsLoadStatement(StatementType type) const;
+	bool IsAttachStatement(StatementType type) const;
+	bool IsSetStatement(StatementType type) const;
 	bool IsDMLStatement(StatementType type) const;
 	bool IsAllowedStatement(StatementType type) const;
 };

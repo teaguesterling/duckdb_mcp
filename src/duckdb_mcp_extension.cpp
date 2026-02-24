@@ -557,6 +557,27 @@ static Value MCPServerStartImpl(ExpressionState &state, const string &transport,
 				if (val && yyjson_is_bool(val)) {
 					server_config.enable_execute_tool = yyjson_get_bool(val);
 				}
+				// Execute tool granular DDL subcategory flags
+				val = yyjson_obj_get(root, "execute_allow_ddl");
+				if (val && yyjson_is_bool(val)) {
+					server_config.execute_allow_ddl = yyjson_get_bool(val);
+				}
+				val = yyjson_obj_get(root, "execute_allow_dml");
+				if (val && yyjson_is_bool(val)) {
+					server_config.execute_allow_dml = yyjson_get_bool(val);
+				}
+				val = yyjson_obj_get(root, "execute_allow_load");
+				if (val && yyjson_is_bool(val)) {
+					server_config.execute_allow_load = yyjson_get_bool(val);
+				}
+				val = yyjson_obj_get(root, "execute_allow_attach");
+				if (val && yyjson_is_bool(val)) {
+					server_config.execute_allow_attach = yyjson_get_bool(val);
+				}
+				val = yyjson_obj_get(root, "execute_allow_set");
+				if (val && yyjson_is_bool(val)) {
+					server_config.execute_allow_set = yyjson_get_bool(val);
+				}
 				val = yyjson_obj_get(root, "background");
 				if (val && yyjson_is_bool(val)) {
 					server_config.background = yyjson_get_bool(val);
@@ -566,6 +587,26 @@ static Value MCPServerStartImpl(ExpressionState &state, const string &transport,
 				val = yyjson_obj_get(root, "require_auth");
 				if (val && yyjson_is_bool(val)) {
 					server_config.require_auth = yyjson_get_bool(val);
+				}
+
+				// Parse direct request gating
+				val = yyjson_obj_get(root, "allow_direct_requests");
+				if (val && yyjson_is_bool(val)) {
+					server_config.allow_direct_requests = yyjson_get_bool(val);
+					server_config.allow_direct_requests_explicit = true;
+				}
+
+				// Parse CORS configuration
+				server_config.cors_origins = JSONUtils::GetString(root, "cors_origins", "*");
+
+				// Parse health endpoint configuration
+				val = yyjson_obj_get(root, "enable_health_endpoint");
+				if (val && yyjson_is_bool(val)) {
+					server_config.enable_health_endpoint = yyjson_get_bool(val);
+				}
+				val = yyjson_obj_get(root, "auth_health_endpoint");
+				if (val && yyjson_is_bool(val)) {
+					server_config.auth_health_endpoint = yyjson_get_bool(val);
 				}
 
 				// Parse HTTP-specific configuration
@@ -889,6 +930,15 @@ static void MCPServerSendRequestFunction(DataChunk &args, ExpressionState &state
 				result_data[i] = StringVector::AddString(
 				    result,
 				    R"json({"jsonrpc":"2.0","error":{"code":-32603,"message":"No MCP server running. Start one with mcp_server_start('memory')"},"id":null})json");
+				continue;
+			}
+
+			// Check if direct requests are allowed (auto-disabled when require_auth=true)
+			auto *server = server_manager.GetServer();
+			if (server && !server->AllowsDirectRequests()) {
+				result_data[i] = StringVector::AddString(
+				    result,
+				    R"json({"jsonrpc":"2.0","error":{"code":-32001,"message":"Direct requests are disabled. When require_auth is enabled, mcp_server_send_request is auto-disabled to prevent auth bypass. Set allow_direct_requests=true to override."},"id":null})json");
 				continue;
 			}
 

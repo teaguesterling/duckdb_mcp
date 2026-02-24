@@ -98,10 +98,25 @@ bool MCPSecurityConfig::IsUrlAllowed(const string &url) const {
 		return false;
 	}
 
-	// Check against allowlist
+	// Check against allowlist with component boundary enforcement
 	for (const auto &allowed : allowed_urls) {
 		if (StringUtil::StartsWith(url, allowed)) {
-			return true;
+			// If the URL exactly matches the prefix, it's allowed
+			if (url.size() == allowed.size()) {
+				return true;
+			}
+			// If the allowed prefix ends with '/', any continuation is valid
+			if (!allowed.empty() && allowed.back() == '/') {
+				return true;
+			}
+			// Otherwise, the next character must be a component boundary
+			// to prevent "https://api.example.com" matching "https://api.example.com.evil.com"
+			char next_char = url[allowed.size()];
+			if (next_char == '/' || next_char == '?' || next_char == '#' || next_char == ':') {
+				return true;
+			}
+			// Not a valid boundary — reject (e.g., subdomain confusion)
+			continue;
 		}
 	}
 

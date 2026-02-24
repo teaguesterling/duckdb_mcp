@@ -43,6 +43,18 @@ struct MCPServerConfig {
 	bool execute_allow_ddl = true; // Allow CREATE, DROP, ALTER, etc.
 	bool execute_allow_dml = true; // Allow INSERT, UPDATE, DELETE
 
+	// Dangerous DDL subcategories (all default false for safety)
+	bool execute_allow_load = false;   // LOAD, UPDATE_EXTENSIONS
+	bool execute_allow_attach = false; // ATTACH, DETACH, COPY_DATABASE
+	bool execute_allow_set = false;    // SET, VARIABLE_SET, PRAGMA
+
+	// CORS configuration
+	string cors_origins = "*";               // CORS origins: empty=disabled, "*"=wildcard, or comma-separated origins
+
+	// Health endpoint configuration
+	bool enable_health_endpoint = true;      // Enable /health endpoint
+	bool auth_health_endpoint = false;       // Require auth for /health endpoint
+
 	vector<string> allowed_queries;          // SQL query allowlist (empty = all allowed)
 	vector<string> denied_queries;           // SQL query denylist
 	string default_result_format = "json";   // Default format for query results ("json", "markdown", "csv")
@@ -51,6 +63,11 @@ struct MCPServerConfig {
 	uint32_t max_requests = 0;               // Maximum requests before shutdown (0 = unlimited)
 	bool background = false;                 // Run server in background thread (for testing)
 	bool require_auth = false;               // Authentication required
+
+	// Direct request gating (mcp_server_send_request)
+	bool allow_direct_requests = true;       // Allow SQL function to bypass HTTP auth
+	bool allow_direct_requests_explicit = false; // Whether the user explicitly set this
+
 	DatabaseInstance *db_instance = nullptr; // DuckDB instance
 };
 
@@ -129,6 +146,19 @@ public:
 	// Main loop for HTTP mode (blocks until Stop() is called)
 	bool RunHTTPLoop();
 #endif
+
+	// Check if direct requests (via mcp_server_send_request SQL function) are allowed
+	bool AllowsDirectRequests() const {
+		// If user explicitly set allow_direct_requests, honor it
+		if (config.allow_direct_requests_explicit) {
+			return config.allow_direct_requests;
+		}
+		// Auto-disable when auth is required (prevents auth bypass via SQL)
+		if (config.require_auth) {
+			return false;
+		}
+		return config.allow_direct_requests;
+	}
 
 	// Testing support: process a single request directly (no transport)
 	MCPMessage ProcessRequest(const MCPMessage &request);
