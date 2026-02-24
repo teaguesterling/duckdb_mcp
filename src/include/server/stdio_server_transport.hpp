@@ -6,6 +6,8 @@
 
 namespace duckdb {
 
+#ifndef __EMSCRIPTEN__
+
 //! Server-side stdio transport for MCP communication
 //! Uses std::cin/std::cout for proper blocking I/O without the poll/iostream mixing issues
 class FdServerTransport : public MCPTransport {
@@ -29,5 +31,7 @@ private:
 	bool connected;
 	mutable mutex io_mutex;
 };
+
+#endif // !__EMSCRIPTEN__
 
 } // namespace duckdb

@@ -5,7 +5,9 @@
 #include "duckdb/common/exception.hpp"
 #include <chrono>
 #include <mutex>
+#ifndef __EMSCRIPTEN__
 #include <fstream>
+#endif
 
 namespace duckdb {
 
@@ -52,8 +54,10 @@ private:
 	mutable std::mutex log_mutex;
 	MCPLogLevel current_level = MCPLogLevel::WARN;
 	bool console_logging = false;
+#ifndef __EMSCRIPTEN__
 	string log_file_path;
 	std::ofstream log_file;
+#endif
 };
 
 // Convenience macros

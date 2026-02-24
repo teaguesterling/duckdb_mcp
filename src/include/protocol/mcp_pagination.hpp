@@ -53,6 +53,8 @@ struct MCPPaginationParams {
 	static MCPPaginationParams FromRPCParams(const Value &params);
 };
 
+#ifndef __EMSCRIPTEN__
+
 // MCP pagination iterator for client use
 class MCPPaginationIterator {
 private:
@@ -123,5 +125,7 @@ public:
 		return connection;
 	}
 };
+
+#endif // !__EMSCRIPTEN__
 
 } // namespace duckdb
