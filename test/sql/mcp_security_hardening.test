@@ -1,0 +1,240 @@
+# name: test/sql/mcp_security_hardening.test
+# description: Security hardening tests for CTRL-01 through CTRL-06
+# group: [sql]
+
+# Load the MCP extension
+require duckdb_mcp
+
+statement ok
+LOAD duckdb_mcp;
+
+# =============================================================================
+# SETUP
+# =============================================================================
+
+statement ok
+SELECT mcp_server_stop(true);
+
+statement ok
+CREATE TABLE hardening_test AS SELECT 1 as id, 'data' as value;
+
+# =============================================================================
+# CTRL-01: Statement type checking replaces substring matching
+# =============================================================================
+# Attack: "DELETE FROM users; -- SELECT" should NOT match allowlist ["SELECT"]
+# because the parsed statement type is DELETE, not SELECT.
+
+# Start server with SELECT-only allowlist (now statement type names)
+statement ok
+SELECT mcp_server_start('memory', '{"allowed_queries": ["SELECT"]}');
+
+# Normal SELECT should work
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM hardening_test"}}}') LIKE '%data%';
+----
+true
+
+# DELETE with SELECT in a comment should be BLOCKED (type is DELETE, not SELECT)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"query","arguments":{"sql":"DELETE FROM hardening_test WHERE id = 1 -- SELECT"}}}') LIKE '%not allowed%';
+----
+true
+
+# INSERT with SELECT substring should be BLOCKED (type is INSERT)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"query","arguments":{"sql":"INSERT INTO hardening_test SELECT * FROM hardening_test"}}}') LIKE '%not allowed%';
+----
+true
+
+# Verify data is still intact (attacks were blocked)
+query I
+SELECT COUNT(*) FROM hardening_test;
+----
+1
+
+# Test denylist with statement types - deny DELETE
+statement ok
+SELECT mcp_server_stop(true);
+
+statement ok
+SELECT mcp_server_start('memory', '{"denied_queries": ["DELETE"]}');
+
+# SELECT should still work even though it contains letters from "DELETE"
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM hardening_test"}}}') LIKE '%data%';
+----
+true
+
+# Actual DELETE should be blocked
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"query","arguments":{"sql":"DELETE FROM hardening_test"}}}') LIKE '%not allowed%';
+----
+true
+
+# Malformed SQL should be denied (fail closed)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"query","arguments":{"sql":"THIS IS NOT VALID SQL"}}}') LIKE '%not allowed%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# CTRL-01: Describe tool also uses type checking
+statement ok
+SELECT mcp_server_start('memory', '{"allowed_queries": ["SELECT"]}');
+
+# Describe with a SELECT query should work
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"describe","arguments":{"query":"SELECT 1 as num"}}}') LIKE '%num%';
+----
+true
+
+# Describe with a DROP query should be blocked
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"describe","arguments":{"query":"DROP TABLE hardening_test"}}}') LIKE '%not allowed%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# CTRL-01: Export tool also uses type checking
+statement ok
+SELECT mcp_server_start('memory', '{"allowed_queries": ["SELECT"]}');
+
+# Export with SELECT should work
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT * FROM hardening_test","format":"csv"}}}') LIKE '%data%';
+----
+true
+
+# Export with non-SELECT should be blocked
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"export","arguments":{"query":"DELETE FROM hardening_test","format":"csv"}}}') LIKE '%not allowed%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# CTRL-02: Granular DDL permissions
+# =============================================================================
+# execute_allow_ddl=true should NOT grant LOAD, ATTACH, or SET
+
+statement ok
+SELECT mcp_server_start('memory', '{"enable_execute_tool": true, "execute_allow_ddl": true, "execute_allow_dml": true}');
+
+# Safe DDL should work (CREATE TABLE)
+# Note: Use subquery pattern for side-effectful calls — DuckDB may evaluate
+# `expr LIKE pattern` by calling the scalar function more than once.
+query I
+SELECT r LIKE '%success%' FROM (SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"execute","arguments":{"statement":"CREATE TABLE ctrl02_test (id INTEGER)"}}}') AS r);
+----
+true
+
+# LOAD should be BLOCKED (requires execute_allow_load)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"execute","arguments":{"statement":"LOAD httpfs"}}}') LIKE '%not allowed%';
+----
+true
+
+# SET should be BLOCKED (requires execute_allow_set)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"execute","arguments":{"statement":"SET threads TO 1"}}}') LIKE '%not allowed%';
+----
+true
+
+# PRAGMA should be BLOCKED (requires execute_allow_set)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":23,"method":"tools/call","params":{"name":"execute","arguments":{"statement":"PRAGMA version"}}}') LIKE '%not allowed%';
+----
+true
+
+# DML should work (INSERT is idempotent for our purposes since table is empty)
+query I
+SELECT r LIKE '%success%' FROM (SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":24,"method":"tools/call","params":{"name":"execute","arguments":{"statement":"INSERT INTO ctrl02_test VALUES (1)"}}}') AS r);
+----
+true
+
+# DROP should work (safe DDL)
+query I
+SELECT r LIKE '%success%' FROM (SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":25,"method":"tools/call","params":{"name":"execute","arguments":{"statement":"DROP TABLE ctrl02_test"}}}') AS r);
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# Test with explicit allow_set=true
+statement ok
+SELECT mcp_server_start('memory', '{"enable_execute_tool": true, "execute_allow_ddl": true, "execute_allow_set": true}');
+
+# SET should now work (side-effectful: use subquery)
+query I
+SELECT r LIKE '%success%' FROM (SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":26,"method":"tools/call","params":{"name":"execute","arguments":{"statement":"SET threads TO 1"}}}') AS r);
+----
+true
+
+# LOAD should still be blocked
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":27,"method":"tools/call","params":{"name":"execute","arguments":{"statement":"LOAD httpfs"}}}') LIKE '%not allowed%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# CTRL-06: Gate mcp_server_send_request when auth is enabled
+# =============================================================================
+
+# Start server with require_auth=true (auto-disables direct requests)
+statement ok
+SELECT mcp_server_start('memory', '{"require_auth": true, "auth_token": "secret123"}');
+
+# Direct requests should be blocked (auth bypass prevention)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":60,"method":"tools/list","params":{}}') LIKE '%Direct requests are disabled%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# With explicit override, direct requests should work even with auth
+statement ok
+SELECT mcp_server_start('memory', '{"require_auth": true, "auth_token": "secret123", "allow_direct_requests": true}');
+
+# Now direct requests should work (but auth still applies at MCP layer)
+# Since memory transport + require_auth → auth check fails, we get auth error not direct-request error
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":61,"method":"tools/list","params":{}}') LIKE '%Authentication required%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# Without require_auth, direct requests should work normally
+statement ok
+SELECT mcp_server_start('memory');
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":62,"method":"tools/list","params":{}}') LIKE '%"tools"%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# Cleanup
+# =============================================================================
+
+statement ok
+DROP TABLE IF EXISTS hardening_test;
+
+statement ok
+SELECT mcp_server_stop(true);

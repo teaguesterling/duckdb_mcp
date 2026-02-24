@@ -5,6 +5,7 @@
 #include "httplib.hpp"
 
 #include <iostream>
+#include <sstream>
 
 namespace duckdb {
 
@@ -28,17 +29,51 @@ static bool ConstantTimeEquals(const string &a, const string &b) {
 	return result == 0;
 }
 
+// Helper: determine the CORS origin header value for a given request.
+// Returns empty string if CORS is disabled or the origin is not allowed.
+static string GetCorsOriginHeader(const HTTPServerConfig &config, const string &request_origin) {
+	if (config.cors_origins.empty()) {
+		return ""; // CORS disabled
+	}
+	if (config.cors_origins == "*") {
+		return "*"; // Wildcard
+	}
+	// Check if request origin matches any configured origin
+	// Parse comma-separated origin list
+	std::istringstream stream(config.cors_origins);
+	string origin;
+	while (std::getline(stream, origin, ',')) {
+		// Trim whitespace
+		size_t start = origin.find_first_not_of(" \t");
+		size_t end = origin.find_last_not_of(" \t");
+		if (start != string::npos && end != string::npos) {
+			origin = origin.substr(start, end - start + 1);
+		}
+		if (origin == request_origin) {
+			return request_origin; // Return specific origin (not wildcard)
+		}
+	}
+	return ""; // Origin not allowed
+}
+
 // Helper to set up common routes on a server (works with both Server and SSLServer)
 template <typename ServerType>
 void SetupRoutes(ServerType &server, const HTTPServerConfig &config,
                  HTTPServerTransport::RequestHandler &request_handler) {
-	// Configure CORS if enabled
-	if (config.enable_cors) {
-		server.Options(".*", [](const CPPHTTPLIB_NAMESPACE::Request &req, CPPHTTPLIB_NAMESPACE::Response &res) {
-			res.set_header("Access-Control-Allow-Origin", "*");
-			res.set_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
-			res.set_header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-			res.set_header("Access-Control-Max-Age", "86400");
+	// Configure CORS preflight if enabled
+	if (!config.cors_origins.empty()) {
+		server.Options(".*", [&config](const CPPHTTPLIB_NAMESPACE::Request &req, CPPHTTPLIB_NAMESPACE::Response &res) {
+			string origin = req.get_header_value("Origin");
+			string cors_value = GetCorsOriginHeader(config, origin);
+			if (!cors_value.empty()) {
+				res.set_header("Access-Control-Allow-Origin", cors_value);
+				res.set_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
+				res.set_header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+				res.set_header("Access-Control-Max-Age", "86400");
+				if (cors_value != "*") {
+					res.set_header("Vary", "Origin");
+				}
+			}
 			res.status = 204;
 		});
 	}
@@ -69,9 +104,16 @@ void SetupRoutes(ServerType &server, const HTTPServerConfig &config,
 			}
 		}
 
-		// Set CORS headers
-		if (config.enable_cors) {
-			res.set_header("Access-Control-Allow-Origin", "*");
+		// Set CORS headers on response
+		if (!config.cors_origins.empty()) {
+			string origin = req.get_header_value("Origin");
+			string cors_value = GetCorsOriginHeader(config, origin);
+			if (!cors_value.empty()) {
+				res.set_header("Access-Control-Allow-Origin", cors_value);
+				if (cors_value != "*") {
+					res.set_header("Vary", "Origin");
+				}
+			}
 		}
 
 		// Process the MCP request
@@ -95,10 +137,28 @@ void SetupRoutes(ServerType &server, const HTTPServerConfig &config,
 	// Alternative MCP endpoint
 	server.Post("/mcp", mcp_handler);
 
-	// Health check endpoint
-	server.Get("/health", [](const CPPHTTPLIB_NAMESPACE::Request &req, CPPHTTPLIB_NAMESPACE::Response &res) {
-		res.set_content(R"({"status":"ok"})", "application/json");
-	});
+	// Health check endpoint (conditionally enabled, optionally auth-protected)
+	if (config.enable_health_endpoint) {
+		server.Get("/health", [&config](const CPPHTTPLIB_NAMESPACE::Request &req, CPPHTTPLIB_NAMESPACE::Response &res) {
+			// Check authentication if required for health endpoint
+			if (config.auth_health_endpoint && !config.auth_token.empty()) {
+				auto auth_header = req.get_header_value("Authorization");
+				if (auth_header.empty()) {
+					res.status = 401;
+					res.set_header("WWW-Authenticate", "Bearer");
+					res.set_content(R"({"error":"Unauthorized"})", "application/json");
+					return;
+				}
+				string expected = "Bearer " + config.auth_token;
+				if (!ConstantTimeEquals(auth_header, expected)) {
+					res.status = 403;
+					res.set_content(R"({"error":"Forbidden"})", "application/json");
+					return;
+				}
+			}
+			res.set_content(R"({"status":"ok"})", "application/json");
+		});
+	}
 }
 
 HTTPServerTransport::HTTPServerTransport(const HTTPServerConfig &config)

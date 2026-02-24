@@ -137,7 +137,9 @@ bool MCPServer::Start() {
 		http_config.host = config.bind_address;
 		http_config.port = config.port;
 		http_config.auth_token = config.auth_token;
-		http_config.enable_cors = true;
+		http_config.cors_origins = config.cors_origins;
+		http_config.enable_health_endpoint = config.enable_health_endpoint;
+		http_config.auth_health_endpoint = config.auth_health_endpoint;
 
 		if (config.transport == "https") {
 			http_config.use_ssl = true;
@@ -308,7 +310,9 @@ bool MCPServer::RunHTTPLoop() {
 	http_config.host = config.bind_address;
 	http_config.port = config.port;
 	http_config.auth_token = config.auth_token;
-	http_config.enable_cors = true;
+	http_config.cors_origins = config.cors_origins;
+	http_config.enable_health_endpoint = config.enable_health_endpoint;
+	http_config.auth_health_endpoint = config.auth_health_endpoint;
 
 	if (config.transport == "https") {
 		http_config.use_ssl = true;
@@ -748,35 +752,18 @@ void MCPServer::RegisterBuiltinTools() {
 
 	if (config.enable_execute_tool) {
 		auto execute_tool =
-		    make_uniq<ExecuteToolHandler>(*config.db_instance, config.execute_allow_ddl, config.execute_allow_dml);
+		    make_uniq<ExecuteToolHandler>(*config.db_instance, config.execute_allow_ddl, config.execute_allow_dml,
+		                                  config.execute_allow_load, config.execute_allow_attach,
+		                                  config.execute_allow_set);
 		tool_registry.RegisterTool("execute", std::move(execute_tool));
 	}
 }
 
 bool MCPServer::IsQueryAllowed(const string &query) const {
-	// If no allowlist, everything is allowed
-	if (config.allowed_queries.empty() && config.denied_queries.empty()) {
-		return true;
+	if (!config.db_instance) {
+		return false; // Fail closed if no database instance
 	}
-
-	// Check denylist first
-	for (const auto &denied : config.denied_queries) {
-		if (query.find(denied) != string::npos) {
-			return false;
-		}
-	}
-
-	// Check allowlist if it exists
-	if (!config.allowed_queries.empty()) {
-		for (const auto &allowed : config.allowed_queries) {
-			if (query.find(allowed) != string::npos) {
-				return true;
-			}
-		}
-		return false; // Not in allowlist
-	}
-
-	return true; // No restrictions
+	return IsQueryAllowedByType(*config.db_instance, query, config.allowed_queries, config.denied_queries);
 }
 
 bool MCPServer::ValidateAuthentication(const MCPMessage &request) const {

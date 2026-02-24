@@ -50,6 +50,47 @@ static string EscapeSQLString(const string &input) {
 }
 
 //===--------------------------------------------------------------------===//
+// Shared Query Type Checking
+//===--------------------------------------------------------------------===//
+
+bool IsQueryAllowedByType(DatabaseInstance &db, const string &query,
+                          const vector<string> &allowed_types,
+                          const vector<string> &denied_types) {
+	// If no restrictions configured, allow everything
+	if (allowed_types.empty() && denied_types.empty()) {
+		return true;
+	}
+
+	// Parse the query to get its statement type
+	Connection conn(db);
+	auto prepared = conn.Prepare(query);
+	if (prepared->HasError()) {
+		return false; // Fail closed: unparseable queries are denied
+	}
+
+	string type_name = StringUtil::Upper(StatementTypeToString(prepared->GetStatementType()));
+
+	// Check denylist first (exact type match)
+	for (const auto &denied : denied_types) {
+		if (type_name == StringUtil::Upper(denied)) {
+			return false;
+		}
+	}
+
+	// Check allowlist if it exists (exact type match)
+	if (!allowed_types.empty()) {
+		for (const auto &allowed : allowed_types) {
+			if (type_name == StringUtil::Upper(allowed)) {
+				return true;
+			}
+		}
+		return false; // Not in allowlist
+	}
+
+	return true; // No allowlist restriction, and not in denylist
+}
+
+//===--------------------------------------------------------------------===//
 // ToolInputSchema Implementation
 //===--------------------------------------------------------------------===//
 
@@ -186,8 +227,8 @@ CallToolResult QueryToolHandler::Execute(const Value &arguments) {
 			return CallToolResult::Error("Unsupported format '" + format + "'. Supported formats: json, markdown, csv");
 		}
 
-		// Security check
-		if (!IsQueryAllowed(sql)) {
+		// Security check: parse query and validate statement type
+		if (!IsQueryAllowedByType(db_instance, sql, allowed_queries, denied_queries)) {
 			return CallToolResult::Error("Query not allowed by security policy");
 		}
 
@@ -215,29 +256,6 @@ ToolInputSchema QueryToolHandler::GetInputSchema() const {
 	schema.properties["format"] = Value("string");
 	schema.required_fields = {"sql"};
 	return schema;
-}
-
-bool QueryToolHandler::IsQueryAllowed(const string &query) const {
-	string lower_query = StringUtil::Lower(query);
-
-	// Check denylist first
-	for (const auto &denied : denied_queries) {
-		if (lower_query.find(StringUtil::Lower(denied)) != string::npos) {
-			return false;
-		}
-	}
-
-	// Check allowlist if it exists
-	if (!allowed_queries.empty()) {
-		for (const auto &allowed : allowed_queries) {
-			if (lower_query.find(StringUtil::Lower(allowed)) != string::npos) {
-				return true;
-			}
-		}
-		return false; // Not in allowlist
-	}
-
-	return true; // No restrictions
 }
 
 string QueryToolHandler::FormatResult(QueryResult &result, const string &format) const {
@@ -335,8 +353,8 @@ Value DescribeToolHandler::DescribeTable(const string &table_name) const {
 }
 
 Value DescribeToolHandler::DescribeQuery(const string &query) const {
-	// Security check: validate query against allowlist/denylist
-	if (!IsQueryAllowed(query)) {
+	// Security check: parse query and validate statement type
+	if (!IsQueryAllowedByType(db_instance, query, allowed_queries, denied_queries)) {
 		throw InvalidInputException("Query not allowed by security policy");
 	}
 
@@ -370,29 +388,6 @@ Value DescribeToolHandler::DescribeQuery(const string &query) const {
 	json += "]}";
 
 	return Value(json);
-}
-
-bool DescribeToolHandler::IsQueryAllowed(const string &query) const {
-	string lower_query = StringUtil::Lower(query);
-
-	// Check denylist first
-	for (const auto &denied : denied_queries) {
-		if (lower_query.find(StringUtil::Lower(denied)) != string::npos) {
-			return false;
-		}
-	}
-
-	// Check allowlist if it exists
-	if (!allowed_queries.empty()) {
-		for (const auto &allowed : allowed_queries) {
-			if (lower_query.find(StringUtil::Lower(allowed)) != string::npos) {
-				return true;
-			}
-		}
-		return false; // Not in allowlist
-	}
-
-	return true; // No restrictions
 }
 
 //===--------------------------------------------------------------------===//
@@ -441,8 +436,8 @@ CallToolResult ExportToolHandler::Execute(const Value &arguments) {
 			}
 		}
 
-		// Security check
-		if (!IsQueryAllowed(query)) {
+		// Security check: parse query and validate statement type
+		if (!IsQueryAllowedByType(db_instance, query, allowed_queries, denied_queries)) {
 			return CallToolResult::Error("Query not allowed by security policy");
 		}
 
@@ -508,29 +503,6 @@ bool ExportToolHandler::ExportToFile(QueryResult &result, const string &format, 
 	} catch (const std::exception &e) {
 		return false;
 	}
-}
-
-bool ExportToolHandler::IsQueryAllowed(const string &query) const {
-	string lower_query = StringUtil::Lower(query);
-
-	// Check denylist first
-	for (const auto &denied : denied_queries) {
-		if (lower_query.find(StringUtil::Lower(denied)) != string::npos) {
-			return false;
-		}
-	}
-
-	// Check allowlist if it exists
-	if (!allowed_queries.empty()) {
-		for (const auto &allowed : allowed_queries) {
-			if (lower_query.find(StringUtil::Lower(allowed)) != string::npos) {
-				return true;
-			}
-		}
-		return false; // Not in allowlist
-	}
-
-	return true; // No restrictions
 }
 
 string ExportToolHandler::FormatData(QueryResult &result, const string &format) const {
@@ -1147,8 +1119,10 @@ Value DatabaseInfoToolHandler::GetExtensionsInfo() const {
 // ExecuteToolHandler Implementation
 //===--------------------------------------------------------------------===//
 
-ExecuteToolHandler::ExecuteToolHandler(DatabaseInstance &db, bool allow_ddl, bool allow_dml)
-    : db_instance(db), allow_ddl(allow_ddl), allow_dml(allow_dml) {
+ExecuteToolHandler::ExecuteToolHandler(DatabaseInstance &db, bool allow_ddl, bool allow_dml,
+                                       bool allow_load, bool allow_attach, bool allow_set)
+    : db_instance(db), allow_ddl(allow_ddl), allow_dml(allow_dml),
+      allow_load(allow_load), allow_attach(allow_attach), allow_set(allow_set) {
 }
 
 CallToolResult ExecuteToolHandler::Execute(const Value &arguments) {
@@ -1233,22 +1207,47 @@ ToolInputSchema ExecuteToolHandler::GetInputSchema() const {
 	return schema;
 }
 
-bool ExecuteToolHandler::IsDDLStatement(StatementType type) const {
+bool ExecuteToolHandler::IsSafeDDLStatement(StatementType type) const {
+	// Safe DDL: structural changes that don't load code or change settings
 	switch (type) {
 	case StatementType::CREATE_STATEMENT:
 	case StatementType::DROP_STATEMENT:
 	case StatementType::ALTER_STATEMENT:
-	case StatementType::ATTACH_STATEMENT:
-	case StatementType::DETACH_STATEMENT:
-	case StatementType::LOAD_STATEMENT:
 	case StatementType::VACUUM_STATEMENT:
 	case StatementType::ANALYZE_STATEMENT:
-	case StatementType::VARIABLE_SET_STATEMENT:
-	case StatementType::SET_STATEMENT:
 	case StatementType::TRANSACTION_STATEMENT:
-	case StatementType::PRAGMA_STATEMENT:
-	case StatementType::COPY_DATABASE_STATEMENT:
+		return true;
+	default:
+		return false;
+	}
+}
+
+bool ExecuteToolHandler::IsLoadStatement(StatementType type) const {
+	switch (type) {
+	case StatementType::LOAD_STATEMENT:
 	case StatementType::UPDATE_EXTENSIONS_STATEMENT:
+		return true;
+	default:
+		return false;
+	}
+}
+
+bool ExecuteToolHandler::IsAttachStatement(StatementType type) const {
+	switch (type) {
+	case StatementType::ATTACH_STATEMENT:
+	case StatementType::DETACH_STATEMENT:
+	case StatementType::COPY_DATABASE_STATEMENT:
+		return true;
+	default:
+		return false;
+	}
+}
+
+bool ExecuteToolHandler::IsSetStatement(StatementType type) const {
+	switch (type) {
+	case StatementType::SET_STATEMENT:
+	case StatementType::VARIABLE_SET_STATEMENT:
+	case StatementType::PRAGMA_STATEMENT:
 		return true;
 	default:
 		return false;
@@ -1273,13 +1272,24 @@ bool ExecuteToolHandler::IsAllowedStatement(StatementType type) const {
 		return false;
 	}
 
-	// Check DDL permissions
-	if (IsDDLStatement(type) && !allow_ddl) {
+	// Check DML permissions
+	if (IsDMLStatement(type) && !allow_dml) {
 		return false;
 	}
 
-	// Check DML permissions
-	if (IsDMLStatement(type) && !allow_dml) {
+	// Check safe DDL permissions
+	if (IsSafeDDLStatement(type) && !allow_ddl) {
+		return false;
+	}
+
+	// Check dangerous DDL subcategories (each requires its own flag)
+	if (IsLoadStatement(type) && !allow_load) {
+		return false;
+	}
+	if (IsAttachStatement(type) && !allow_attach) {
+		return false;
+	}
+	if (IsSetStatement(type) && !allow_set) {
 		return false;
 	}
 
