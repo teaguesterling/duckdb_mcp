@@ -255,10 +255,24 @@ MCPConnectionParams ParseMCPAttachParams(const AttachInfo &info) {
 
 	// Try structured parameters with JSON parsing (new format)
 	// Note: DuckDB lowercases option names automatically
-	if (info.options.find("transport") != info.options.end() || info.options.find("args") != info.options.end() ||
+	if (info.options.find("transport") != info.options.end() || info.options.find("command") != info.options.end() ||
+	    info.options.find("args") != info.options.end() ||
 	    info.options.find("cwd") != info.options.end() || info.options.find("env") != info.options.end()) {
-		// The path is used literally as command or URL
-		params.command = info.path;
+		// Resolve command: explicit COMMAND option takes priority over ATTACH path
+		if (info.options.find("command") != info.options.end()) {
+			auto cmd_value = info.options.at("command");
+			if (!cmd_value.IsNull() && !cmd_value.ToString().empty()) {
+				params.command = cmd_value.ToString();
+			} else if (!info.path.empty()) {
+				params.command = info.path;
+			} else {
+				throw InvalidInputException("COMMAND option is empty and no ATTACH path provided");
+			}
+		} else if (!info.path.empty()) {
+			params.command = info.path;
+		} else {
+			throw InvalidInputException("No command specified: provide a COMMAND option or ATTACH path");
+		}
 
 		// Parse TRANSPORT parameter (simple string)
 		if (info.options.find("transport") != info.options.end()) {

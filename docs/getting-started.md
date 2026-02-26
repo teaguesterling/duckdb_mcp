@@ -52,7 +52,7 @@ INSERT INTO products VALUES
     (3, 'Gizmo', 14.99, 'Electronics');
 
 -- Start the MCP server (stdio transport for CLI integration)
-SELECT mcp_server_start('stdio', 'localhost', 0, '{}');
+PRAGMA mcp_server_start('stdio');
 ```
 
 ### 2. Run the Server

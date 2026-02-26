@@ -18,8 +18,8 @@ When running as an MCP server, DuckDB:
 ```sql
 LOAD 'duckdb_mcp';
 
--- Start with default settings
-SELECT mcp_server_start('stdio', 'localhost', 0, '{}');
+-- Start with default settings (PRAGMA produces no output)
+PRAGMA mcp_server_start('stdio');
 ```
 
 The server blocks and waits for requests on stdin, responding on stdout.
@@ -27,7 +27,7 @@ The server blocks and waits for requests on stdin, responding on stdout.
 ### Server with Configuration
 
 ```sql
-SELECT mcp_server_start('stdio', 'localhost', 0, '{
+PRAGMA mcp_server_start('stdio', '{
     "enable_execute_tool": false,
     "default_result_format": "markdown"
 }');
@@ -37,10 +37,13 @@ SELECT mcp_server_start('stdio', 'localhost', 0, '{
 
 | Transport | Command | Use Case |
 |-----------|---------|----------|
-| stdio | `mcp_server_start('stdio', ...)` | CLI tools, Claude Desktop |
-| memory | `mcp_server_start('memory', ...)` | Testing |
-| tcp | `mcp_server_start('tcp', 'host', port, ...)` | Network servers |
-| websocket | `mcp_server_start('websocket', 'host', port, ...)` | Browser clients |
+| stdio | `PRAGMA mcp_server_start('stdio')` | CLI tools, Claude Desktop |
+| memory | `PRAGMA mcp_server_start('memory')` | Testing |
+| http | `PRAGMA mcp_server_start('http', 'host', port, '{}')` | REST clients |
+| https | `PRAGMA mcp_server_start('https', 'host', port, '{}')` | Secure web apps |
+
+!!! tip "PRAGMA vs SELECT"
+    All server lifecycle and publishing functions support both `PRAGMA` (no output) and `SELECT` (returns status) syntax. Use `PRAGMA` in init scripts for clean output; use `SELECT` when you need the return value.
 
 ## Built-in Tools
 
@@ -138,14 +141,13 @@ Run DDL/DML statements:
 Expose tables for clients to read:
 
 ```sql
--- Publish as JSON
-SELECT mcp_publish_table('products', 'data://tables/products', 'json');
+-- Simple form (auto-generates URI, defaults to json)
+PRAGMA mcp_publish_table('products');
 
--- Publish as CSV
-SELECT mcp_publish_table('orders', 'data://tables/orders', 'csv');
-
--- Publish as Markdown
-SELECT mcp_publish_table('users', 'data://tables/users', 'markdown');
+-- Full form with explicit URI and format
+PRAGMA mcp_publish_table('products', 'data://tables/products', 'json');
+PRAGMA mcp_publish_table('orders', 'data://tables/orders', 'csv');
+PRAGMA mcp_publish_table('users', 'data://tables/users', 'markdown');
 ```
 
 Clients can then read these resources:
@@ -162,16 +164,14 @@ Clients can then read these resources:
 Publish query results with optional refresh:
 
 ```sql
--- Static query result
-SELECT mcp_publish_query(
+-- Simple form (just query and URI)
+PRAGMA mcp_publish_query(
     'SELECT category, COUNT(*) as count FROM products GROUP BY category',
-    'data://reports/product_counts',
-    'json',
-    0
+    'data://reports/product_counts'
 );
 
--- Auto-refreshing every hour
-SELECT mcp_publish_query(
+-- Full form with format and auto-refresh (every hour)
+PRAGMA mcp_publish_query(
     'SELECT * FROM recent_orders WHERE created_at > NOW() - INTERVAL 24 HOURS',
     'data://reports/daily_orders',
     'json',
@@ -186,7 +186,7 @@ Create domain-specific tools that wrap SQL queries:
 ### Basic Custom Tool
 
 ```sql
-SELECT mcp_publish_tool(
+PRAGMA mcp_publish_tool(
     'get_product',
     'Get a product by ID',
     'SELECT * FROM products WHERE id = $id',
@@ -207,7 +207,7 @@ Clients call it with:
 ### Tool with Multiple Parameters
 
 ```sql
-SELECT mcp_publish_tool(
+PRAGMA mcp_publish_tool(
     'search_orders',
     'Search orders by customer and date range',
     'SELECT * FROM orders
@@ -226,7 +226,7 @@ SELECT mcp_publish_tool(
 ### Tool with Optional Parameters
 
 ```sql
-SELECT mcp_publish_tool(
+PRAGMA mcp_publish_tool(
     'list_products',
     'List products with optional filters',
     'SELECT * FROM products
@@ -245,7 +245,7 @@ SELECT mcp_publish_tool(
 ### Tool with Custom Output Format
 
 ```sql
-SELECT mcp_publish_tool(
+PRAGMA mcp_publish_tool(
     'inventory_report',
     'Generate inventory summary',
     'SELECT
@@ -264,7 +264,7 @@ SELECT mcp_publish_tool(
 
 ## Init Script Pattern
 
-Create an init script for your server:
+Create an init script for your server. Use `PRAGMA` syntax for side-effectful operations — no output clutter:
 
 ```sql
 -- init-server.sql
@@ -294,8 +294,8 @@ INSERT INTO products VALUES
     (3, 'Gizmo', 14.99, 'Electronics')
 ON CONFLICT DO NOTHING;
 
--- Publish custom tools
-SELECT mcp_publish_tool(
+-- Publish custom tools (queued until server starts)
+PRAGMA mcp_publish_tool(
     'products_by_category',
     'Get products in a category',
     'SELECT * FROM products WHERE category = $category',
@@ -304,8 +304,10 @@ SELECT mcp_publish_tool(
     'markdown'
 );
 
+PRAGMA mcp_publish_table('products');
+
 -- Start server
-SELECT mcp_server_start('stdio', 'localhost', 0, '{
+PRAGMA mcp_server_start('stdio', '{
     "enable_execute_tool": false,
     "default_result_format": "markdown"
 }');
@@ -371,7 +373,7 @@ Returns:
 5. **Validate inputs in SQL** when possible:
 
    ```sql
-   SELECT mcp_publish_tool(
+   PRAGMA mcp_publish_tool(
        'safe_lookup',
        'Lookup by ID (validated)',
        'SELECT * FROM items WHERE id = CAST($id AS INTEGER) LIMIT 1',
@@ -383,6 +385,6 @@ Returns:
 6. **Test with memory transport** before deploying:
 
    ```sql
-   SELECT mcp_server_start('memory', 'localhost', 0, '{}');
+   PRAGMA mcp_server_start('memory');
    SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}');
    ```

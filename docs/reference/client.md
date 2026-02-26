@@ -9,10 +9,21 @@ These functions are used when DuckDB acts as an MCP client, connecting to extern
 Attach an MCP server as a named connection:
 
 ```sql
+-- Command as the ATTACH path (original syntax)
 ATTACH '<command>' AS <server_name> (
     TYPE mcp,
-    TRANSPORT '<transport>',
-    ARGS '<json_array>',
+    [TRANSPORT '<transport>'],
+    [ARGS '<json_array>'],
+    [CWD '<working_directory>'],
+    [ENV '<json_object>']
+);
+
+-- Command as an explicit option (new syntax)
+ATTACH '' AS <server_name> (
+    TYPE mcp,
+    COMMAND '<command>',
+    [TRANSPORT '<transport>'],
+    [ARGS '<json_array>'],
     [CWD '<working_directory>'],
     [ENV '<json_object>']
 );
@@ -22,19 +33,30 @@ ATTACH '<command>' AS <server_name> (
 
 | Parameter | Description |
 |-----------|-------------|
-| `command` | The executable to run (e.g., `python3`, `node`) |
+| `command` (path) | The executable to run, specified as the ATTACH path |
+| `COMMAND` (option) | The executable to run, specified as an explicit option. Takes priority over the path. |
 | `server_name` | Alias to reference this server in queries |
 | `TRANSPORT` | Transport protocol: `stdio` (default), `tcp`, `websocket` |
 | `ARGS` | JSON array of command-line arguments |
 | `CWD` | Working directory for the server process |
 | `ENV` | JSON object of environment variables |
 
+!!! tip "COMMAND option vs path"
+    The `COMMAND` option provides the same functionality as the ATTACH path but is more explicit. When both are provided, `COMMAND` takes priority. Use `COMMAND` when you want to keep the path slot empty or use it for a display name.
+
 **Examples:**
 
 ```sql
--- Simple stdio server
+-- Simple stdio server (command as path)
 ATTACH 'python3' AS my_server (
     TYPE mcp,
+    ARGS '["server.py"]'
+);
+
+-- Using explicit COMMAND option
+ATTACH '' AS my_server (
+    TYPE mcp,
+    COMMAND 'python3',
     ARGS '["server.py"]'
 );
 

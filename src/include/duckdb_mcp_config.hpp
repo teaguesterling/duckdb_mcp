@@ -24,6 +24,7 @@ struct MCPConfiguration {
 	bool allow_write_queries = true;
 	string transport = "stdio";
 	unordered_map<string, Value> custom_settings;
+	bool config_mode = false;
 };
 
 // Global configuration management
@@ -35,6 +36,8 @@ private:
 public:
 	static MCPConfiguration &GetConfig(DatabaseInstance &db);
 	static void SetConfig(DatabaseInstance &db, unique_ptr<MCPConfiguration> config);
+	static bool IsConfigMode(DatabaseInstance &db);
+	static void SetConfigMode(DatabaseInstance &db, bool mode);
 };
 
 } // namespace duckdb

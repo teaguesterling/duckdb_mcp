@@ -4,6 +4,38 @@ All notable changes to the DuckDB MCP Extension.
 
 ---
 
+## v1.5.2
+
+### New Features
+
+**PRAGMA Functions**
+
+- All server management and publishing functions now have `PRAGMA` versions that produce no output
+- `PRAGMA mcp_server_start('transport')`, `PRAGMA mcp_server_stop`, etc.
+- `PRAGMA mcp_publish_tool(...)`, `PRAGMA mcp_publish_table(...)`, `PRAGMA mcp_publish_query(...)`, `PRAGMA mcp_publish_resource(...)`, `PRAGMA mcp_register_prompt_template(...)`
+- PRAGMA versions support the same queuing behavior as SELECT versions (publish before server starts)
+- Recommended for init scripts where return values are not needed
+
+**Config Mode**
+
+- `PRAGMA mcp_config_begin` / `PRAGMA mcp_config_end` to suppress output from SELECT versions of MCP functions
+- Useful for backward compatibility with existing `SELECT`-based init scripts
+- Side effects still execute; only the result output is suppressed
+
+**COMMAND Option in ATTACH**
+
+- New `COMMAND` option for the `ATTACH` statement: `ATTACH '' AS srv (TYPE mcp, COMMAND 'python3', ARGS '["server.py"]')`
+- Provides an explicit alternative to overloading the ATTACH path slot
+- When both `COMMAND` and a path are provided, `COMMAND` takes priority
+
+### Internal Changes
+
+- Refactored server functions to extract `*Core()` implementations (taking `ClientContext &`) from scalar wrappers
+- PRAGMA wrappers and scalar wrappers both delegate to the same core functions
+- Config mode flag stored in `MCPConfiguration` struct, accessed via `MCPConfigManager::IsConfigMode()`
+
+---
+
 ## v1.4.0
 
 ### New Features
