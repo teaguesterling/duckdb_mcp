@@ -1,0 +1,57 @@
+# name: test/sql/mcp_attach_command_option.test
+# description: Test COMMAND option in ATTACH for MCP client connections
+# group: [sql]
+
+# This test verifies the COMMAND option works in structured ATTACH mode.
+# Since we can't actually connect to MCP servers in unit tests (no external
+# processes), we test that the parsing works correctly by checking that
+# invalid commands produce appropriate security errors.
+
+require duckdb_mcp
+
+statement ok
+LOAD duckdb_mcp;
+
+# =============================================================================
+# SECTION 1: COMMAND option triggers structured mode
+# =============================================================================
+
+# Using COMMAND option with transport should trigger structured mode.
+# This will fail at security validation (not in allowed commands),
+# which proves the COMMAND option was parsed successfully.
+statement error
+ATTACH '' AS cmd_test (TYPE mcp, COMMAND 'nonexistent_binary', TRANSPORT 'stdio');
+----
+not allowed
+
+# =============================================================================
+# SECTION 2: COMMAND option without path
+# =============================================================================
+
+# COMMAND alone (no TRANSPORT, ARGS, etc.) should still trigger structured mode
+statement error
+ATTACH '' AS cmd_only_test (TYPE mcp, COMMAND 'some_command');
+----
+not allowed
+
+# =============================================================================
+# SECTION 3: COMMAND takes priority over path
+# =============================================================================
+
+# When both path and COMMAND are provided, COMMAND wins.
+# The error message should reference the COMMAND value ('command_value'), not the path.
+statement error
+ATTACH 'path_value' AS priority_test (TYPE mcp, COMMAND 'command_value', TRANSPORT 'stdio');
+----
+command_value
+
+# =============================================================================
+# SECTION 4: Empty COMMAND falls back to path
+# =============================================================================
+
+# When COMMAND is empty but path is provided, path is used as fallback.
+# The error should reference the path value.
+statement error
+ATTACH 'fallback_path' AS fallback_test (TYPE mcp, COMMAND '', TRANSPORT 'stdio');
+----
+fallback_path

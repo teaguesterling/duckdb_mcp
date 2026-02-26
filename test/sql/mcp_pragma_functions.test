@@ -1,0 +1,272 @@
+# name: test/sql/mcp_pragma_functions.test
+# description: Test PRAGMA versions of MCP server functions and config mode
+# group: [sql]
+
+require duckdb_mcp
+
+statement ok
+LOAD duckdb_mcp;
+
+# =============================================================================
+# SETUP: Force clean state
+# =============================================================================
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# SECTION 1: PRAGMA mcp_server_start / mcp_server_stop lifecycle
+# =============================================================================
+
+# Start server via PRAGMA (no output, just succeeds)
+statement ok
+PRAGMA mcp_server_start('memory');
+
+# Verify server is actually running via SELECT (status query is not a PRAGMA)
+query I
+SELECT (mcp_server_status()).running;
+----
+true
+
+# Stop server via PRAGMA
+statement ok
+PRAGMA mcp_server_stop;
+
+# Verify server is stopped
+query I
+SELECT (mcp_server_status()).running;
+----
+false
+
+# =============================================================================
+# SECTION 2: PRAGMA mcp_server_start with config JSON
+# =============================================================================
+
+statement ok
+PRAGMA mcp_server_start('memory', '{"background": true}');
+
+query I
+SELECT (mcp_server_status()).running;
+----
+true
+
+# Force stop via PRAGMA
+statement ok
+PRAGMA mcp_server_stop(true);
+
+query I
+SELECT (mcp_server_status()).running;
+----
+false
+
+# =============================================================================
+# SECTION 3: PRAGMA publish functions (before server starts = queued)
+# =============================================================================
+
+# Create test table
+statement ok
+CREATE TABLE IF NOT EXISTS pragma_products AS SELECT 1 as id, 'Widget' as name, 10.99 as price;
+
+# Publish tool via PRAGMA (queued silently)
+statement ok
+PRAGMA mcp_publish_tool('pragma_tool', 'Test tool via PRAGMA', 'SELECT * FROM pragma_products WHERE id = $id', '{"id":{"type":"integer"}}', '["id"]');
+
+# Publish table via PRAGMA (simple form)
+statement ok
+PRAGMA mcp_publish_table('pragma_products');
+
+# Publish table via PRAGMA (full form)
+statement ok
+PRAGMA mcp_publish_table('pragma_products', 'data://pragma-products-custom', 'json');
+
+# Publish query via PRAGMA (simple form)
+statement ok
+PRAGMA mcp_publish_query('SELECT COUNT(*) as cnt FROM pragma_products', 'data://pragma-count');
+
+# Publish resource via PRAGMA
+statement ok
+PRAGMA mcp_publish_resource('info://pragma-test', 'Hello from PRAGMA', 'text/plain', 'Test resource');
+
+# Register prompt template via PRAGMA
+statement ok
+PRAGMA mcp_register_prompt_template('pragma_prompt', 'A test prompt', 'Hello {name}, welcome to {place}!');
+
+# =============================================================================
+# SECTION 4: Start server and verify queued items are registered
+# =============================================================================
+
+statement ok
+PRAGMA mcp_server_start('memory');
+
+# Verify the tool was registered
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}') LIKE '%pragma_tool%';
+----
+true
+
+# Verify the table resource was registered (default URI)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":2,"method":"resources/list","params":{}}') LIKE '%data://tables/pragma_products%';
+----
+true
+
+# Verify the custom-URI table resource
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":3,"method":"resources/list","params":{}}') LIKE '%data://pragma-products-custom%';
+----
+true
+
+# Verify the query resource
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":4,"method":"resources/list","params":{}}') LIKE '%data://pragma-count%';
+----
+true
+
+# Verify the static resource
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":5,"method":"resources/list","params":{}}') LIKE '%info://pragma-test%';
+----
+true
+
+# Verify the tool actually works
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"pragma_tool","arguments":{"id":1}}}') LIKE '%Widget%';
+----
+true
+
+# Read the static resource content
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":7,"method":"resources/read","params":{"uri":"info://pragma-test"}}') LIKE '%Hello from PRAGMA%';
+----
+true
+
+# =============================================================================
+# SECTION 5: PRAGMA publish while server is running (immediate registration)
+# =============================================================================
+
+# Publish tool via PRAGMA while server is running
+statement ok
+PRAGMA mcp_publish_tool('pragma_live_tool', 'Live tool', 'SELECT 42 as answer', '{}', '[]');
+
+# Verify it's immediately available
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":10,"method":"tools/list","params":{}}') LIKE '%pragma_live_tool%';
+----
+true
+
+# Publish tool with format via PRAGMA
+statement ok
+PRAGMA mcp_publish_tool('pragma_md_tool', 'Markdown tool', 'SELECT 1 as x', '{}', '[]', 'markdown');
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":11,"method":"tools/list","params":{}}') LIKE '%pragma_md_tool%';
+----
+true
+
+# Publish query with full args via PRAGMA
+statement ok
+PRAGMA mcp_publish_query('SELECT 99 as val', 'data://pragma-99', 'json', 0);
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":12,"method":"resources/list","params":{}}') LIKE '%data://pragma-99%';
+----
+true
+
+# =============================================================================
+# SECTION 6: Config mode — suppress SELECT output
+# =============================================================================
+
+# First, stop and restart clean for config mode test
+statement ok
+PRAGMA mcp_server_stop(true);
+
+# Enter config mode
+statement ok
+PRAGMA mcp_config_begin;
+
+# In config mode, SELECT versions produce empty/minimal output
+# Server start — returns minimal status struct
+query I
+SELECT (mcp_server_start('memory')).message;
+----
+(empty)
+
+# Publish tool — returns empty string
+query I
+SELECT mcp_publish_tool('config_tool', 'Tool in config mode', 'SELECT 1', '{}', '[]');
+----
+(empty)
+
+# Publish table — returns empty string
+query I
+SELECT mcp_publish_table('pragma_products', 'data://config-products', 'json');
+----
+(empty)
+
+# Publish resource — returns empty string
+query I
+SELECT mcp_publish_resource('info://config-res', 'Config content', 'text/plain', 'desc');
+----
+(empty)
+
+# Register template — returns empty string
+query I
+SELECT mcp_register_prompt_template('config_prompt', 'desc', 'template {x}');
+----
+(empty)
+
+# Exit config mode
+statement ok
+PRAGMA mcp_config_end;
+
+# After config_end, output is back to normal
+query I
+SELECT mcp_publish_resource('info://after-config', 'After config', 'text/plain', 'desc') LIKE 'SUCCESS%';
+----
+true
+
+# Verify the config-mode operations actually took effect
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":20,"method":"tools/list","params":{}}') LIKE '%config_tool%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":21,"method":"resources/list","params":{}}') LIKE '%data://config-products%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":22,"method":"resources/list","params":{}}') LIKE '%info://config-res%';
+----
+true
+
+# =============================================================================
+# SECTION 7: Config mode idempotency
+# =============================================================================
+
+# Calling config_begin twice is harmless
+statement ok
+PRAGMA mcp_config_begin;
+
+statement ok
+PRAGMA mcp_config_begin;
+
+# Calling config_end restores normal output
+statement ok
+PRAGMA mcp_config_end;
+
+query I
+SELECT mcp_publish_resource('info://idempotent', 'test', 'text/plain', '') LIKE 'SUCCESS%';
+----
+true
+
+# =============================================================================
+# Cleanup
+# =============================================================================
+
+statement ok
+SELECT mcp_server_stop(true);
+
+statement ok
+DROP TABLE IF EXISTS pragma_products;

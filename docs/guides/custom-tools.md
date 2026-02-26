@@ -15,7 +15,7 @@ Custom tools let you expose domain-specific SQL queries as named operations that
 ### Simple Example
 
 ```sql
-SELECT mcp_publish_tool(
+PRAGMA mcp_publish_tool(
     'get_user',                                    -- Tool name
     'Retrieve user information by ID',             -- Description
     'SELECT * FROM users WHERE id = $id',          -- SQL template
@@ -38,7 +38,7 @@ The client calls it with:
 Parameters use `$name` syntax in the SQL template:
 
 ```sql
-SELECT mcp_publish_tool(
+PRAGMA mcp_publish_tool(
     'search_products',
     'Search products by name and category',
     'SELECT * FROM products
@@ -102,7 +102,7 @@ The parameter schema follows JSON Schema format:
 The fifth argument specifies which parameters are required:
 
 ```sql
-SELECT mcp_publish_tool(
+PRAGMA mcp_publish_tool(
     'list_orders',
     'List orders with optional filters',
     'SELECT * FROM orders
@@ -130,7 +130,7 @@ For required parameters:
 Specify the output format with the optional 6th parameter:
 
 ```sql
-SELECT mcp_publish_tool(
+PRAGMA mcp_publish_tool(
     'sales_report',
     'Generate sales report',
     'SELECT region, SUM(amount) as total FROM sales GROUP BY region',
@@ -153,7 +153,7 @@ SELECT mcp_publish_tool(
 ### Aggregation Tools
 
 ```sql
-SELECT mcp_publish_tool(
+PRAGMA mcp_publish_tool(
     'revenue_summary',
     'Get revenue summary by time period',
     'SELECT
@@ -183,7 +183,7 @@ SELECT mcp_publish_tool(
 ### Search with LIKE Patterns
 
 ```sql
-SELECT mcp_publish_tool(
+PRAGMA mcp_publish_tool(
     'search_customers',
     'Search customers by name or email',
     'SELECT id, name, email, created_at
@@ -203,7 +203,7 @@ SELECT mcp_publish_tool(
 ### Join Queries
 
 ```sql
-SELECT mcp_publish_tool(
+PRAGMA mcp_publish_tool(
     'order_details',
     'Get full order details including items and customer',
     'SELECT
@@ -228,7 +228,7 @@ SELECT mcp_publish_tool(
 ### Computed Analytics
 
 ```sql
-SELECT mcp_publish_tool(
+PRAGMA mcp_publish_tool(
     'customer_lifetime_value',
     'Calculate customer lifetime value metrics',
     'SELECT
@@ -263,7 +263,7 @@ CREATE OR REPLACE MACRO product_search(search_term, category, max_price) AS TABL
     ORDER BY price;
 
 -- Publish as a tool
-SELECT mcp_publish_tool(
+PRAGMA mcp_publish_tool(
     'product_search',
     'Search products with filters',
     'SELECT * FROM product_search($query, $category, $max_price)',
@@ -284,7 +284,7 @@ SELECT mcp_publish_tool(
 Parameters are substituted safely (not concatenated), but validate at the SQL level:
 
 ```sql
-SELECT mcp_publish_tool(
+PRAGMA mcp_publish_tool(
     'get_item',
     'Get item by ID',
     'SELECT * FROM items WHERE id = CAST($id AS INTEGER) LIMIT 1',
@@ -316,10 +316,10 @@ Use the memory transport to test tools:
 
 ```sql
 -- Start test server
-SELECT mcp_server_start('memory', 'localhost', 0, '{}');
+PRAGMA mcp_server_start('memory');
 
 -- Publish tool
-SELECT mcp_publish_tool('test_tool', 'Test', 'SELECT $x + $y as sum',
+PRAGMA mcp_publish_tool('test_tool', 'Test', 'SELECT $x + $y as sum',
     '{"x": {"type": "integer"}, "y": {"type": "integer"}}', '["x", "y"]');
 
 -- Initialize

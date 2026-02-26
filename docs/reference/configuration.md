@@ -203,8 +203,11 @@ The recommended pattern for MCP servers is an init script that:
 
 1. Loads the extension
 2. Sets up the database (create tables, load data)
-3. Configures security settings
-4. Starts the MCP server
+3. Publishes custom tools and resources
+4. Configures security settings
+5. Starts the MCP server
+
+Use `PRAGMA` syntax for side-effectful operations — it produces no output, keeping init scripts clean.
 
 **Example: `init-server.sql`**
 
@@ -219,23 +222,42 @@ CREATE TABLE IF NOT EXISTS products (
     price DECIMAL(10,2)
 );
 
--- Load data if table is empty
 INSERT INTO products
 SELECT * FROM read_csv('data/products.csv')
 WHERE NOT EXISTS (SELECT 1 FROM products);
 
--- 3. Configure (optional)
+-- 3. Publish custom tools (queued until server starts)
+PRAGMA mcp_publish_tool(
+    'search_products',
+    'Search products by name',
+    'SELECT * FROM products WHERE name ILIKE ''%'' || $query || ''%''',
+    '{"query": {"type": "string", "description": "Search term"}}',
+    '["query"]',
+    'markdown'
+);
+
+PRAGMA mcp_publish_table('products');
+
+-- 4. Configure (optional)
 -- SET allowed_mcp_commands = '...';
 
--- 4. Start server
-SELECT mcp_server_start('stdio', 'localhost', 0, '{
-    "enable_execute_tool": false,
-    "default_result_format": "markdown"
-}');
+-- 5. Start server
+PRAGMA mcp_server_start('stdio', '{"default_result_format": "markdown"}');
 ```
 
 Run with:
 
 ```bash
 duckdb -init init-server.sql
+```
+
+### Config Mode (Legacy)
+
+If you have existing init scripts using `SELECT` syntax and want to suppress their output without rewriting to `PRAGMA`, use config mode:
+
+```sql
+PRAGMA mcp_config_begin;
+SELECT mcp_server_start('stdio', '{"default_result_format": "markdown"}');
+SELECT mcp_publish_tool('search', 'Search', 'SELECT 1', '{}', '[]');
+PRAGMA mcp_config_end;
 ```

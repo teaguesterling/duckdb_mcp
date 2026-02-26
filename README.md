@@ -25,7 +25,7 @@ LOAD 'duckdb_mcp';
 CREATE TABLE products (id INT, name VARCHAR, price DECIMAL(10,2));
 INSERT INTO products VALUES (1, 'Widget', 9.99), (2, 'Gadget', 24.99);
 
-SELECT mcp_server_start('stdio', 'localhost', 0, '{}');
+PRAGMA mcp_server_start('stdio');
 ```
 
 Add to Claude Desktop configuration:
@@ -51,7 +51,7 @@ Run DuckDB as an HTTP server that any HTTP client can connect to:
 LOAD 'duckdb_mcp';
 
 -- Start HTTP server with authentication
-SELECT mcp_server_start('http', 'localhost', 8080, '{"auth_token": "secret"}');
+PRAGMA mcp_server_start('http', 'localhost', 8080, '{"auth_token": "secret"}');
 ```
 
 Then connect via HTTP:
@@ -96,7 +96,7 @@ SELECT mcp_call_tool('server', 'analyze', '{"dataset": "sales"}');
 ## Publishing Custom Tools
 
 ```sql
-SELECT mcp_publish_tool(
+PRAGMA mcp_publish_tool(
     'search_products',
     'Search products by name',
     'SELECT * FROM products WHERE name ILIKE ''%'' || $query || ''%''',
@@ -105,6 +105,17 @@ SELECT mcp_publish_tool(
     'markdown'
 );
 ```
+
+## PRAGMA vs SELECT
+
+All server management and publishing functions are available in two forms:
+
+| Form | When to use | Example |
+|------|-------------|---------|
+| `PRAGMA` | Init scripts, fire-and-forget | `PRAGMA mcp_server_start('stdio');` |
+| `SELECT` | When you need the return value | `SELECT mcp_server_status();` |
+
+`PRAGMA` versions produce no output, making init scripts clean. `SELECT` versions return status messages or structs.
 
 ## Documentation
 

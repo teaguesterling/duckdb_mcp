@@ -4,12 +4,22 @@ These functions are used when DuckDB runs as an MCP server, exposing your databa
 
 ## Server Lifecycle
 
+All server lifecycle functions are available as both `SELECT` (returns a result) and `PRAGMA` (silent, no output). Use `PRAGMA` in init scripts where you don't need the return value.
+
 ### mcp_server_start
 
 Start the MCP server.
 
 ```sql
-mcp_server_start(transport, host, port, config) → VARCHAR
+-- As PRAGMA (recommended for init scripts — no output)
+PRAGMA mcp_server_start('transport');
+PRAGMA mcp_server_start('transport', 'config_json');
+PRAGMA mcp_server_start('transport', 'host', port, 'config_json');
+
+-- As SELECT (returns status struct)
+SELECT mcp_server_start('transport');
+SELECT mcp_server_start('transport', 'config_json');
+SELECT mcp_server_start('transport', 'host', port, 'config_json');
 ```
 
 **Parameters:**
@@ -33,32 +43,17 @@ mcp_server_start(transport, host, port, config) → VARCHAR
 **Examples:**
 
 ```sql
--- Stdio for Claude Desktop integration
-SELECT mcp_server_start('stdio', 'localhost', 0, '{}');
+-- Stdio for Claude Desktop integration (PRAGMA — clean, no output)
+PRAGMA mcp_server_start('stdio');
 
--- Memory transport for testing
-SELECT mcp_server_start('memory', 'localhost', 0, '{}');
+-- With configuration
+PRAGMA mcp_server_start('stdio', '{"default_result_format": "markdown"}');
 
--- HTTP server on port 8080
-SELECT mcp_server_start('http', 'localhost', 8080, '{}');
+-- Full form with host/port for HTTP
+PRAGMA mcp_server_start('http', 'localhost', 8080, '{"auth_token": "secret"}');
 
--- HTTP with authentication
-SELECT mcp_server_start('http', 'localhost', 8080, '{
-    "auth_token": "your-secret-token"
-}');
-
--- HTTPS with SSL certificates
-SELECT mcp_server_start('https', 'localhost', 8443, '{
-    "auth_token": "your-secret-token",
-    "ssl_cert_path": "/path/to/cert.pem",
-    "ssl_key_path": "/path/to/key.pem"
-}');
-
--- With tool configuration
-SELECT mcp_server_start('stdio', 'localhost', 0, '{
-    "enable_execute_tool": false,
-    "default_result_format": "markdown"
-}');
+-- SELECT form when you need the status struct
+SELECT mcp_server_start('memory');
 ```
 
 ---
@@ -68,10 +63,19 @@ SELECT mcp_server_start('stdio', 'localhost', 0, '{
 Stop the running MCP server.
 
 ```sql
-mcp_server_stop() → VARCHAR
+-- As PRAGMA (no output)
+PRAGMA mcp_server_stop;          -- no-arg form (no parentheses)
+PRAGMA mcp_server_stop(true);    -- with force option
+
+-- As SELECT (returns status struct)
+SELECT mcp_server_stop();
+SELECT mcp_server_stop(true);
 ```
 
-**Returns:** Status message confirming shutdown.
+!!! note "PRAGMA Statement syntax"
+    No-argument PRAGMAs use statement syntax: `PRAGMA mcp_server_stop;` (no parentheses). PRAGMAs with arguments use call syntax: `PRAGMA mcp_server_stop(true);`.
+
+**Returns** (SELECT form): Status struct confirming shutdown.
 
 ---
 
@@ -109,7 +113,12 @@ SELECT mcp_server_status();
 Publish a table as an MCP resource.
 
 ```sql
-mcp_publish_table(table_name, uri, format) → VARCHAR
+-- As PRAGMA (no output)
+PRAGMA mcp_publish_table('table_name');
+PRAGMA mcp_publish_table('table_name', 'uri', 'format');
+
+-- As SELECT (returns status string)
+SELECT mcp_publish_table('table_name', 'uri', 'format');
 ```
 
 **Parameters:**
@@ -117,13 +126,19 @@ mcp_publish_table(table_name, uri, format) → VARCHAR
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `table_name` | VARCHAR | Name of the table to publish |
-| `uri` | VARCHAR | Resource URI (e.g., `data://tables/products`) |
+| `uri` | VARCHAR | Resource URI (default: `data://tables/<table_name>`) |
 | `format` | VARCHAR | Output format: `json`, `csv`, `markdown` |
 
 **Example:**
 
 ```sql
-SELECT mcp_publish_table('products', 'data://tables/products', 'json');
+-- Simple (auto-generates URI)
+PRAGMA mcp_publish_table('products');
+
+-- With explicit URI and format
+PRAGMA mcp_publish_table('products', 'data://tables/products', 'json');
+
+-- SELECT form when you need the status message
 SELECT mcp_publish_table('users', 'data://tables/users', 'csv');
 ```
 
@@ -140,7 +155,12 @@ SELECT mcp_publish_table('users', 'data://tables/users', 'csv');
 Publish a query result as an MCP resource.
 
 ```sql
-mcp_publish_query(sql, uri, format, refresh_interval) → VARCHAR
+-- As PRAGMA (no output)
+PRAGMA mcp_publish_query('sql', 'uri');
+PRAGMA mcp_publish_query('sql', 'uri', 'format', refresh_interval);
+
+-- As SELECT (returns status string)
+SELECT mcp_publish_query('sql', 'uri', 'format', refresh_interval);
 ```
 
 **Parameters:**
@@ -156,7 +176,7 @@ mcp_publish_query(sql, uri, format, refresh_interval) → VARCHAR
 
 ```sql
 -- Publish a summary that refreshes every hour
-SELECT mcp_publish_query(
+PRAGMA mcp_publish_query(
     'SELECT category, COUNT(*) as count, AVG(price) as avg_price FROM products GROUP BY category',
     'data://reports/product_summary',
     'json',
@@ -174,7 +194,11 @@ SELECT mcp_publish_query(
 Publish static content as an MCP resource. This is useful for configuration files, documentation, or any static data.
 
 ```sql
-mcp_publish_resource(uri, content, mime_type, description) → VARCHAR
+-- As PRAGMA (no output)
+PRAGMA mcp_publish_resource('uri', 'content', 'mime_type', 'description');
+
+-- As SELECT (returns status string)
+SELECT mcp_publish_resource('uri', 'content', 'mime_type', 'description');
 ```
 
 **Parameters:**
@@ -225,16 +249,14 @@ SELECT mcp_publish_resource(
 
 Publish a custom SQL-based tool that MCP clients can execute.
 
-**5-parameter version:**
-
 ```sql
-mcp_publish_tool(name, description, sql_template, properties, required) → VARCHAR
-```
+-- As PRAGMA (no output)
+PRAGMA mcp_publish_tool('name', 'description', 'sql_template', 'properties', 'required');
+PRAGMA mcp_publish_tool('name', 'description', 'sql_template', 'properties', 'required', 'format');
 
-**6-parameter version (with format):**
-
-```sql
-mcp_publish_tool(name, description, sql_template, properties, required, format) → VARCHAR
+-- As SELECT (returns status string)
+SELECT mcp_publish_tool('name', 'description', 'sql_template', 'properties', 'required');
+SELECT mcp_publish_tool('name', 'description', 'sql_template', 'properties', 'required', 'format');
 ```
 
 **Parameters:**
@@ -462,6 +484,25 @@ SELECT mcp_server_send_request('{
 ```
 
 This is invaluable for writing automated tests that verify MCP protocol compliance.
+
+---
+
+## Config Mode
+
+Config mode suppresses output from MCP scalar functions, useful when calling `SELECT` versions of side-effectful functions in init scripts where you don't want result rows cluttering the output.
+
+```sql
+PRAGMA mcp_config_begin;
+-- All SELECT mcp_* calls below return empty/minimal output
+SELECT mcp_server_start('memory', '{"background": true}');
+SELECT mcp_publish_tool('search', 'Search', 'SELECT * FROM t WHERE name ILIKE $q', '{}', '[]');
+SELECT mcp_publish_table('products', NULL, NULL);
+PRAGMA mcp_config_end;
+-- Normal output resumes
+```
+
+!!! tip "Prefer PRAGMA syntax"
+    Config mode exists for backward compatibility with existing `SELECT`-based init scripts. For new scripts, use `PRAGMA` syntax instead — PRAGMA functions naturally produce no output, making `mcp_config_begin`/`mcp_config_end` unnecessary.
 
 ---
 

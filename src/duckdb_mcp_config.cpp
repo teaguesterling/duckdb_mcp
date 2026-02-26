@@ -27,6 +27,24 @@ void MCPConfigManager::SetConfig(DatabaseInstance &db, unique_ptr<MCPConfigurati
 	configs[&db] = std::move(config);
 }
 
+bool MCPConfigManager::IsConfigMode(DatabaseInstance &db) {
+	lock_guard<mutex> lock(config_mutex);
+	auto it = configs.find(&db);
+	if (it == configs.end()) {
+		return false;
+	}
+	return it->second->config_mode;
+}
+
+void MCPConfigManager::SetConfigMode(DatabaseInstance &db, bool mode) {
+	lock_guard<mutex> lock(config_mutex);
+	auto it = configs.find(&db);
+	if (it == configs.end()) {
+		configs[&db] = make_uniq<MCPConfiguration>();
+	}
+	configs[&db]->config_mode = mode;
+}
+
 // Helper function to parse JSON arrays
 static vector<string> ParseJSONArray(Connection &conn, const string &json_array) {
 	vector<string> result;
