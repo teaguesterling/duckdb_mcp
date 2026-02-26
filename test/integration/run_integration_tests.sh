@@ -516,6 +516,128 @@ else
 fi
 
 # ==========================================
+# WebMCP Transport Tests (Native)
+# ==========================================
+log_section "WebMCP Transport Tests (Native)"
+
+# Test 1: Starting webmcp transport fails gracefully in native build
+RESULT=$(run_sql_with_extension "SELECT mcp_server_start('webmcp');")
+if echo "$RESULT" | grep -q "success.*false"; then
+    pass "WebMCP: start('webmcp') fails gracefully in native"
+else
+    fail "WebMCP: start('webmcp') native failure" "success: false" "$RESULT"
+fi
+
+# Test 2: Server not left running after failed webmcp start
+RESULT=$(run_sql_with_extension "
+SELECT mcp_server_start('webmcp');
+SELECT (mcp_server_status()).running;
+")
+if echo "$RESULT" | grep -q "false"; then
+    pass "WebMCP: server not left running after failed start"
+else
+    fail "WebMCP: server state after failed start" "running: false" "$RESULT"
+fi
+
+# Test 3: Memory transport still works after failed webmcp start
+RESULT=$(run_sql_with_extension "
+SELECT mcp_server_start('webmcp');
+SELECT mcp_server_start('memory', 'localhost', 0, '{}');
+")
+if echo "$RESULT" | grep -q "success.*true"; then
+    pass "WebMCP: memory transport works after failed webmcp start"
+else
+    fail "WebMCP: memory after webmcp" "success: true" "$RESULT"
+fi
+
+# Test 4: WASM-only functions produce Catalog Error in native
+RESULT=$(run_sql_with_extension "SELECT mcp_webmcp_sync();")
+if echo "$RESULT" | grep -q "Catalog Error"; then
+    pass "WebMCP: mcp_webmcp_sync() produces Catalog Error in native"
+else
+    fail "WebMCP: mcp_webmcp_sync() native" "Catalog Error" "$RESULT"
+fi
+
+RESULT=$(run_sql_with_extension "SELECT webmcp_list_page_tools();")
+if echo "$RESULT" | grep -q "Catalog Error"; then
+    pass "WebMCP: webmcp_list_page_tools() produces Catalog Error in native"
+else
+    fail "WebMCP: webmcp_list_page_tools() native" "Catalog Error" "$RESULT"
+fi
+
+# Test 5: tools/call via ProcessRequest — query tool (same path as HandleToolCall)
+RESULT=$(run_sql_with_extension "
+CREATE TABLE webmcp_test (id INTEGER, value VARCHAR);
+INSERT INTO webmcp_test VALUES (1, 'alpha'), (2, 'beta');
+SELECT mcp_server_start('memory', 'localhost', 0, '{}');
+SELECT mcp_server_send_request('{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"query\",\"arguments\":{\"sql\":\"SELECT * FROM webmcp_test ORDER BY id\"}}}');
+")
+if echo "$RESULT" | grep -q "alpha" && echo "$RESULT" | grep -q "beta"; then
+    pass "WebMCP path: query tool via ProcessRequest"
+else
+    fail "WebMCP path: query tool" "alpha and beta in response" "$RESULT"
+fi
+
+# Test 6: tools/call — describe tool
+RESULT=$(run_sql_with_extension "
+CREATE TABLE webmcp_desc (col_a INTEGER, col_b VARCHAR);
+SELECT mcp_server_start('memory', 'localhost', 0, '{}');
+SELECT mcp_server_send_request('{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"describe\",\"arguments\":{\"table\":\"webmcp_desc\"}}}');
+")
+if echo "$RESULT" | grep -q "col_a" && echo "$RESULT" | grep -q "col_b"; then
+    pass "WebMCP path: describe tool via ProcessRequest"
+else
+    fail "WebMCP path: describe tool" "col_a and col_b in response" "$RESULT"
+fi
+
+# Test 7: tools/call — list_tables tool
+RESULT=$(run_sql_with_extension "
+CREATE TABLE webmcp_lt_test (x INT);
+SELECT mcp_server_start('memory', 'localhost', 0, '{}');
+SELECT mcp_server_send_request('{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"list_tables\",\"arguments\":{}}}');
+")
+if echo "$RESULT" | grep -q "webmcp_lt_test"; then
+    pass "WebMCP path: list_tables tool via ProcessRequest"
+else
+    fail "WebMCP path: list_tables tool" "webmcp_lt_test in response" "$RESULT"
+fi
+
+# Test 8: Resource publishing + resources/read path
+RESULT=$(run_sql_with_extension "
+SELECT mcp_publish_resource('info://webmcp-test', 'WebMCP integration test content', 'text/plain', 'Test resource');
+SELECT mcp_server_start('memory', 'localhost', 0, '{}');
+SELECT mcp_server_send_request('{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"resources/read\",\"params\":{\"uri\":\"info://webmcp-test\"}}');
+")
+if echo "$RESULT" | grep -q "WebMCP integration test content"; then
+    pass "WebMCP path: resources/read returns published content"
+else
+    fail "WebMCP path: resources/read" "WebMCP integration test content" "$RESULT"
+fi
+
+# Verify resource appears in resources/list
+RESULT=$(run_sql_with_extension "
+SELECT mcp_publish_resource('info://webmcp-list-test', 'list test', 'text/plain', 'For listing');
+SELECT mcp_server_start('memory', 'localhost', 0, '{}');
+SELECT mcp_server_send_request('{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"resources/list\",\"params\":{}}');
+")
+if echo "$RESULT" | grep -q "info://webmcp-list-test"; then
+    pass "WebMCP path: resources/list includes published resource"
+else
+    fail "WebMCP path: resources/list" "info://webmcp-list-test in response" "$RESULT"
+fi
+
+# Test 9: Prompt template registration + rendering
+RESULT=$(run_sql_with_extension "
+SELECT mcp_register_prompt_template('webmcp_greeting', 'A greeting prompt', 'Hello {name}, welcome to {place}!');
+SELECT mcp_render_prompt_template('webmcp_greeting', '{\"name\": \"Alice\", \"place\": \"WebMCP\"}');
+")
+if echo "$RESULT" | grep -q "Hello Alice, welcome to WebMCP!"; then
+    pass "WebMCP path: prompt template registration and rendering"
+else
+    fail "WebMCP path: prompt rendering" "Hello Alice, welcome to WebMCP!" "$RESULT"
+fi
+
+# ==========================================
 # Summary
 # ==========================================
 log_section "Test Summary"

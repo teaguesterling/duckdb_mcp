@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>DuckDB MCP WebMCP Test Page</title>
+</head>
+<body>
+  <h1>DuckDB MCP WebMCP Test</h1>
+  <p id="status">Loading DuckDB-WASM...</p>
+
+  <!-- DuckDB-WASM from CDN -->
+  <script type="module">
+    import * as duckdb from "https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@latest/+esm";
+
+    async function init() {
+      const statusEl = document.getElementById("status");
+      try {
+        // Select bundle based on browser capabilities
+        const JSDELIVR_BUNDLES = duckdb.getJsDelivrBundles();
+        const bundle = await duckdb.selectBundle(JSDELIVR_BUNDLES);
+
+        const worker_url = URL.createObjectURL(
+          new Blob([`importScripts("${bundle.mainWorker}");`], { type: "text/javascript" })
+        );
+
+        const worker = new Worker(worker_url);
+        const logger = new duckdb.ConsoleLogger();
+        const db = new duckdb.AsyncDuckDB(logger, worker);
+        await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+
+        URL.revokeObjectURL(worker_url);
+
+        // Load the MCP extension
+        // The extension must be served alongside this page or registered as a custom extension.
+        // For local testing, you can register the WASM extension bundle:
+        //   await db.registerFileURL("duckdb_mcp.duckdb_extension.wasm", "/path/to/extension.wasm", ...);
+        //   await conn.query("INSTALL duckdb_mcp FROM '/path'; LOAD duckdb_mcp;");
+        //
+        // For now, try loading from the default extension repository:
+        const conn = await db.connect();
+        try {
+          await conn.query("INSTALL duckdb_mcp; LOAD duckdb_mcp;");
+          statusEl.textContent = "DuckDB-WASM + MCP extension loaded.";
+        } catch (e) {
+          // Extension may need to be side-loaded for local testing
+          statusEl.textContent = `Extension load note: ${e.message}. Side-load the WASM extension for full testing.`;
+          console.warn("Extension load:", e);
+        }
+        await conn.close();
+
+        // Expose for Playwright tests
+        window.__duckdb_db = db;
+        window.__duckdb_ready = true;
+      } catch (e) {
+        statusEl.textContent = `Error: ${e.message}`;
+        console.error("DuckDB-WASM init failed:", e);
+        // Still mark ready so tests can detect the failure state
+        window.__duckdb_ready = true;
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>
