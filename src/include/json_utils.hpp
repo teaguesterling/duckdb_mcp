@@ -117,6 +117,9 @@ public:
 	//! Get bool field (default if not found)
 	bool GetBool(const string &name, bool default_value = false) const;
 
+	//! Check if a field exists and has a JSON null value
+	bool IsNull(const string &name) const;
+
 	//! Get raw JSON string of a nested object
 	string GetObjectAsJSON(const string &name) const;
 
