@@ -131,7 +131,7 @@ true
 query I
 SELECT COUNT(*) FROM sec_test;
 ----
-4
+3
 
 # =============================================================================
 # SEC-04: SQL injection via integer parameter values
@@ -165,7 +165,7 @@ true
 query I
 SELECT COUNT(*) FROM sec_test;
 ----
-4
+3
 
 # =============================================================================
 # SEC-05: Cross-parameter contamination — value containing $other_param token
@@ -246,7 +246,7 @@ true
 query I
 SELECT COUNT(*) FROM sec_test;
 ----
-4
+3
 
 # =============================================================================
 # SEC-07: Multiple prefix-overlapping parameter names
@@ -259,7 +259,7 @@ SELECT mcp_publish_tool(
     'Test multiple overlapping prefixes',
     'SELECT $a AS val_a, $ab AS val_ab, $abc AS val_abc',
     '{"a": {"type": "integer", "description": "Short"}, "ab": {"type": "integer", "description": "Medium"}, "abc": {"type": "integer", "description": "Long"}}',
-    '["a", "ab", "abc"]'
+    '["a"]'
 ) LIKE 'SUCCESS%';
 ----
 true

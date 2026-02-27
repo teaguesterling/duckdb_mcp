@@ -185,14 +185,21 @@ SELECT mcp_publish_tool(
 ----
 true
 
-# Both provided: $cat and $category should substitute independently
+# Both provided with conflicting values: category must be both cat_a AND cat_b
+# which is impossible — proves both params substituted independently (no results)
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":50,"method":"tools/call","params":{"name":"prefix_test","arguments":{"cat":"cat_a","category":"cat_b"}}}') LIKE '%alpha%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":50,"method":"tools/call","params":{"name":"prefix_test","arguments":{"cat":"cat_a","category":"cat_b"}}}') NOT LIKE '%alpha%';
+----
+true
+
+# Both provided with same value: should return matching rows
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":51,"method":"tools/call","params":{"name":"prefix_test","arguments":{"cat":"cat_a","category":"cat_a"}}}') LIKE '%alpha%';
 ----
 true
 
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":51,"method":"tools/call","params":{"name":"prefix_test","arguments":{"cat":"cat_a","category":"cat_b"}}}') NOT LIKE '%beta%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":59,"method":"tools/call","params":{"name":"prefix_test","arguments":{"cat":"cat_a","category":"cat_a"}}}') NOT LIKE '%beta%';
 ----
 true
 
