@@ -170,6 +170,71 @@ SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":45,"method":"tools/call","
 true
 
 # =============================================================================
+# SECTION 7: Parameter name prefix collision ($cat vs $category)
+# Ensures $cat does not match inside $category
+# =============================================================================
+
+query I
+SELECT mcp_publish_tool(
+    'prefix_test',
+    'Test parameter name prefix collision',
+    'SELECT * FROM test_items WHERE ($cat IS NULL OR category = $cat) AND ($category IS NULL OR category = $category)',
+    '{"cat": {"type": "string", "description": "Short param"}, "category": {"type": "string", "description": "Long param"}}',
+    '[]'
+) LIKE 'SUCCESS%';
+----
+true
+
+# Both provided: $cat and $category should substitute independently
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":50,"method":"tools/call","params":{"name":"prefix_test","arguments":{"cat":"cat_a","category":"cat_b"}}}') LIKE '%alpha%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":51,"method":"tools/call","params":{"name":"prefix_test","arguments":{"cat":"cat_a","category":"cat_b"}}}') NOT LIKE '%beta%';
+----
+true
+
+# Only $cat provided, $category omitted -> $category becomes NULL
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":52,"method":"tools/call","params":{"name":"prefix_test","arguments":{"cat":"cat_a"}}}') LIKE '%alpha%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":53,"method":"tools/call","params":{"name":"prefix_test","arguments":{"cat":"cat_a"}}}') LIKE '%gamma%';
+----
+true
+
+# Only $category provided, $cat omitted -> $cat becomes NULL
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":54,"method":"tools/call","params":{"name":"prefix_test","arguments":{"category":"cat_b"}}}') LIKE '%beta%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":55,"method":"tools/call","params":{"name":"prefix_test","arguments":{"category":"cat_b"}}}') NOT LIKE '%alpha%';
+----
+true
+
+# Both omitted -> both become NULL, all rows returned
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":56,"method":"tools/call","params":{"name":"prefix_test","arguments":{}}}') LIKE '%alpha%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":57,"method":"tools/call","params":{"name":"prefix_test","arguments":{}}}') LIKE '%beta%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":58,"method":"tools/call","params":{"name":"prefix_test","arguments":{}}}') LIKE '%gamma%';
+----
+true
+
+# =============================================================================
 # Cleanup
 # =============================================================================
 

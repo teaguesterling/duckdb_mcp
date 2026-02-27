@@ -4,6 +4,7 @@
 #include "duckdb/parser/keyword_helper.hpp"
 #include "json_utils.hpp"
 #include "result_formatter.hpp"
+#include <cctype>
 
 namespace duckdb {
 
@@ -613,6 +614,28 @@ CallToolResult SQLToolHandler::Execute(const Value &arguments) {
 	}
 }
 
+// Check if a character is a valid SQL/parameter identifier character
+static bool IsIdentifierChar(char c) {
+	return isalnum(static_cast<unsigned char>(c)) || c == '_';
+}
+
+// Replace all occurrences of $param in the string with the given value,
+// but only when $param is not followed by an identifier character.
+// This prevents $user from matching inside $username.
+static void ReplaceParamToken(string &result, const string &param, const string &replacement) {
+	size_t pos = 0;
+	while ((pos = result.find(param, pos)) != string::npos) {
+		size_t end = pos + param.length();
+		if (end < result.size() && IsIdentifierChar(result[end])) {
+			// Not a complete token — skip past this match
+			pos++;
+			continue;
+		}
+		result.replace(pos, param.length(), replacement);
+		pos += replacement.length();
+	}
+}
+
 string SQLToolHandler::SubstituteParameters(const string &template_sql, const JSONArgumentParser &parser) const {
 	string result = template_sql;
 
@@ -691,24 +714,15 @@ string SQLToolHandler::SubstituteParameters(const string &template_sql, const JS
 			}
 		}
 
-		// Parameter substitution - replace $key with properly formatted value
-		string param = "$" + key;
-		size_t pos = 0;
-		while ((pos = result.find(param, pos)) != string::npos) {
-			result.replace(pos, param.length(), sql_value);
-			pos += sql_value.length();
-		}
+		// Parameter substitution - replace $key with properly formatted value,
+		// using word-boundary check to avoid $user matching inside $username
+		ReplaceParamToken(result, "$" + key, sql_value);
 	}
 
 	// Substitute NULL for any remaining $param placeholders from the schema
 	// that were not provided in the arguments (omitted optional parameters)
 	for (const auto &prop : input_schema.properties) {
-		string param = "$" + prop.first;
-		size_t pos = 0;
-		while ((pos = result.find(param, pos)) != string::npos) {
-			result.replace(pos, param.length(), "NULL");
-			pos += 4; // length of "NULL"
-		}
+		ReplaceParamToken(result, "$" + prop.first, "NULL");
 	}
 
 	return result;

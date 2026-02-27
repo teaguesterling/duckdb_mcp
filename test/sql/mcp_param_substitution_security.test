@@ -1,0 +1,307 @@
+# name: test/sql/mcp_param_substitution_security.test
+# description: Security tests for SQL tool parameter substitution
+# group: [sql]
+
+# Tests word-boundary enforcement, injection resistance, and cross-parameter
+# contamination in SubstituteParameters().
+
+require duckdb_mcp
+
+statement ok
+LOAD duckdb_mcp;
+
+# =============================================================================
+# SETUP
+# =============================================================================
+
+statement ok
+SELECT mcp_server_stop(true);
+
+statement ok
+CREATE TABLE sec_test AS SELECT * FROM (VALUES
+    (1, 'alice', 'admin', 100),
+    (2, 'bob', 'user', 200),
+    (3, 'carol', 'admin', 300)
+) t(id, name, role, score);
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# =============================================================================
+# SEC-01: Prefix collision - $id must not match inside $id_extra
+# =============================================================================
+
+query I
+SELECT mcp_publish_tool(
+    'prefix_id_test',
+    'Test $id vs $id_extra prefix collision',
+    'SELECT * FROM sec_test WHERE id = $id AND score > $id_extra',
+    '{"id": {"type": "integer", "description": "Row ID"}, "id_extra": {"type": "integer", "description": "Min score"}}',
+    '["id", "id_extra"]'
+) LIKE 'SUCCESS%';
+----
+true
+
+# Both provided: $id=1 and $id_extra=50 — should return alice (id=1, score=100 > 50)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"prefix_id_test","arguments":{"id":1,"id_extra":50}}}') LIKE '%alice%';
+----
+true
+
+# Should NOT return bob (id=2)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"prefix_id_test","arguments":{"id":1,"id_extra":50}}}') NOT LIKE '%bob%';
+----
+true
+
+# If prefix collision existed, $id would corrupt $id_extra, causing SQL errors or wrong results
+# $id_extra=500 should filter out all rows (no score > 500)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"prefix_id_test","arguments":{"id":1,"id_extra":500}}}') NOT LIKE '%alice%';
+----
+true
+
+# =============================================================================
+# SEC-02: Prefix collision with omitted optional — $id omitted, $id_extra provided
+# The second pass must not corrupt $id_extra when substituting NULL for $id
+# =============================================================================
+
+query I
+SELECT mcp_publish_tool(
+    'prefix_optional_test',
+    'Test prefix collision with omitted optional',
+    'SELECT * FROM sec_test WHERE ($id IS NULL OR id = $id) AND score > $id_extra',
+    '{"id": {"type": "integer", "description": "Optional ID"}, "id_extra": {"type": "integer", "description": "Min score"}}',
+    '["id_extra"]'
+) LIKE 'SUCCESS%';
+----
+true
+
+# $id omitted (-> NULL), $id_extra=150 — should return bob and carol
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"prefix_optional_test","arguments":{"id_extra":150}}}') LIKE '%bob%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"prefix_optional_test","arguments":{"id_extra":150}}}') LIKE '%carol%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"prefix_optional_test","arguments":{"id_extra":150}}}') NOT LIKE '%alice%';
+----
+true
+
+# =============================================================================
+# SEC-03: SQL injection via string parameter values
+# Ensures proper quoting prevents injection
+# =============================================================================
+
+query I
+SELECT mcp_publish_tool(
+    'injection_string_test',
+    'Test SQL injection via string params',
+    'SELECT * FROM sec_test WHERE name = $name',
+    '{"name": {"type": "string", "description": "Name to search"}}',
+    '["name"]'
+) LIKE 'SUCCESS%';
+----
+true
+
+# Classic SQL injection attempt: should be quoted and treated as a literal string
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"injection_string_test","arguments":{"name":"alice'' OR ''1''=''1"}}}') NOT LIKE '%bob%';
+----
+true
+
+# Injection with comment: should not break out of quoting
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"injection_string_test","arguments":{"name":"alice'' -- "}}}') NOT LIKE '%bob%';
+----
+true
+
+# Injection with semicolon: should not execute second statement
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"injection_string_test","arguments":{"name":"alice''; DROP TABLE sec_test; --"}}}') NOT LIKE '%error%';
+----
+true
+
+# Verify table still exists after injection attempts
+query I
+SELECT COUNT(*) FROM sec_test;
+----
+4
+
+# =============================================================================
+# SEC-04: SQL injection via integer parameter values
+# Ensures strict numeric validation rejects injection payloads
+# =============================================================================
+
+query I
+SELECT mcp_publish_tool(
+    'injection_int_test',
+    'Test SQL injection via integer params',
+    'SELECT * FROM sec_test WHERE id = $id',
+    '{"id": {"type": "integer", "description": "Row ID"}}',
+    '["id"]'
+) LIKE 'SUCCESS%';
+----
+true
+
+# Injection attempt in integer field: "1 OR 1=1" — should be rejected
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"injection_int_test","arguments":{"id":"1 OR 1=1"}}}') LIKE '%must be a valid integer%';
+----
+true
+
+# Trailing SQL after number: "1; DROP TABLE sec_test" — should be rejected
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":31,"method":"tools/call","params":{"name":"injection_int_test","arguments":{"id":"1; DROP TABLE sec_test"}}}') LIKE '%must be a valid integer%';
+----
+true
+
+# Verify table still exists
+query I
+SELECT COUNT(*) FROM sec_test;
+----
+4
+
+# =============================================================================
+# SEC-05: Cross-parameter contamination — value containing $other_param token
+# A provided string value containing "$role" should not be replaced by the
+# second pass when $role is an omitted optional parameter.
+# =============================================================================
+
+query I
+SELECT mcp_publish_tool(
+    'cross_param_test',
+    'Test cross-parameter contamination',
+    'SELECT * FROM sec_test WHERE name = $name AND ($role IS NULL OR role = $role)',
+    '{"name": {"type": "string", "description": "Name"}, "role": {"type": "string", "description": "Optional role"}}',
+    '["name"]'
+) LIKE 'SUCCESS%';
+----
+true
+
+# Provide name="$role" with role omitted. The string '$role' should be quoted
+# as a literal ('$role') and the second pass should not alter it inside quotes.
+# Since no one is named "$role", this should return empty results.
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":40,"method":"tools/call","params":{"name":"cross_param_test","arguments":{"name":"$role"}}}') NOT LIKE '%alice%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":41,"method":"tools/call","params":{"name":"cross_param_test","arguments":{"name":"$role"}}}') NOT LIKE '%bob%';
+----
+true
+
+# =============================================================================
+# SEC-06: Boolean injection — non-boolean values should be rejected
+# =============================================================================
+
+query I
+SELECT mcp_publish_tool(
+    'injection_bool_test',
+    'Test boolean injection',
+    'SELECT * FROM sec_test WHERE $active OR id > 0',
+    '{"active": {"type": "boolean", "description": "Active flag"}}',
+    '["active"]'
+) LIKE 'SUCCESS%';
+----
+true
+
+# Valid boolean should work
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":50,"method":"tools/call","params":{"name":"injection_bool_test","arguments":{"active":true}}}') LIKE '%alice%';
+----
+true
+
+# String "true; DROP TABLE sec_test" should be rejected
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":51,"method":"tools/call","params":{"name":"injection_bool_test","arguments":{"active":"true; DROP TABLE sec_test"}}}') LIKE '%must be%';
+----
+true
+
+# Verify table still exists
+query I
+SELECT COUNT(*) FROM sec_test;
+----
+4
+
+# =============================================================================
+# SEC-07: Multiple prefix-overlapping parameter names
+# Schema with $a, $ab, $abc — substitution order must not corrupt longer names
+# =============================================================================
+
+query I
+SELECT mcp_publish_tool(
+    'multi_prefix_test',
+    'Test multiple overlapping prefixes',
+    'SELECT $a AS val_a, $ab AS val_ab, $abc AS val_abc',
+    '{"a": {"type": "integer", "description": "Short"}, "ab": {"type": "integer", "description": "Medium"}, "abc": {"type": "integer", "description": "Long"}}',
+    '["a", "ab", "abc"]'
+) LIKE 'SUCCESS%';
+----
+true
+
+# All provided with distinct values
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":60,"method":"tools/call","params":{"name":"multi_prefix_test","arguments":{"a":1,"ab":2,"abc":3}}}') LIKE '%1%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":61,"method":"tools/call","params":{"name":"multi_prefix_test","arguments":{"a":1,"ab":2,"abc":3}}}') LIKE '%2%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":62,"method":"tools/call","params":{"name":"multi_prefix_test","arguments":{"a":1,"ab":2,"abc":3}}}') LIKE '%3%';
+----
+true
+
+# Only $a provided, $ab and $abc omitted -> should get NULLs for ab/abc
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":63,"method":"tools/call","params":{"name":"multi_prefix_test","arguments":{"a":1}}}') LIKE '%1%';
+----
+true
+
+# =============================================================================
+# SEC-08: Number parameter with float injection
+# Ensures trailing characters after valid float are rejected
+# =============================================================================
+
+query I
+SELECT mcp_publish_tool(
+    'injection_float_test',
+    'Test float injection',
+    'SELECT * FROM sec_test WHERE score > $threshold',
+    '{"threshold": {"type": "number", "description": "Min score"}}',
+    '["threshold"]'
+) LIKE 'SUCCESS%';
+----
+true
+
+# Valid float should work
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":70,"method":"tools/call","params":{"name":"injection_float_test","arguments":{"threshold":150.5}}}') LIKE '%bob%';
+----
+true
+
+# Float with trailing injection payload should be rejected
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":71,"method":"tools/call","params":{"name":"injection_float_test","arguments":{"threshold":"100.0 OR 1=1"}}}') LIKE '%must be a valid number%';
+----
+true
+
+# =============================================================================
+# Cleanup
+# =============================================================================
+
+statement ok
+SELECT mcp_server_stop(true);
+
+statement ok
+DROP TABLE IF EXISTS sec_test;
