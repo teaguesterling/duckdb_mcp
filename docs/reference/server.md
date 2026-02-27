@@ -270,12 +270,17 @@ SELECT mcp_publish_tool('name', 'description', 'sql_template', 'properties', 're
 | `required` | VARCHAR | JSON array of required parameter names |
 | `format` | VARCHAR | Output format: `json`, `csv`, `markdown` (default: `json`) |
 
+!!! warning "All parameters are VARCHAR"
+    Pass JSON as **string literals**, not `json_object(...)` or `JSON` type expressions. Using `json_object()` produces a `JSON` type which won't match the function signature.
+
 **Parameter Substitution:**
 
-Parameters in the SQL template use `$name` syntax:
+Parameters in the SQL template use `$name` syntax. Optional parameters (not listed in `required`) are substituted as SQL `NULL` when omitted or passed as JSON `null`:
 
 ```sql
-'SELECT * FROM products WHERE category = $category AND price < $max_price'
+'SELECT * FROM products
+ WHERE category = $category
+   AND ($max_price IS NULL OR price < $max_price)'
 ```
 
 **Examples:**

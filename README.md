@@ -96,15 +96,34 @@ SELECT mcp_call_tool('server', 'analyze', '{"dataset": "sales"}');
 ## Publishing Custom Tools
 
 ```sql
+-- 5-arg form (JSON output, the default)
+PRAGMA mcp_publish_tool(name, description, sql_template, properties_json, required_json);
+
+-- 6-arg form (explicit output format: 'json', 'markdown', or 'csv')
+PRAGMA mcp_publish_tool(name, description, sql_template, properties_json, required_json, format);
+```
+
+> **All parameters are VARCHAR.** Pass JSON as string literals, not `json_object(...)` or `JSON` type expressions.
+
+**Example:**
+
+```sql
 PRAGMA mcp_publish_tool(
-    'search_products',
-    'Search products by name',
-    'SELECT * FROM products WHERE name ILIKE ''%'' || $query || ''%''',
-    '{"query": {"type": "string", "description": "Search term"}}',
-    '["query"]',
-    'markdown'
+    'search_products',                                                      -- name
+    'Search products by name with optional category filter',                -- description
+    'SELECT * FROM products
+     WHERE name ILIKE ''%'' || $query || ''%''
+       AND ($category IS NULL OR category = $category)',                    -- sql_template ($param placeholders)
+    '{
+        "query": {"type": "string", "description": "Search term"},
+        "category": {"type": "string", "description": "Category filter"}
+    }',                                                                     -- properties_json (JSON Schema)
+    '["query"]',                                                            -- required_json (category is optional)
+    'markdown'                                                              -- format
 );
 ```
+
+Optional parameters omitted by callers are substituted as SQL `NULL`. See the [Custom Tools Guide](https://duckdb-mcp.readthedocs.io/guides/custom-tools/) for full details.
 
 ## PRAGMA vs SELECT
 
