@@ -1,0 +1,180 @@
+# name: test/sql/mcp_optional_tool_params.test
+# description: Test optional parameter handling in SQL tools (issue #19)
+# group: [sql]
+
+# Load the MCP extension
+require duckdb_mcp
+
+statement ok
+LOAD duckdb_mcp;
+
+# =============================================================================
+# SETUP: Clean state and create test data
+# =============================================================================
+
+statement ok
+SELECT mcp_server_stop(true);
+
+statement ok
+CREATE TABLE test_items AS SELECT * FROM (VALUES
+    (1, 'alpha', 'cat_a'),
+    (2, 'beta', 'cat_b'),
+    (3, 'gamma', 'cat_a')
+) t(id, name, category);
+
+# Start server so publish is immediate
+statement ok
+SELECT mcp_server_start('memory');
+
+# =============================================================================
+# SECTION 1: Publish tool with optional parameters
+# =============================================================================
+
+# Tool with one required param (name) and one optional param (category)
+query I
+SELECT mcp_publish_tool(
+    'search_items',
+    'Search items with optional category filter',
+    'SELECT * FROM test_items WHERE name ILIKE ''%'' || $name || ''%'' AND ($category IS NULL OR category = $category)',
+    '{"name": {"type": "string", "description": "Name search"}, "category": {"type": "string", "description": "Optional category filter"}}',
+    '["name"]'
+) LIKE 'SUCCESS%';
+----
+true
+
+# =============================================================================
+# SECTION 2: All parameters provided - should always work
+# =============================================================================
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search_items","arguments":{"name":"alpha","category":"cat_a"}}}') LIKE '%alpha%';
+----
+true
+
+# Verify we don't get gamma (wrong category)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"search_items","arguments":{"name":"gamma","category":"cat_b"}}}') NOT LIKE '%gamma%';
+----
+true
+
+# =============================================================================
+# SECTION 3: Omitted optional parameter - should substitute NULL
+# (Issue #19: currently leaves $category unsubstituted, causing SQL error)
+# =============================================================================
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"search_items","arguments":{"name":"alpha"}}}') LIKE '%alpha%';
+----
+true
+
+# Omitting optional param with broad search should return all matching rows
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"search_items","arguments":{"name":"a"}}}') LIKE '%alpha%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"search_items","arguments":{"name":"a"}}}') LIKE '%gamma%';
+----
+true
+
+# =============================================================================
+# SECTION 4: Explicit JSON null - should substitute SQL NULL
+# (Issue #19: currently becomes string 'null' instead of SQL NULL)
+# =============================================================================
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"search_items","arguments":{"name":"beta","category":null}}}') LIKE '%beta%';
+----
+true
+
+# =============================================================================
+# SECTION 5: Numeric optional parameter with NULL handling
+# =============================================================================
+
+# Publish a tool with an optional integer parameter
+query I
+SELECT mcp_publish_tool(
+    'get_items_limited',
+    'Get items with optional limit',
+    'SELECT * FROM test_items ORDER BY id LIMIT COALESCE($max_results, 100)',
+    '{"max_results": {"type": "integer", "description": "Maximum number of results"}}',
+    '[]'
+) LIKE 'SUCCESS%';
+----
+true
+
+# Call with no arguments at all - both parameters omitted
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"get_items_limited","arguments":{}}}') LIKE '%alpha%';
+----
+true
+
+# Call with explicit null
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":31,"method":"tools/call","params":{"name":"get_items_limited","arguments":{"max_results":null}}}') LIKE '%alpha%';
+----
+true
+
+# Call with value provided
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":32,"method":"tools/call","params":{"name":"get_items_limited","arguments":{"max_results":1}}}') LIKE '%alpha%';
+----
+true
+
+# =============================================================================
+# SECTION 6: Multiple optional parameters, all omitted
+# =============================================================================
+
+query I
+SELECT mcp_publish_tool(
+    'flexible_query',
+    'Query with all optional params',
+    'SELECT * FROM test_items WHERE ($filter_name IS NULL OR name = $filter_name) AND ($filter_category IS NULL OR category = $filter_category) ORDER BY id',
+    '{"filter_name": {"type": "string", "description": "Filter by name"}, "filter_category": {"type": "string", "description": "Filter by category"}}',
+    '[]'
+) LIKE 'SUCCESS%';
+----
+true
+
+# No arguments at all - should return all rows
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":40,"method":"tools/call","params":{"name":"flexible_query","arguments":{}}}') LIKE '%alpha%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":41,"method":"tools/call","params":{"name":"flexible_query","arguments":{}}}') LIKE '%beta%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"flexible_query","arguments":{}}}') LIKE '%gamma%';
+----
+true
+
+# Only one optional param provided
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":43,"method":"tools/call","params":{"name":"flexible_query","arguments":{"filter_category":"cat_a"}}}') LIKE '%alpha%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":44,"method":"tools/call","params":{"name":"flexible_query","arguments":{"filter_category":"cat_a"}}}') LIKE '%gamma%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":45,"method":"tools/call","params":{"name":"flexible_query","arguments":{"filter_category":"cat_a"}}}') NOT LIKE '%beta%';
+----
+true
+
+# =============================================================================
+# Cleanup
+# =============================================================================
+
+statement ok
+SELECT mcp_server_stop(true);
+
+statement ok
+DROP TABLE IF EXISTS test_items;
