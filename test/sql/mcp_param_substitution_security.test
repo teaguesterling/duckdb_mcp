@@ -169,8 +169,9 @@ SELECT COUNT(*) FROM sec_test;
 
 # =============================================================================
 # SEC-05: Cross-parameter contamination — value containing $other_param token
-# A provided string value containing "$role" should not be replaced by the
-# second pass when $role is an omitted optional parameter.
+# A provided string value containing "$role" must not be altered during
+# substitution of the omitted $role parameter. The single-pass tokenizer
+# only scans the original template, so injected values are never re-scanned.
 # =============================================================================
 
 query I
@@ -184,9 +185,9 @@ SELECT mcp_publish_tool(
 ----
 true
 
-# Provide name="$role" with role omitted. The string '$role' should be quoted
-# as a literal ('$role') and the second pass should not alter it inside quotes.
-# Since no one is named "$role", this should return empty results.
+# Provide name="$role" with role omitted. The value '$role' should be quoted
+# as a SQL literal and never re-interpreted as a parameter token.
+# Since no one is named "$role", this should return empty results — NOT all rows.
 query I
 SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":40,"method":"tools/call","params":{"name":"cross_param_test","arguments":{"name":"$role"}}}') NOT LIKE '%alice%';
 ----
@@ -194,6 +195,23 @@ true
 
 query I
 SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":41,"method":"tools/call","params":{"name":"cross_param_test","arguments":{"name":"$role"}}}') NOT LIKE '%bob%';
+----
+true
+
+# Normal case: name="alice" with role omitted — should return alice regardless of role
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"cross_param_test","arguments":{"name":"alice"}}}') LIKE '%alice%';
+----
+true
+
+# Both provided: should filter on both
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":43,"method":"tools/call","params":{"name":"cross_param_test","arguments":{"name":"alice","role":"admin"}}}') LIKE '%alice%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":44,"method":"tools/call","params":{"name":"cross_param_test","arguments":{"name":"bob","role":"admin"}}}') NOT LIKE '%bob%';
 ----
 true
 

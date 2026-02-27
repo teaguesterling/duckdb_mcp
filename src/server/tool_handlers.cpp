@@ -619,110 +619,128 @@ static bool IsIdentifierChar(char c) {
 	return isalnum(static_cast<unsigned char>(c)) || c == '_';
 }
 
-// Replace all occurrences of $param in the string with the given value,
-// but only when $param is not followed by an identifier character.
-// This prevents $user from matching inside $username.
-static void ReplaceParamToken(string &result, const string &param, const string &replacement) {
-	size_t pos = 0;
-	while ((pos = result.find(param, pos)) != string::npos) {
-		size_t end = pos + param.length();
-		if (end < result.size() && IsIdentifierChar(result[end])) {
-			// Not a complete token — skip past this match
-			pos++;
-			continue;
+// Format a provided argument value as a safe SQL literal based on its schema type.
+// Validates and escapes values to prevent SQL injection.
+static string FormatArgumentValue(const string &key, const JSONArgumentParser &parser,
+                                  const unordered_map<string, Value> &properties) {
+	// Handle explicit JSON null → SQL NULL
+	if (parser.IsNull(key)) {
+		return "NULL";
+	}
+
+	string value = parser.GetValueAsString(key);
+
+	// Determine the parameter type from input schema
+	string param_type = "string"; // Default to string for safety
+	auto it = properties.find(key);
+	if (it != properties.end()) {
+		param_type = it->second.ToString();
+	}
+
+	if (param_type == "string") {
+		// Escape single quotes by doubling them, then wrap in quotes
+		string escaped;
+		for (char c : value) {
+			if (c == '\'') {
+				escaped += "''";
+			} else {
+				escaped += c;
+			}
 		}
-		result.replace(pos, param.length(), replacement);
-		pos += replacement.length();
+		return "'" + escaped + "'";
+	} else if (param_type == "integer" || param_type == "number") {
+		// Validate that the value is actually numeric before interpolation.
+		// SECURITY: Use the pos output parameter to verify the ENTIRE string was consumed.
+		// std::stod("1 OR 1=1") would silently parse "1" and ignore the injection payload.
+		try {
+			size_t pos = 0;
+			if (param_type == "integer") {
+				long long int_val = std::stoll(value, &pos);
+				if (pos != value.size()) {
+					throw std::invalid_argument("trailing characters");
+				}
+				return std::to_string(int_val);
+			} else {
+				double numeric_val = std::stod(value, &pos);
+				if (pos != value.size()) {
+					throw std::invalid_argument("trailing characters");
+				}
+				return std::to_string(numeric_val);
+			}
+		} catch (const std::exception &) {
+			throw InvalidInputException("Parameter '" + key + "' must be a valid " + param_type +
+			                            ", got: " + value);
+		}
+	} else if (param_type == "boolean") {
+		// Validate boolean values strictly
+		if (value == "true" || value == "false") {
+			return value;
+		} else {
+			throw InvalidInputException("Parameter '" + key + "' must be 'true' or 'false', got: " + value);
+		}
+	} else {
+		// Unknown type - treat as string for safety
+		string escaped;
+		for (char c : value) {
+			if (c == '\'') {
+				escaped += "''";
+			} else {
+				escaped += c;
+			}
+		}
+		return "'" + escaped + "'";
 	}
 }
 
 string SQLToolHandler::SubstituteParameters(const string &template_sql, const JSONArgumentParser &parser) const {
-	string result = template_sql;
+	// Build a substitution map: param_name -> formatted SQL value.
+	// Provided arguments are formatted by type; omitted schema properties default to NULL.
+	unordered_map<string, string> substitutions;
 
-	// Get all field names and substitute them
+	// Provided arguments (including explicit nulls)
 	auto field_names = parser.GetFieldNames();
 	for (const auto &key : field_names) {
-		string sql_value;
-
-		// Handle explicit JSON null → SQL NULL
-		if (parser.IsNull(key)) {
-			sql_value = "NULL";
-		} else {
-			// Use GetValueAsString to handle any JSON type (int, bool, string, etc.)
-			string value = parser.GetValueAsString(key);
-
-			// Determine the parameter type from input schema
-			string param_type = "string"; // Default to string for safety
-			auto it = input_schema.properties.find(key);
-			if (it != input_schema.properties.end()) {
-				param_type = it->second.ToString();
-			}
-
-			// For string parameters, properly quote and escape for SQL
-			if (param_type == "string") {
-				// Escape single quotes by doubling them, then wrap in quotes
-				string escaped;
-				for (char c : value) {
-					if (c == '\'') {
-						escaped += "''";
-					} else {
-						escaped += c;
-					}
-				}
-				sql_value = "'" + escaped + "'";
-			} else if (param_type == "integer" || param_type == "number") {
-				// Validate that the value is actually numeric before interpolation.
-				// SECURITY: Use the pos output parameter to verify the ENTIRE string was consumed.
-				// std::stod("1 OR 1=1") would silently parse "1" and ignore the injection payload.
-				try {
-					size_t pos = 0;
-					if (param_type == "integer") {
-						long long int_val = std::stoll(value, &pos);
-						if (pos != value.size()) {
-							throw std::invalid_argument("trailing characters");
-						}
-						sql_value = std::to_string(int_val);
-					} else {
-						double numeric_val = std::stod(value, &pos);
-						if (pos != value.size()) {
-							throw std::invalid_argument("trailing characters");
-						}
-						sql_value = std::to_string(numeric_val);
-					}
-				} catch (const std::exception &) {
-					throw InvalidInputException("Parameter '" + key + "' must be a valid " + param_type +
-					                            ", got: " + value);
-				}
-			} else if (param_type == "boolean") {
-				// Validate boolean values strictly
-				if (value == "true" || value == "false") {
-					sql_value = value;
-				} else {
-					throw InvalidInputException("Parameter '" + key + "' must be 'true' or 'false', got: " + value);
-				}
-			} else {
-				// Unknown type - treat as string for safety
-				string escaped;
-				for (char c : value) {
-					if (c == '\'') {
-						escaped += "''";
-					} else {
-						escaped += c;
-					}
-				}
-				sql_value = "'" + escaped + "'";
-			}
-		}
-
-		// Parameter substitution - replace $key with properly formatted value,
-		// using word-boundary check to avoid $user matching inside $username
-		ReplaceParamToken(result, "$" + key, sql_value);
+		substitutions[key] = FormatArgumentValue(key, parser, input_schema.properties);
 	}
 
-	// Substitute NULL for any remaining $param placeholders from the schema
-	// that were not provided in the arguments (omitted optional parameters)
+	// Omitted optional parameters default to NULL
 	for (const auto &prop : input_schema.properties) {
-		ReplaceParamToken(result, "$" + prop.first, "NULL");
+		if (substitutions.find(prop.first) == substitutions.end()) {
+			substitutions[prop.first] = "NULL";
+		}
+	}
+
+	// Single-pass scan: find $identifier tokens in the original template and
+	// replace them from the map. Because we scan the template linearly and
+	// append substituted values without re-scanning them, injected values
+	// can never introduce new $param tokens.
+	string result;
+	result.reserve(template_sql.size());
+	size_t i = 0;
+
+	while (i < template_sql.size()) {
+		if (template_sql[i] == '$' && i + 1 < template_sql.size() &&
+		    (isalpha(static_cast<unsigned char>(template_sql[i + 1])) || template_sql[i + 1] == '_')) {
+			// Extract the full identifier after $
+			size_t start = i + 1;
+			size_t end = start;
+			while (end < template_sql.size() && IsIdentifierChar(template_sql[end])) {
+				end++;
+			}
+			string token_name = template_sql.substr(start, end - start);
+
+			auto it = substitutions.find(token_name);
+			if (it != substitutions.end()) {
+				result += it->second;
+			} else {
+				// Unknown $token — leave as-is
+				result += template_sql.substr(i, end - i);
+			}
+			i = end;
+		} else {
+			result += template_sql[i];
+			i++;
+		}
 	}
 
 	return result;
