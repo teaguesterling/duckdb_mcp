@@ -457,6 +457,14 @@ bool JSONArgumentParser::GetBool(const string &name, bool default_value) const {
 	return JSONUtils::GetBool(root, name.c_str(), default_value);
 }
 
+bool JSONArgumentParser::IsNull(const string &name) const {
+	if (!root) {
+		return false;
+	}
+	yyjson_val *val = yyjson_obj_get(root, name.c_str());
+	return val != nullptr && yyjson_is_null(val);
+}
+
 string JSONArgumentParser::GetObjectAsJSON(const string &name) const {
 	if (!root) {
 		return "{}";

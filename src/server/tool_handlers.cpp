@@ -619,70 +619,76 @@ string SQLToolHandler::SubstituteParameters(const string &template_sql, const JS
 	// Get all field names and substitute them
 	auto field_names = parser.GetFieldNames();
 	for (const auto &key : field_names) {
-		// Use GetValueAsString to handle any JSON type (int, bool, string, etc.)
-		string value = parser.GetValueAsString(key);
-
-		// Determine the parameter type from input schema
-		string param_type = "string"; // Default to string for safety
-		auto it = input_schema.properties.find(key);
-		if (it != input_schema.properties.end()) {
-			param_type = it->second.ToString();
-		}
-
-		// For string parameters, properly quote and escape for SQL
 		string sql_value;
-		if (param_type == "string") {
-			// Escape single quotes by doubling them, then wrap in quotes
-			string escaped;
-			for (char c : value) {
-				if (c == '\'') {
-					escaped += "''";
-				} else {
-					escaped += c;
-				}
-			}
-			sql_value = "'" + escaped + "'";
-		} else if (param_type == "integer" || param_type == "number") {
-			// Validate that the value is actually numeric before interpolation.
-			// SECURITY: Use the pos output parameter to verify the ENTIRE string was consumed.
-			// std::stod("1 OR 1=1") would silently parse "1" and ignore the injection payload.
-			try {
-				size_t pos = 0;
-				if (param_type == "integer") {
-					long long int_val = std::stoll(value, &pos);
-					if (pos != value.size()) {
-						throw std::invalid_argument("trailing characters");
-					}
-					sql_value = std::to_string(int_val);
-				} else {
-					double numeric_val = std::stod(value, &pos);
-					if (pos != value.size()) {
-						throw std::invalid_argument("trailing characters");
-					}
-					sql_value = std::to_string(numeric_val);
-				}
-			} catch (const std::exception &) {
-				throw InvalidInputException("Parameter '" + key + "' must be a valid " + param_type +
-				                            ", got: " + value);
-			}
-		} else if (param_type == "boolean") {
-			// Validate boolean values strictly
-			if (value == "true" || value == "false") {
-				sql_value = value;
-			} else {
-				throw InvalidInputException("Parameter '" + key + "' must be 'true' or 'false', got: " + value);
-			}
+
+		// Handle explicit JSON null → SQL NULL
+		if (parser.IsNull(key)) {
+			sql_value = "NULL";
 		} else {
-			// Unknown type - treat as string for safety
-			string escaped;
-			for (char c : value) {
-				if (c == '\'') {
-					escaped += "''";
-				} else {
-					escaped += c;
-				}
+			// Use GetValueAsString to handle any JSON type (int, bool, string, etc.)
+			string value = parser.GetValueAsString(key);
+
+			// Determine the parameter type from input schema
+			string param_type = "string"; // Default to string for safety
+			auto it = input_schema.properties.find(key);
+			if (it != input_schema.properties.end()) {
+				param_type = it->second.ToString();
 			}
-			sql_value = "'" + escaped + "'";
+
+			// For string parameters, properly quote and escape for SQL
+			if (param_type == "string") {
+				// Escape single quotes by doubling them, then wrap in quotes
+				string escaped;
+				for (char c : value) {
+					if (c == '\'') {
+						escaped += "''";
+					} else {
+						escaped += c;
+					}
+				}
+				sql_value = "'" + escaped + "'";
+			} else if (param_type == "integer" || param_type == "number") {
+				// Validate that the value is actually numeric before interpolation.
+				// SECURITY: Use the pos output parameter to verify the ENTIRE string was consumed.
+				// std::stod("1 OR 1=1") would silently parse "1" and ignore the injection payload.
+				try {
+					size_t pos = 0;
+					if (param_type == "integer") {
+						long long int_val = std::stoll(value, &pos);
+						if (pos != value.size()) {
+							throw std::invalid_argument("trailing characters");
+						}
+						sql_value = std::to_string(int_val);
+					} else {
+						double numeric_val = std::stod(value, &pos);
+						if (pos != value.size()) {
+							throw std::invalid_argument("trailing characters");
+						}
+						sql_value = std::to_string(numeric_val);
+					}
+				} catch (const std::exception &) {
+					throw InvalidInputException("Parameter '" + key + "' must be a valid " + param_type +
+					                            ", got: " + value);
+				}
+			} else if (param_type == "boolean") {
+				// Validate boolean values strictly
+				if (value == "true" || value == "false") {
+					sql_value = value;
+				} else {
+					throw InvalidInputException("Parameter '" + key + "' must be 'true' or 'false', got: " + value);
+				}
+			} else {
+				// Unknown type - treat as string for safety
+				string escaped;
+				for (char c : value) {
+					if (c == '\'') {
+						escaped += "''";
+					} else {
+						escaped += c;
+					}
+				}
+				sql_value = "'" + escaped + "'";
+			}
 		}
 
 		// Parameter substitution - replace $key with properly formatted value
@@ -691,6 +697,17 @@ string SQLToolHandler::SubstituteParameters(const string &template_sql, const JS
 		while ((pos = result.find(param, pos)) != string::npos) {
 			result.replace(pos, param.length(), sql_value);
 			pos += sql_value.length();
+		}
+	}
+
+	// Substitute NULL for any remaining $param placeholders from the schema
+	// that were not provided in the arguments (omitted optional parameters)
+	for (const auto &prop : input_schema.properties) {
+		string param = "$" + prop.first;
+		size_t pos = 0;
+		while ((pos = result.find(param, pos)) != string::npos) {
+			result.replace(pos, param.length(), "NULL");
+			pos += 4; // length of "NULL"
 		}
 	}
 
