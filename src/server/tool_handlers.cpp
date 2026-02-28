@@ -523,13 +523,13 @@ string ExportToolHandler::FormatData(QueryResult &result, const string &format) 
 				for (idx_t col = 0; col < chunk->ColumnCount(); col++) {
 					if (col > 0)
 						json += ",";
-					json += "\"" + result.names[col] + "\":";
+					json += "\"" + EscapeJsonString(result.names[col]) + "\":";
 
 					auto value = chunk->GetValue(col, i);
 					if (value.IsNull()) {
 						json += "null";
 					} else {
-						json += "\"" + value.ToString() + "\"";
+						json += "\"" + EscapeJsonString(value.ToString()) + "\"";
 					}
 				}
 				json += "}";
@@ -845,10 +845,10 @@ CallToolResult ListTablesToolHandler::Execute(const Value &arguments) {
 				auto obj_type = chunk->GetValue(5, i);
 
 				json += "{";
-				json += "\"database\":\"" + db_name.ToString() + "\",";
-				json += "\"schema\":\"" + schema_name.ToString() + "\",";
-				json += "\"name\":\"" + table_name.ToString() + "\",";
-				json += "\"type\":\"" + obj_type.ToString() + "\",";
+				json += "\"database\":\"" + EscapeJsonString(db_name.ToString()) + "\",";
+				json += "\"schema\":\"" + EscapeJsonString(schema_name.ToString()) + "\",";
+				json += "\"name\":\"" + EscapeJsonString(table_name.ToString()) + "\",";
+				json += "\"type\":\"" + EscapeJsonString(obj_type.ToString()) + "\",";
 				if (row_count.IsNull()) {
 					json += "\"row_count_estimate\":null,";
 				} else {
@@ -957,16 +957,16 @@ Value DatabaseInfoToolHandler::GetDatabasesInfo() const {
 			first = false;
 
 			json += "{";
-			json += "\"name\":\"" + chunk->GetValue(0, i).ToString() + "\",";
+			json += "\"name\":\"" + EscapeJsonString(chunk->GetValue(0, i).ToString()) + "\",";
 
 			auto path = chunk->GetValue(1, i);
 			if (path.IsNull()) {
 				json += "\"path\":null,";
 			} else {
-				json += "\"path\":\"" + path.ToString() + "\",";
+				json += "\"path\":\"" + EscapeJsonString(path.ToString()) + "\",";
 			}
 
-			json += "\"type\":\"" + chunk->GetValue(2, i).ToString() + "\",";
+			json += "\"type\":\"" + EscapeJsonString(chunk->GetValue(2, i).ToString()) + "\",";
 			json += "\"readonly\":" + string(chunk->GetValue(3, i).GetValue<bool>() ? "true" : "false") + ",";
 			json += "\"user_attached\":" + string(chunk->GetValue(4, i).GetValue<bool>() ? "true" : "false");
 			json += "}";
@@ -1002,8 +1002,8 @@ Value DatabaseInfoToolHandler::GetSchemasInfo() const {
 			first = false;
 
 			json += "{";
-			json += "\"database\":\"" + chunk->GetValue(0, i).ToString() + "\",";
-			json += "\"name\":\"" + chunk->GetValue(1, i).ToString() + "\",";
+			json += "\"database\":\"" + EscapeJsonString(chunk->GetValue(0, i).ToString()) + "\",";
+			json += "\"name\":\"" + EscapeJsonString(chunk->GetValue(1, i).ToString()) + "\",";
 			json += "\"user_schema\":" + string(chunk->GetValue(2, i).GetValue<bool>() ? "true" : "false");
 			json += "}";
 		}
@@ -1041,9 +1041,9 @@ Value DatabaseInfoToolHandler::GetTablesInfo() const {
 			first = false;
 
 			json += "{";
-			json += "\"database\":\"" + chunk->GetValue(0, i).ToString() + "\",";
-			json += "\"schema\":\"" + chunk->GetValue(1, i).ToString() + "\",";
-			json += "\"name\":\"" + chunk->GetValue(2, i).ToString() + "\",";
+			json += "\"database\":\"" + EscapeJsonString(chunk->GetValue(0, i).ToString()) + "\",";
+			json += "\"schema\":\"" + EscapeJsonString(chunk->GetValue(1, i).ToString()) + "\",";
+			json += "\"name\":\"" + EscapeJsonString(chunk->GetValue(2, i).ToString()) + "\",";
 
 			auto row_count = chunk->GetValue(3, i);
 			if (row_count.IsNull()) {
@@ -1088,9 +1088,9 @@ Value DatabaseInfoToolHandler::GetViewsInfo() const {
 			first = false;
 
 			json += "{";
-			json += "\"database\":\"" + chunk->GetValue(0, i).ToString() + "\",";
-			json += "\"schema\":\"" + chunk->GetValue(1, i).ToString() + "\",";
-			json += "\"name\":\"" + chunk->GetValue(2, i).ToString() + "\",";
+			json += "\"database\":\"" + EscapeJsonString(chunk->GetValue(0, i).ToString()) + "\",";
+			json += "\"schema\":\"" + EscapeJsonString(chunk->GetValue(1, i).ToString()) + "\",";
+			json += "\"name\":\"" + EscapeJsonString(chunk->GetValue(2, i).ToString()) + "\",";
 			json += "\"column_count\":" + chunk->GetValue(3, i).ToString();
 			json += "}";
 		}
@@ -1128,7 +1128,7 @@ Value DatabaseInfoToolHandler::GetExtensionsInfo() const {
 			first = false;
 
 			json += "{";
-			json += "\"name\":\"" + chunk->GetValue(0, i).ToString() + "\",";
+			json += "\"name\":\"" + EscapeJsonString(chunk->GetValue(0, i).ToString()) + "\",";
 			json += "\"loaded\":" + string(chunk->GetValue(1, i).GetValue<bool>() ? "true" : "false") + ",";
 			json += "\"installed\":" + string(chunk->GetValue(2, i).GetValue<bool>() ? "true" : "false") + ",";
 
@@ -1136,25 +1136,14 @@ Value DatabaseInfoToolHandler::GetExtensionsInfo() const {
 			if (desc.IsNull()) {
 				json += "\"description\":null,";
 			} else {
-				// Escape quotes in description
-				string desc_str = desc.ToString();
-				string escaped;
-				for (char c : desc_str) {
-					if (c == '"')
-						escaped += "\\\"";
-					else if (c == '\\')
-						escaped += "\\\\";
-					else
-						escaped += c;
-				}
-				json += "\"description\":\"" + escaped + "\",";
+				json += "\"description\":\"" + EscapeJsonString(desc.ToString()) + "\",";
 			}
 
 			auto version = chunk->GetValue(4, i);
 			if (version.IsNull()) {
 				json += "\"version\":null";
 			} else {
-				json += "\"version\":\"" + version.ToString() + "\"";
+				json += "\"version\":\"" + EscapeJsonString(version.ToString()) + "\"";
 			}
 			json += "}";
 		}
