@@ -1,0 +1,9 @@
+[commands.build]
+cmd = "make -j 2"
+description = ""
+format = "make_error"
+
+[commands.test]
+cmd = "make test"
+description = ""
+format = "make_error"

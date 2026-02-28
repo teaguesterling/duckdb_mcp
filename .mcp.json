@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "duckdb_mcp_test": {
+      "command": "./build/release/duckdb",
+      "args": [
+        "-unsigned",
+        "-init",
+        "mcp_init.sql"
+      ],
+      "cwd": "/mnt/aux-data/teague/Projects/duckdb_mcp"
+    },
+    "blq_mcp": {
+      "command": "blq",
+      "args": [
+        "mcp",
+        "serve"
+      ]
+    }
+  }
+}
