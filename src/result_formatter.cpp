@@ -68,6 +68,29 @@ string ResultFormatter::FormatAsJSON(QueryResult &result) {
 	return json;
 }
 
+string ResultFormatter::QuoteCSVField(const string &field) {
+	bool needs_quoting = false;
+	for (char c : field) {
+		if (c == ',' || c == '"' || c == '\n' || c == '\r') {
+			needs_quoting = true;
+			break;
+		}
+	}
+	if (!needs_quoting) {
+		return field;
+	}
+	string result = "\"";
+	for (char c : field) {
+		if (c == '"') {
+			result += "\"\"";
+		} else {
+			result += c;
+		}
+	}
+	result += "\"";
+	return result;
+}
+
 string ResultFormatter::FormatAsCSV(QueryResult &result) {
 	string csv;
 
@@ -75,7 +98,7 @@ string ResultFormatter::FormatAsCSV(QueryResult &result) {
 	for (idx_t col = 0; col < result.names.size(); col++) {
 		if (col > 0)
 			csv += ",";
-		csv += result.names[col];
+		csv += QuoteCSVField(result.names[col]);
 	}
 	csv += "\n";
 
@@ -86,7 +109,11 @@ string ResultFormatter::FormatAsCSV(QueryResult &result) {
 				if (col > 0)
 					csv += ",";
 				auto value = chunk->GetValue(col, i);
-				csv += value.ToString();
+				if (value.IsNull()) {
+					// NULL -> empty field (no quotes)
+				} else {
+					csv += QuoteCSVField(value.ToString());
+				}
 			}
 			csv += "\n";
 		}
