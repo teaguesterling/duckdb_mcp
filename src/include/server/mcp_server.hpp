@@ -76,29 +76,29 @@ struct MCPServerConfig {
 // Resource registry for published resources
 class ResourceRegistry {
 public:
-	void RegisterResource(const string &uri, unique_ptr<ResourceProvider> provider);
+	void RegisterResource(const string &uri, shared_ptr<ResourceProvider> provider);
 	void UnregisterResource(const string &uri);
 	vector<string> ListResources() const;
-	ResourceProvider *GetResource(const string &uri) const;
+	shared_ptr<ResourceProvider> GetResource(const string &uri) const;
 	bool ResourceExists(const string &uri) const;
 
 private:
 	mutable mutex registry_mutex;
-	unordered_map<string, unique_ptr<ResourceProvider>> resources;
+	unordered_map<string, shared_ptr<ResourceProvider>> resources;
 };
 
 // Tool registry for custom tools
 class ToolRegistry {
 public:
-	void RegisterTool(const string &name, unique_ptr<ToolHandler> handler);
+	void RegisterTool(const string &name, shared_ptr<ToolHandler> handler);
 	void UnregisterTool(const string &name);
 	vector<string> ListTools() const;
-	ToolHandler *GetTool(const string &name) const;
+	shared_ptr<ToolHandler> GetTool(const string &name) const;
 	bool ToolExists(const string &name) const;
 
 private:
 	mutable mutex registry_mutex;
-	unordered_map<string, unique_ptr<ToolHandler>> tools;
+	unordered_map<string, shared_ptr<ToolHandler>> tools;
 };
 
 // Main MCP Server class
@@ -132,12 +132,12 @@ public:
 	}
 
 	// Resource management
-	bool PublishResource(const string &uri, unique_ptr<ResourceProvider> provider);
+	bool PublishResource(const string &uri, shared_ptr<ResourceProvider> provider);
 	bool UnpublishResource(const string &uri);
 	vector<string> ListPublishedResources() const;
 
 	// Tool management
-	bool RegisterTool(const string &name, unique_ptr<ToolHandler> handler);
+	bool RegisterTool(const string &name, shared_ptr<ToolHandler> handler);
 	bool UnregisterTool(const string &name);
 	vector<string> ListRegisteredTools() const;
 

@@ -1026,7 +1026,7 @@ static string MCPPublishTableCore(ClientContext &context, const string &table_na
 		       "' when server starts";
 	}
 
-	auto provider = make_uniq<TableResourceProvider>(table_name, format, db_instance);
+	auto provider = make_shared_ptr<TableResourceProvider>(table_name, format, db_instance);
 	auto server = server_manager.GetServer();
 	if (server->PublishResource(resource_uri, std::move(provider))) {
 		return "SUCCESS: Published table '" + table_name + "' as resource '" + resource_uri + "' in " + format +
@@ -1087,7 +1087,7 @@ static string MCPPublishQueryCore(ClientContext &context, const string &query, c
 		return "QUEUED: Query will be published as resource '" + resource_uri + "' when server starts" + refresh_info;
 	}
 
-	auto provider = make_uniq<QueryResourceProvider>(query, format, db_instance, refresh_seconds);
+	auto provider = make_shared_ptr<QueryResourceProvider>(query, format, db_instance, refresh_seconds);
 	auto server = server_manager.GetServer();
 	if (server->PublishResource(resource_uri, std::move(provider))) {
 		string refresh_info =
@@ -1145,7 +1145,7 @@ static string MCPPublishResourceCore(const string &resource_uri, const string &c
 		return "QUEUED: Resource '" + resource_uri + "' will be published when server starts";
 	}
 
-	auto provider = make_uniq<StaticResourceProvider>(content, mime_type, description);
+	auto provider = make_shared_ptr<StaticResourceProvider>(content, mime_type, description);
 	auto server = server_manager.GetServer();
 	if (server->PublishResource(resource_uri, std::move(provider))) {
 		return "SUCCESS: Published resource '" + resource_uri + "' (" + mime_type + ")";
@@ -1207,7 +1207,7 @@ static string MCPPublishToolCore(ClientContext &context, const string &tool_name
 	}
 
 	ToolInputSchema input_schema = ParseToolInputSchema(properties_json, required_json);
-	auto handler = make_uniq<SQLToolHandler>(tool_name, description, sql_template, input_schema, db_instance, format);
+	auto handler = make_shared_ptr<SQLToolHandler>(tool_name, description, sql_template, input_schema, db_instance, format);
 	auto server = server_manager.GetServer();
 	if (server->RegisterTool(tool_name, std::move(handler))) {
 		if (format != "json") {

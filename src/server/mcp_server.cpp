@@ -23,7 +23,7 @@ namespace duckdb {
 // ResourceRegistry Implementation
 //===--------------------------------------------------------------------===//
 
-void ResourceRegistry::RegisterResource(const string &uri, unique_ptr<ResourceProvider> provider) {
+void ResourceRegistry::RegisterResource(const string &uri, shared_ptr<ResourceProvider> provider) {
 	lock_guard<mutex> lock(registry_mutex);
 	resources[uri] = std::move(provider);
 }
@@ -42,10 +42,10 @@ vector<string> ResourceRegistry::ListResources() const {
 	return uris;
 }
 
-ResourceProvider *ResourceRegistry::GetResource(const string &uri) const {
+shared_ptr<ResourceProvider> ResourceRegistry::GetResource(const string &uri) const {
 	lock_guard<mutex> lock(registry_mutex);
 	auto it = resources.find(uri);
-	return it != resources.end() ? it->second.get() : nullptr;
+	return it != resources.end() ? it->second : nullptr;
 }
 
 bool ResourceRegistry::ResourceExists(const string &uri) const {
@@ -57,7 +57,7 @@ bool ResourceRegistry::ResourceExists(const string &uri) const {
 // ToolRegistry Implementation
 //===--------------------------------------------------------------------===//
 
-void ToolRegistry::RegisterTool(const string &name, unique_ptr<ToolHandler> handler) {
+void ToolRegistry::RegisterTool(const string &name, shared_ptr<ToolHandler> handler) {
 	lock_guard<mutex> lock(registry_mutex);
 	tools[name] = std::move(handler);
 }
@@ -76,10 +76,10 @@ vector<string> ToolRegistry::ListTools() const {
 	return names;
 }
 
-ToolHandler *ToolRegistry::GetTool(const string &name) const {
+shared_ptr<ToolHandler> ToolRegistry::GetTool(const string &name) const {
 	lock_guard<mutex> lock(registry_mutex);
 	auto it = tools.find(name);
-	return it != tools.end() ? it->second.get() : nullptr;
+	return it != tools.end() ? it->second : nullptr;
 }
 
 bool ToolRegistry::ToolExists(const string &name) const {
@@ -271,7 +271,7 @@ time_t MCPServer::GetUptime() const {
 	return time(nullptr) - start_time;
 }
 
-bool MCPServer::PublishResource(const string &uri, unique_ptr<ResourceProvider> provider) {
+bool MCPServer::PublishResource(const string &uri, shared_ptr<ResourceProvider> provider) {
 	resource_registry.RegisterResource(uri, std::move(provider));
 	return true;
 }
@@ -285,7 +285,7 @@ vector<string> MCPServer::ListPublishedResources() const {
 	return resource_registry.ListResources();
 }
 
-bool MCPServer::RegisterTool(const string &name, unique_ptr<ToolHandler> handler) {
+bool MCPServer::RegisterTool(const string &name, shared_ptr<ToolHandler> handler) {
 	tool_registry.RegisterTool(name, std::move(handler));
 	return true;
 }
@@ -746,38 +746,38 @@ MCPMessage MCPServer::HandleShutdown(const MCPMessage &request) {
 
 void MCPServer::RegisterBuiltinTools() {
 	if (config.enable_query_tool) {
-		auto query_tool = make_uniq<QueryToolHandler>(*config.db_instance, config.allowed_queries,
-		                                              config.denied_queries, config.default_result_format);
+		auto query_tool = make_shared_ptr<QueryToolHandler>(*config.db_instance, config.allowed_queries,
+		                                                    config.denied_queries, config.default_result_format);
 		tool_registry.RegisterTool("query", std::move(query_tool));
 	}
 
 	if (config.enable_describe_tool) {
 		auto describe_tool =
-		    make_uniq<DescribeToolHandler>(*config.db_instance, config.allowed_queries, config.denied_queries);
+		    make_shared_ptr<DescribeToolHandler>(*config.db_instance, config.allowed_queries, config.denied_queries);
 		tool_registry.RegisterTool("describe", std::move(describe_tool));
 	}
 
 	if (config.enable_export_tool) {
 		auto export_tool =
-		    make_uniq<ExportToolHandler>(*config.db_instance, config.allowed_queries, config.denied_queries);
+		    make_shared_ptr<ExportToolHandler>(*config.db_instance, config.allowed_queries, config.denied_queries);
 		tool_registry.RegisterTool("export", std::move(export_tool));
 	}
 
 	if (config.enable_list_tables_tool) {
-		auto list_tables_tool = make_uniq<ListTablesToolHandler>(*config.db_instance);
+		auto list_tables_tool = make_shared_ptr<ListTablesToolHandler>(*config.db_instance);
 		tool_registry.RegisterTool("list_tables", std::move(list_tables_tool));
 	}
 
 	if (config.enable_database_info_tool) {
-		auto database_info_tool = make_uniq<DatabaseInfoToolHandler>(*config.db_instance);
+		auto database_info_tool = make_shared_ptr<DatabaseInfoToolHandler>(*config.db_instance);
 		tool_registry.RegisterTool("database_info", std::move(database_info_tool));
 	}
 
 	if (config.enable_execute_tool) {
 		auto execute_tool =
-		    make_uniq<ExecuteToolHandler>(*config.db_instance, config.execute_allow_ddl, config.execute_allow_dml,
-		                                  config.execute_allow_load, config.execute_allow_attach,
-		                                  config.execute_allow_set);
+		    make_shared_ptr<ExecuteToolHandler>(*config.db_instance, config.execute_allow_ddl, config.execute_allow_dml,
+		                                        config.execute_allow_load, config.execute_allow_attach,
+		                                        config.execute_allow_set);
 		tool_registry.RegisterTool("execute", std::move(execute_tool));
 	}
 }
@@ -887,8 +887,8 @@ void MCPServerManager::ApplyPendingRegistrations() {
 	for (auto &reg : pending_tools) {
 		try {
 			ToolInputSchema input_schema = ParseToolInputSchema(reg.properties_json, reg.required_json);
-			auto handler = make_uniq<SQLToolHandler>(reg.name, reg.description, reg.sql_template, input_schema,
-			                                         *reg.db_instance, reg.format);
+			auto handler = make_shared_ptr<SQLToolHandler>(reg.name, reg.description, reg.sql_template, input_schema,
+			                                               *reg.db_instance, reg.format);
 			server->RegisterTool(reg.name, std::move(handler));
 		} catch (const std::exception &e) {
 			// Log error but continue with other registrations
@@ -901,16 +901,16 @@ void MCPServerManager::ApplyPendingRegistrations() {
 		try {
 			if (reg.type == "table") {
 				// TableResourceProvider(table_name, format, db)
-				auto provider = make_uniq<TableResourceProvider>(reg.source, reg.format, *reg.db_instance);
+				auto provider = make_shared_ptr<TableResourceProvider>(reg.source, reg.format, *reg.db_instance);
 				server->PublishResource(reg.uri, std::move(provider));
 			} else if (reg.type == "query") {
 				// QueryResourceProvider(query, format, db, refresh_interval_seconds)
 				auto provider =
-				    make_uniq<QueryResourceProvider>(reg.source, reg.format, *reg.db_instance, reg.refresh_seconds);
+				    make_shared_ptr<QueryResourceProvider>(reg.source, reg.format, *reg.db_instance, reg.refresh_seconds);
 				server->PublishResource(reg.uri, std::move(provider));
 			} else if (reg.type == "resource") {
 				// StaticResourceProvider(content, mime_type, description)
-				auto provider = make_uniq<StaticResourceProvider>(reg.source, reg.mime_type, reg.description);
+				auto provider = make_shared_ptr<StaticResourceProvider>(reg.source, reg.mime_type, reg.description);
 				server->PublishResource(reg.uri, std::move(provider));
 			}
 		} catch (const std::exception &e) {
@@ -931,8 +931,8 @@ void MCPServerManager::ApplyPendingRegistrationsTo(MCPServer *external_server) {
 	for (auto &reg : pending_tools) {
 		try {
 			ToolInputSchema input_schema = ParseToolInputSchema(reg.properties_json, reg.required_json);
-			auto handler = make_uniq<SQLToolHandler>(reg.name, reg.description, reg.sql_template, input_schema,
-			                                         *reg.db_instance, reg.format);
+			auto handler = make_shared_ptr<SQLToolHandler>(reg.name, reg.description, reg.sql_template, input_schema,
+			                                               *reg.db_instance, reg.format);
 			external_server->RegisterTool(reg.name, std::move(handler));
 		} catch (const std::exception &e) {
 			// Log error but continue with other registrations
@@ -944,14 +944,14 @@ void MCPServerManager::ApplyPendingRegistrationsTo(MCPServer *external_server) {
 	for (auto &reg : pending_resources) {
 		try {
 			if (reg.type == "table") {
-				auto provider = make_uniq<TableResourceProvider>(reg.source, reg.format, *reg.db_instance);
+				auto provider = make_shared_ptr<TableResourceProvider>(reg.source, reg.format, *reg.db_instance);
 				external_server->PublishResource(reg.uri, std::move(provider));
 			} else if (reg.type == "query") {
 				auto provider =
-				    make_uniq<QueryResourceProvider>(reg.source, reg.format, *reg.db_instance, reg.refresh_seconds);
+				    make_shared_ptr<QueryResourceProvider>(reg.source, reg.format, *reg.db_instance, reg.refresh_seconds);
 				external_server->PublishResource(reg.uri, std::move(provider));
 			} else if (reg.type == "resource") {
-				auto provider = make_uniq<StaticResourceProvider>(reg.source, reg.mime_type, reg.description);
+				auto provider = make_shared_ptr<StaticResourceProvider>(reg.source, reg.mime_type, reg.description);
 				external_server->PublishResource(reg.uri, std::move(provider));
 			}
 		} catch (const std::exception &e) {
