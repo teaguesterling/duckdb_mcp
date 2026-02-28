@@ -539,14 +539,14 @@ string ExportToolHandler::FormatData(QueryResult &result, const string &format) 
 		return json;
 
 	} else if (format == "csv") {
-		// Convert to CSV
+		// Convert to CSV (RFC 4180 compliant)
 		string csv;
 
 		// Header
 		for (idx_t col = 0; col < result.names.size(); col++) {
 			if (col > 0)
 				csv += ",";
-			csv += result.names[col];
+			csv += ResultFormatter::QuoteCSVField(result.names[col]);
 		}
 		csv += "\n";
 
@@ -557,7 +557,11 @@ string ExportToolHandler::FormatData(QueryResult &result, const string &format) 
 					if (col > 0)
 						csv += ",";
 					auto value = chunk->GetValue(col, i);
-					csv += value.ToString();
+					if (value.IsNull()) {
+						// NULL -> empty field (no quotes)
+					} else {
+						csv += ResultFormatter::QuoteCSVField(value.ToString());
+					}
 				}
 				csv += "\n";
 			}

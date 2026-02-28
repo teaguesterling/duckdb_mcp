@@ -11,8 +11,13 @@ public:
 	// Format result as JSON array of objects
 	static string FormatAsJSON(QueryResult &result);
 
-	// Format result as CSV
+	// Format result as CSV (RFC 4180 compliant)
 	static string FormatAsCSV(QueryResult &result);
+
+	// Quote a CSV field per RFC 4180: wrap in double quotes and escape
+	// internal double quotes by doubling them, if the field contains
+	// comma, double quote, newline, or carriage return.
+	static string QuoteCSVField(const string &field);
 
 	// Format result as GitHub-flavored markdown table
 	// - Right-aligns numeric columns

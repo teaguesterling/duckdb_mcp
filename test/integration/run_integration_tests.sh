@@ -460,6 +460,72 @@ else
 fi
 
 # ==========================================
+# CSV Quoting Tests (RFC 4180)
+# ==========================================
+log_section "CSV Quoting Tests (RFC 4180)"
+
+# Test CSV with value containing a comma
+RESULT=$(run_sql_with_extension "
+SELECT mcp_server_start('memory', 'localhost', 0, '{}');
+SELECT mcp_server_send_request('{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"query\",\"arguments\":{\"sql\":\"SELECT ''hello, world'' as val\",\"format\":\"csv\"}}}');
+")
+# In JSON response, CSV quotes appear as \" so we check for \"hello, world\"
+if echo "$RESULT" | grep -q '\\\"hello, world\\\"'; then
+    pass "CSV quoting: comma in value is quoted"
+else
+    fail "CSV quoting: comma" "quoted value with \\\"" "$RESULT"
+fi
+
+# Test CSV with value containing double quotes (use chr(34) to embed quotes)
+RESULT=$(run_sql_with_extension "
+SELECT mcp_server_start('memory', 'localhost', 0, '{}');
+SELECT mcp_server_send_request('{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"query\",\"arguments\":{\"sql\":\"SELECT concat(''say '', chr(34), ''hi'', chr(34)) as val\",\"format\":\"csv\"}}}');
+")
+# RFC 4180: internal double quotes are doubled, e.g. say "hi" -> "say ""hi"""
+# In JSON, the doubled quotes \"\" appear as \\\"\\\" in the output
+if echo "$RESULT" | grep -q '\\\"\\\"hi\\\"\\\"'; then
+    pass "CSV quoting: double quotes in value are escaped"
+else
+    fail "CSV quoting: double quotes" "doubled quotes" "$RESULT"
+fi
+
+# Test CSV with value containing newline (chr(10))
+RESULT=$(run_sql_with_extension "
+SELECT mcp_server_start('memory', 'localhost', 0, '{}');
+SELECT mcp_server_send_request('{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"query\",\"arguments\":{\"sql\":\"SELECT concat(''line1'', chr(10), ''line2'') as val\",\"format\":\"csv\"}}}');
+")
+# Value with newline should be wrapped in quotes
+if echo "$RESULT" | grep -q '"line1'; then
+    pass "CSV quoting: newline in value is quoted"
+else
+    fail "CSV quoting: newline" "quoted value with newline" "$RESULT"
+fi
+
+# Test CSV with NULL value (should be empty, no quotes)
+RESULT=$(run_sql_with_extension "
+SELECT mcp_server_start('memory', 'localhost', 0, '{}');
+SELECT mcp_server_send_request('{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"query\",\"arguments\":{\"sql\":\"SELECT 1 as id, NULL as val\",\"format\":\"csv\"}}}');
+")
+# NULL should produce: id,val\n1,\n (empty field, not the string NULL)
+if echo "$RESULT" | grep -q 'id,val'; then
+    pass "CSV quoting: NULL produces empty field"
+else
+    fail "CSV quoting: NULL" "empty field" "$RESULT"
+fi
+
+# Test CSV with clean value (no quoting needed)
+RESULT=$(run_sql_with_extension "
+SELECT mcp_server_start('memory', 'localhost', 0, '{}');
+SELECT mcp_server_send_request('{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"query\",\"arguments\":{\"sql\":\"SELECT ''hello'' as val\",\"format\":\"csv\"}}}');
+")
+# Clean value should not be quoted
+if echo "$RESULT" | grep -q 'val\\nhello\\n'; then
+    pass "CSV quoting: clean value is not quoted"
+else
+    fail "CSV quoting: clean value" "unquoted value" "$RESULT"
+fi
+
+# ==========================================
 # Server Configuration Tests
 # ==========================================
 log_section "Server Configuration Tests"
