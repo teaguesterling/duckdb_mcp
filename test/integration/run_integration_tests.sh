@@ -507,10 +507,10 @@ SELECT mcp_server_start('memory', 'localhost', 0, '{}');
 SELECT mcp_server_send_request('{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"query\",\"arguments\":{\"sql\":\"SELECT 1 as id, NULL as val\",\"format\":\"csv\"}}}');
 ")
 # NULL should produce: id,val\n1,\n (empty field, not the string NULL)
-if echo "$RESULT" | grep -q 'id,val'; then
+if echo "$RESULT" | grep -q 'id,val' && ! echo "$RESULT" | grep -q '1,NULL'; then
     pass "CSV quoting: NULL produces empty field"
 else
-    fail "CSV quoting: NULL" "empty field" "$RESULT"
+    fail "CSV quoting: NULL" "empty field, not literal NULL" "$RESULT"
 fi
 
 # Test CSV with clean value (no quoting needed)
