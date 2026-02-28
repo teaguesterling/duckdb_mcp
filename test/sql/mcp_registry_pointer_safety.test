@@ -1,0 +1,195 @@
+# name: test/sql/mcp_registry_pointer_safety.test
+# description: Regression test for #24 - registry GetResource/GetTool returns safe references
+# group: [sql]
+
+# This test exercises all code paths that previously returned raw pointers
+# from the registry after releasing the mutex (CR-04). After the shared_ptr
+# fix, callers hold a reference-counted handle, preventing use-after-free
+# if another thread unregisters the entry concurrently.
+
+require duckdb_mcp
+
+statement ok
+LOAD duckdb_mcp;
+
+# =============================================================================
+# SETUP
+# =============================================================================
+
+statement ok
+SELECT mcp_server_stop(true);
+
+statement ok
+CREATE TABLE reg_test AS SELECT 1 as id, 'alpha' as name UNION ALL SELECT 2, 'beta';
+
+# =============================================================================
+# SECTION 1: Resource publish, list (GetResource), read (GetResource), unpublish
+# Exercises HandleResourcesList and HandleResourcesRead which both call
+# GetResource and dereference the returned pointer.
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# Publish two resources
+query I
+SELECT mcp_publish_table('reg_test', 'data://r1', 'json') LIKE '%SUCCESS%';
+----
+true
+
+query I
+SELECT mcp_publish_resource('data://r2', 'static content', 'text/plain', 'A static resource') LIKE '%SUCCESS%';
+----
+true
+
+# List resources - exercises GetResource for metadata (description, mimeType)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":1,"method":"resources/list","params":{}}') LIKE '%data://r1%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":2,"method":"resources/list","params":{}}') LIKE '%data://r2%';
+----
+true
+
+# Read resource - exercises GetResource then provider->Read()
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":3,"method":"resources/read","params":{"uri":"data://r1"}}') LIKE '%alpha%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":4,"method":"resources/read","params":{"uri":"data://r2"}}') LIKE '%static content%';
+----
+true
+
+# Read non-existent resource returns error (null pointer path)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":5,"method":"resources/read","params":{"uri":"data://gone"}}') LIKE '%error%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# SECTION 2: Tool register, list (GetTool), call (GetTool), unregister
+# Exercises HandleToolsList and HandleToolsCall which both call GetTool
+# and dereference the returned pointer.
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# Register a custom tool
+query I
+SELECT mcp_publish_tool(
+    'reg_test_tool',
+    'Test tool for registry safety',
+    'SELECT * FROM reg_test WHERE id = $id',
+    '{"id": "integer"}',
+    '["id"]'
+) LIKE '%SUCCESS%';
+----
+true
+
+# List tools - exercises GetTool for metadata (description, inputSchema)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":10,"method":"tools/list","params":{}}') LIKE '%reg_test_tool%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":11,"method":"tools/list","params":{}}') LIKE '%Test tool for registry safety%';
+----
+true
+
+# Call tool - exercises GetTool then handler->Execute()
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"reg_test_tool","arguments":{"id":"1"}}}') LIKE '%alpha%';
+----
+true
+
+# Call non-existent tool returns error (null pointer path)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"no_such_tool","arguments":{}}}') LIKE '%error%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# SECTION 3: Built-in tools use the same GetTool path
+# Verify built-in tools (registered via RegisterBuiltinTools) also work
+# through the shared_ptr path.
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# query tool - exercises GetTool + Execute
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 42 as answer"}}}') LIKE '%42%';
+----
+true
+
+# list_tables tool
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"list_tables","arguments":{}}}') LIKE '%reg_test%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# SECTION 4: Rapid register/use cycle
+# Register, use, stop, restart, re-register, use again.
+# Ensures the shared_ptr lifecycle is correct across server restarts.
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory');
+
+query I
+SELECT mcp_publish_table('reg_test', 'data://cycle', 'json') LIKE '%SUCCESS%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":30,"method":"resources/read","params":{"uri":"data://cycle"}}') LIKE '%alpha%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop();
+
+# Restart and re-register
+statement ok
+SELECT mcp_server_start('memory');
+
+query I
+SELECT mcp_publish_table('reg_test', 'data://cycle', 'csv') LIKE '%SUCCESS%';
+----
+true
+
+# Should now return CSV format
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":31,"method":"resources/read","params":{"uri":"data://cycle"}}') LIKE '%id,name%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# Cleanup
+# =============================================================================
+
+statement ok
+DROP TABLE IF EXISTS reg_test;
+
+statement ok
+SELECT mcp_server_stop(true);
