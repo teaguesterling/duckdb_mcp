@@ -393,8 +393,94 @@ statement ok
 SELECT mcp_server_stop(true);
 
 # =============================================================================
+# CR-01: list_tables must JSON-escape table/schema/database names (issue #22)
+# =============================================================================
+# Create a table whose name contains a double-quote character.
+# list_tables builds JSON by hand; without EscapeJsonString the inner JSON
+# content is malformed.
+#
+# Detection: When the tool escapes the quote, the inner JSON has \"
+# which the JSON-RPC layer further escapes to \\\". We check for this
+# triple-backslash-quote sequence using chr() to avoid SQL escaping issues.
+
+statement ok
+CREATE TABLE "tbl""quote" (id INTEGER);
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# With proper escaping, the response must contain tbl + \\\" + quote
+# (inner \" becomes \\\" in the JSON-RPC response)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":100,"method":"tools/call","params":{"name":"list_tables","arguments":{}}}')
+  LIKE '%tbl' || chr(92) || chr(92) || chr(92) || chr(34) || 'quote%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# CR-02: database_info must JSON-escape all string fields (issue #22)
+# =============================================================================
+# database_info aggregates output from sub-methods (tables, views, etc.)
+# that all build JSON by hand. The table with a quote in its name will
+# appear in the tables section and produce malformed JSON without escaping.
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# The table name must be properly escaped in database_info output
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":110,"method":"tools/call","params":{"name":"database_info","arguments":{}}}')
+  LIKE '%tbl' || chr(92) || chr(92) || chr(92) || chr(34) || 'quote%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# CR-03: export JSON mode must escape column names and values (issue #22)
+# =============================================================================
+# Create a table with a column name containing a double quote, and a value
+# containing both a backslash and a double quote.
+
+statement ok
+CREATE TABLE export_escape_test ("col""q" VARCHAR);
+
+statement ok
+INSERT INTO export_escape_test VALUES ('val\with"chars');
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# Column name must be escaped: col"q → col\"q in inner JSON → col\\\"q in response
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":120,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT * FROM export_escape_test","format":"json"}}}')
+  LIKE '%col' || chr(92) || chr(92) || chr(92) || chr(34) || 'q%';
+----
+true
+
+# Backslash in value must be escaped: val\with → val\\with in inner JSON → val\\\\with in response
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":121,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT * FROM export_escape_test","format":"json"}}}')
+  LIKE '%val' || chr(92) || chr(92) || chr(92) || chr(92) || 'with%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
 # Cleanup
 # =============================================================================
+
+statement ok
+DROP TABLE IF EXISTS export_escape_test;
+
+statement ok
+DROP TABLE IF EXISTS "tbl""quote";
 
 statement ok
 DROP VIEW IF EXISTS sec_view;
