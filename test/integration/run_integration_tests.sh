@@ -704,6 +704,80 @@ else
 fi
 
 # ==========================================
+# Execute Tool: COPY Statement Blocking (Issue #26)
+# ==========================================
+log_section "Execute Tool: COPY Statement Blocking"
+
+# Start server with execute tool enabled (DDL + DML allowed)
+EXEC_CONFIG='{"enable_execute_tool": true, "execute_allow_ddl": true, "execute_allow_dml": true}'
+
+# Test: COPY TO should be blocked
+# Note: '' inside the SQL string is an escaped single quote, so the JSON value
+# received by the handler contains: COPY copy_test TO '/tmp/copy_test.csv' (FORMAT CSV)
+RESULT=$(run_sql_with_extension "
+CREATE TABLE copy_test (id INT, name VARCHAR);
+INSERT INTO copy_test VALUES (1, 'Alice'), (2, 'Bob');
+SELECT mcp_server_start('memory', 'localhost', 0, '$EXEC_CONFIG');
+SELECT mcp_server_send_request('{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"execute\",\"arguments\":{\"statement\":\"COPY copy_test TO ''/tmp/copy_test_output.csv'' (FORMAT CSV)\"}}}');
+")
+if echo "$RESULT" | grep -q "not allowed"; then
+    pass "Execute tool: COPY TO is blocked"
+else
+    fail "Execute tool: COPY TO should be blocked" "'not allowed' in response" "$RESULT"
+fi
+
+# Test: COPY FROM should be blocked
+# Create a real file so DuckDB's prepare step succeeds and we reach IsAllowedStatement
+COPY_FROM_FILE=$(mktemp /tmp/copy_from_test_XXXXXX.csv)
+echo -e "id,name\n1,Alice\n2,Bob" > "$COPY_FROM_FILE"
+RESULT=$(run_sql_with_extension "
+CREATE TABLE copy_from_test (id INT, name VARCHAR);
+SELECT mcp_server_start('memory', 'localhost', 0, '$EXEC_CONFIG');
+SELECT mcp_server_send_request('{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"execute\",\"arguments\":{\"statement\":\"COPY copy_from_test FROM ''$COPY_FROM_FILE'' (FORMAT CSV, HEADER)\"}}}');
+")
+rm -f "$COPY_FROM_FILE"
+if echo "$RESULT" | grep -q "not allowed"; then
+    pass "Execute tool: COPY FROM is blocked"
+else
+    fail "Execute tool: COPY FROM should be blocked" "'not allowed' in response" "$RESULT"
+fi
+
+# Test: COPY (subquery) TO should be blocked
+RESULT=$(run_sql_with_extension "
+SELECT mcp_server_start('memory', 'localhost', 0, '$EXEC_CONFIG');
+SELECT mcp_server_send_request('{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"execute\",\"arguments\":{\"statement\":\"COPY (SELECT 1) TO ''/tmp/copy_subquery.csv''\"}}}');
+")
+if echo "$RESULT" | grep -q "not allowed"; then
+    pass "Execute tool: COPY (subquery) TO is blocked"
+else
+    fail "Execute tool: COPY (subquery) TO should be blocked" "'not allowed' in response" "$RESULT"
+fi
+
+# Test: INSERT still works when DML allowed
+# The JSON response has escaped quotes, so check for escaped patterns
+RESULT=$(run_sql_with_extension "
+CREATE TABLE exec_insert_test (id INT);
+SELECT mcp_server_start('memory', 'localhost', 0, '$EXEC_CONFIG');
+SELECT mcp_server_send_request('{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"execute\",\"arguments\":{\"statement\":\"INSERT INTO exec_insert_test VALUES (1), (2), (3)\"}}}');
+")
+if echo "$RESULT" | grep -q 'success.*true' && echo "$RESULT" | grep -q 'affected_rows.*3'; then
+    pass "Execute tool: INSERT works when DML allowed"
+else
+    fail "Execute tool: INSERT with DML allowed" "success with 3 affected rows" "$RESULT"
+fi
+
+# Test: CREATE TABLE still works when DDL allowed
+RESULT=$(run_sql_with_extension "
+SELECT mcp_server_start('memory', 'localhost', 0, '$EXEC_CONFIG');
+SELECT mcp_server_send_request('{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"execute\",\"arguments\":{\"statement\":\"CREATE TABLE exec_ddl_test (id INT, value VARCHAR)\"}}}');
+")
+if echo "$RESULT" | grep -q 'success.*true'; then
+    pass "Execute tool: CREATE TABLE works when DDL allowed"
+else
+    fail "Execute tool: CREATE TABLE with DDL allowed" "success" "$RESULT"
+fi
+
+# ==========================================
 # Summary
 # ==========================================
 log_section "Test Summary"

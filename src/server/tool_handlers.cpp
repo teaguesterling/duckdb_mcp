@@ -1335,11 +1335,12 @@ bool ExecuteToolHandler::IsAllowedStatement(StatementType type) const {
 		return false;
 	}
 
-	// Block other query-like statements that should use the query tool
+	// Block other statements that should use dedicated tools or are unsafe
 	switch (type) {
 	case StatementType::EXPLAIN_STATEMENT:
 	case StatementType::RELATION_STATEMENT:
-	case StatementType::CALL_STATEMENT: // CALL can return results, use query tool
+	case StatementType::CALL_STATEMENT:  // CALL can return results, use query tool
+	case StatementType::COPY_STATEMENT:  // COPY can read/write arbitrary files, use export tool
 		return false;
 	default:
 		break;
