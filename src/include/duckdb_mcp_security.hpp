@@ -6,6 +6,7 @@
 #include "duckdb/common/exception.hpp"
 #include "duckdb/storage/storage_extension.hpp"
 #include "duckdb/common/unordered_map.hpp"
+#include <mutex>
 
 namespace duckdb {
 
@@ -44,21 +45,25 @@ public:
 
 	//! Check if servers are locked
 	bool AreServersLocked() const {
+		lock_guard<mutex> lock(config_mutex);
 		return servers_locked;
 	}
 
 	//! Check if commands are locked (immutable once set)
 	bool AreCommandsLocked() const {
+		lock_guard<mutex> lock(config_mutex);
 		return commands_locked;
 	}
 
 	//! Check if serving is disabled
 	bool IsServingDisabled() const {
+		lock_guard<mutex> lock(config_mutex);
 		return serving_disabled;
 	}
 
 	//! Get server file path
 	string GetServerFile() const {
+		lock_guard<mutex> lock(config_mutex);
 		return server_file;
 	}
 
@@ -70,6 +75,7 @@ private:
 	    : servers_locked(false), commands_locked(false), serving_disabled(false), server_file("./.mcp.json") {
 	}
 
+	mutable mutex config_mutex;
 	vector<string> allowed_commands;
 	vector<string> allowed_urls;
 	string server_file;
@@ -79,6 +85,10 @@ private:
 
 	//! Parse colon or space delimited string into vector
 	vector<string> ParseDelimitedString(const string &input, char delimiter) const;
+
+	//! Internal unlocked helpers (caller must hold config_mutex)
+	bool IsPermissiveModeInternal() const;
+	bool IsCommandAllowedInternal(const string &command_path) const;
 };
 
 #ifndef __EMSCRIPTEN__

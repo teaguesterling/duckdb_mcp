@@ -179,7 +179,7 @@ private:
 	atomic<uint64_t> requests_received;
 	atomic<uint64_t> responses_sent;
 	atomic<uint64_t> errors_returned;
-	time_t start_time;
+	atomic<time_t> start_time;
 
 	ResourceRegistry resource_registry;
 	ToolRegistry tool_registry;
