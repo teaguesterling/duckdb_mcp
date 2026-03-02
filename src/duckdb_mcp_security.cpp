@@ -20,6 +20,7 @@
 namespace duckdb {
 
 void MCPSecurityConfig::SetAllowedCommands(const string &commands) {
+	lock_guard<mutex> lock(config_mutex);
 	if (servers_locked) {
 		throw InvalidInputException("Cannot modify MCP settings: servers are locked");
 	}
@@ -37,6 +38,7 @@ void MCPSecurityConfig::SetAllowedCommands(const string &commands) {
 }
 
 void MCPSecurityConfig::SetAllowedUrls(const string &urls) {
+	lock_guard<mutex> lock(config_mutex);
 	if (servers_locked) {
 		throw InvalidInputException("Cannot modify MCP settings: servers are locked");
 	}
@@ -44,6 +46,7 @@ void MCPSecurityConfig::SetAllowedUrls(const string &urls) {
 }
 
 void MCPSecurityConfig::SetServerFile(const string &file_path) {
+	lock_guard<mutex> lock(config_mutex);
 	if (servers_locked) {
 		throw InvalidInputException("Cannot modify MCP settings: servers are locked");
 	}
@@ -51,16 +54,23 @@ void MCPSecurityConfig::SetServerFile(const string &file_path) {
 }
 
 void MCPSecurityConfig::LockServers(bool lock) {
+	lock_guard<mutex> guard(config_mutex);
 	servers_locked = lock;
 }
 
 void MCPSecurityConfig::SetServingDisabled(bool disabled) {
+	lock_guard<mutex> guard(config_mutex);
 	serving_disabled = disabled;
 }
 
 bool MCPSecurityConfig::IsCommandAllowed(const string &command_path) const {
+	lock_guard<mutex> lock(config_mutex);
+	return IsCommandAllowedInternal(command_path);
+}
+
+bool MCPSecurityConfig::IsCommandAllowedInternal(const string &command_path) const {
 	// If we're in permissive mode (no security settings configured), allow everything
-	if (IsPermissiveMode()) {
+	if (IsPermissiveModeInternal()) {
 		return true;
 	}
 
@@ -88,8 +98,9 @@ bool MCPSecurityConfig::IsCommandAllowed(const string &command_path) const {
 }
 
 bool MCPSecurityConfig::IsUrlAllowed(const string &url) const {
+	lock_guard<mutex> lock(config_mutex);
 	// If we're in permissive mode (no security settings configured), allow everything
-	if (IsPermissiveMode()) {
+	if (IsPermissiveModeInternal()) {
 		return true;
 	}
 
@@ -124,18 +135,24 @@ bool MCPSecurityConfig::IsUrlAllowed(const string &url) const {
 }
 
 bool MCPSecurityConfig::IsPermissiveMode() const {
+	lock_guard<mutex> lock(config_mutex);
+	return IsPermissiveModeInternal();
+}
+
+bool MCPSecurityConfig::IsPermissiveModeInternal() const {
 	// Permissive mode is when NO security settings have been configured
 	// (both commands and URLs are empty, and commands haven't been locked)
 	return allowed_commands.empty() && allowed_urls.empty() && !commands_locked;
 }
 
 void MCPSecurityConfig::ValidateAttachSecurity(const string &command, const vector<string> &args) const {
+	lock_guard<mutex> lock(config_mutex);
 	if (servers_locked) {
 		throw InvalidInputException("Cannot attach MCP servers: servers are locked");
 	}
 
 	// If we're in permissive mode, skip security validation but still do basic safety checks
-	if (IsPermissiveMode()) {
+	if (IsPermissiveModeInternal()) {
 		// Basic safety checks even in permissive mode
 		for (const auto &arg : args) {
 			// Prevent dangerous arguments even in permissive mode
@@ -153,7 +170,7 @@ void MCPSecurityConfig::ValidateAttachSecurity(const string &command, const vect
 		                            "allowed_mcp_commands='python3:/usr/bin/python3'");
 	}
 
-	if (!IsCommandAllowed(command)) {
+	if (!IsCommandAllowedInternal(command)) {
 		// Build helpful error message showing what's allowed
 		string allowed_list = "";
 		for (size_t i = 0; i < allowed_commands.size(); i++) {

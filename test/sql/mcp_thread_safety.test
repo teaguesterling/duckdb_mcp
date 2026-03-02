@@ -1,0 +1,132 @@
+# name: test/sql/mcp_thread_safety.test
+# description: Regression test for #25 - Thread safety fixes (CR-08, CR-11, CR-12)
+# group: [sql]
+
+# Tests that the mutex-protected MCPSecurityConfig doesn't deadlock and
+# that atomic start_time doesn't cause issues. These are single-threaded
+# correctness tests; concurrent stress tests are in test/integration/test_thread_safety.sh
+
+require duckdb_mcp
+
+statement ok
+LOAD duckdb_mcp;
+
+# =============================================================================
+# SETUP
+# =============================================================================
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# CR-08: MCPSecurityConfig lock ordering - no deadlocks
+# =============================================================================
+# After adding config_mutex, public methods that call each other (e.g.,
+# IsCommandAllowed -> IsPermissiveMode) must use internal unlocked helpers
+# to avoid recursive lock acquisition. These tests verify no deadlocks.
+
+# Test 1: SetAllowedCommands locks config, then commands_locked is set.
+# Subsequent operations reading commands_locked must not deadlock.
+# NOTE: We use a fresh extension load for each security test since
+# commands are immutable once set.
+
+# Test 2: Server start reads IsServingDisabled() which acquires config_mutex.
+# This must not deadlock with other config operations.
+statement ok
+SELECT mcp_server_start('memory');
+
+# Test 3: Server status reads GetUptime() which reads atomic start_time.
+# This should work without any locking issues.
+query I
+SELECT (mcp_server_status()).running;
+----
+true
+
+# Test 4: Multiple status calls don't deadlock or crash
+query I
+SELECT (mcp_server_status()).running;
+----
+true
+
+query I
+SELECT (mcp_server_status()).running;
+----
+true
+
+# =============================================================================
+# CR-12: MCPServer::start_time as atomic - uptime reads are safe
+# =============================================================================
+
+# Test 5: Server status message includes uptime info (reads start_time)
+query I
+SELECT (mcp_server_status()).message LIKE '%ptime%';
+----
+true
+
+# =============================================================================
+# CR-11: MCPConnection error handling - error_mutex protects last_error
+# =============================================================================
+# Memory transport doesn't use MCPConnection, but we can verify the server
+# handles error-producing requests gracefully (exercises error paths that
+# would use SetError in a real connection).
+
+# Test 6: Invalid tool call produces clean error (not garbage from torn string)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"nonexistent","arguments":{}}}') LIKE '%error%';
+----
+true
+
+# Test 7: Invalid resource read produces clean error
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":2,"method":"resources/read","params":{"uri":"data://missing"}}') LIKE '%error%';
+----
+true
+
+# Test 8: Valid request after errors works (error state doesn't leak)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 42 as answer"}}}') LIKE '%42%';
+----
+true
+
+# Test 9: Rapid alternation between error and success
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"bad_tool","arguments":{}}}') LIKE '%error%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 1"}}}') LIKE '%result%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":6,"method":"resources/read","params":{"uri":"data://nope"}}') LIKE '%error%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":7,"method":"tools/list","params":{}}') LIKE '%query%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# CR-08: MCPSecurityConfig accessor methods under lock
+# =============================================================================
+
+# Test 10: GetServerFile() acquires lock and returns default
+# (We can't easily test the return value, but it must not crash)
+statement ok
+SELECT mcp_server_start('memory');
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
+# Cleanup
+# =============================================================================
+
+statement ok
+SELECT mcp_server_stop(true);
