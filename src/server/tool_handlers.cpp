@@ -1309,44 +1309,28 @@ bool ExecuteToolHandler::IsDMLStatement(StatementType type) const {
 }
 
 bool ExecuteToolHandler::IsAllowedStatement(StatementType type) const {
-	// Block SELECT-like statements (should use 'query' tool instead)
-	if (type == StatementType::SELECT_STATEMENT) {
-		return false;
+	// Allowlist: only permit statement types that belong to a known, permitted category.
+	// Unrecognized or unclassified types are blocked by default (fail-closed).
+	if (IsDMLStatement(type)) {
+		return allow_dml;
+	}
+	if (IsSafeDDLStatement(type)) {
+		return allow_ddl;
+	}
+	if (IsLoadStatement(type)) {
+		return allow_load;
+	}
+	if (IsAttachStatement(type)) {
+		return allow_attach;
+	}
+	if (IsSetStatement(type)) {
+		return allow_set;
 	}
 
-	// Check DML permissions
-	if (IsDMLStatement(type) && !allow_dml) {
-		return false;
-	}
-
-	// Check safe DDL permissions
-	if (IsSafeDDLStatement(type) && !allow_ddl) {
-		return false;
-	}
-
-	// Check dangerous DDL subcategories (each requires its own flag)
-	if (IsLoadStatement(type) && !allow_load) {
-		return false;
-	}
-	if (IsAttachStatement(type) && !allow_attach) {
-		return false;
-	}
-	if (IsSetStatement(type) && !allow_set) {
-		return false;
-	}
-
-	// Block other statements that should use dedicated tools or are unsafe
-	switch (type) {
-	case StatementType::EXPLAIN_STATEMENT:
-	case StatementType::RELATION_STATEMENT:
-	case StatementType::CALL_STATEMENT:  // CALL can return results, use query tool
-	case StatementType::COPY_STATEMENT:  // COPY can read/write arbitrary files, use export tool
-		return false;
-	default:
-		break;
-	}
-
-	return true;
+	// Everything else is blocked: SELECT (use query tool), COPY/EXPORT (filesystem
+	// access), PREPARE/EXECUTE (bypass classification), EXPLAIN/CALL (use query tool),
+	// and any future statement types added to the DuckDB enum.
+	return false;
 }
 
 } // namespace duckdb

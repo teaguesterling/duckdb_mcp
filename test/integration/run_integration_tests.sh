@@ -753,6 +753,40 @@ else
     fail "Execute tool: COPY (subquery) TO should be blocked" "'not allowed' in response" "$RESULT"
 fi
 
+# Test: EXPORT DATABASE should be blocked (same vulnerability class as COPY)
+RESULT=$(run_sql_with_extension "
+SELECT mcp_server_start('memory', 'localhost', 0, '$EXEC_CONFIG');
+SELECT mcp_server_send_request('{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"execute\",\"arguments\":{\"statement\":\"EXPORT DATABASE ''/tmp/export_test_dir''\"}}}');
+")
+if echo "$RESULT" | grep -q "not allowed"; then
+    pass "Execute tool: EXPORT DATABASE is blocked"
+else
+    fail "Execute tool: EXPORT DATABASE should be blocked" "'not allowed' in response" "$RESULT"
+fi
+
+# Test: PREPARE should be blocked (could prepare a COPY then EXECUTE it)
+RESULT=$(run_sql_with_extension "
+CREATE TABLE prep_test (id INT);
+SELECT mcp_server_start('memory', 'localhost', 0, '$EXEC_CONFIG');
+SELECT mcp_server_send_request('{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"execute\",\"arguments\":{\"statement\":\"PREPARE copy_bypass AS SELECT 1\"}}}');
+")
+if echo "$RESULT" | grep -q "not allowed"; then
+    pass "Execute tool: PREPARE is blocked"
+else
+    fail "Execute tool: PREPARE should be blocked" "'not allowed' in response" "$RESULT"
+fi
+
+# Test: EXECUTE should be blocked (runs prepared statements, bypasses classification)
+RESULT=$(run_sql_with_extension "
+SELECT mcp_server_start('memory', 'localhost', 0, '$EXEC_CONFIG');
+SELECT mcp_server_send_request('{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"execute\",\"arguments\":{\"statement\":\"EXECUTE copy_bypass\"}}}');
+")
+if echo "$RESULT" | grep -q "not allowed\|error"; then
+    pass "Execute tool: EXECUTE is blocked"
+else
+    fail "Execute tool: EXECUTE should be blocked" "'not allowed' in response" "$RESULT"
+fi
+
 # Test: INSERT still works when DML allowed
 # The JSON response has escaped quotes, so check for escaped patterns
 RESULT=$(run_sql_with_extension "
