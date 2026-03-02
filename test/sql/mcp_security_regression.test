@@ -285,9 +285,9 @@ SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":70,"method":"tools/call","
 ----
 true
 
-# DescribeQuery with a denied query should be blocked
+# DescribeQuery with a denied query should be blocked (read-only enforcement)
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":71,"method":"tools/call","params":{"name":"describe","arguments":{"query":"DROP TABLE sec_test"}}}') LIKE '%not allowed%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":71,"method":"tools/call","params":{"name":"describe","arguments":{"query":"DROP TABLE sec_test"}}}') LIKE '%read-only%';
 ----
 true
 
@@ -297,9 +297,9 @@ SELECT COUNT(*) FROM sec_test;
 ----
 1
 
-# Query tool should also block the denied query
+# Query tool should also block the denied query (read-only enforcement)
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":72,"method":"tools/call","params":{"name":"query","arguments":{"sql":"DROP TABLE sec_test"}}}') LIKE '%not allowed%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":72,"method":"tools/call","params":{"name":"query","arguments":{"sql":"DROP TABLE sec_test"}}}') LIKE '%read-only%';
 ----
 true
 
@@ -313,9 +313,9 @@ SELECT mcp_server_stop(true);
 statement ok
 SELECT mcp_server_start('memory', '{"denied_queries": ["DROP", "DELETE"]}');
 
-# Export with a denied query should be blocked
+# Export with a denied query should be blocked (read-only enforcement)
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":75,"method":"tools/call","params":{"name":"export","arguments":{"query":"DROP TABLE sec_test","format":"csv"}}}') LIKE '%not allowed%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":75,"method":"tools/call","params":{"name":"export","arguments":{"query":"DROP TABLE sec_test","format":"csv"}}}') LIKE '%read-only%';
 ----
 true
 

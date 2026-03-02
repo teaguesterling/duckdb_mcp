@@ -14,6 +14,10 @@ bool IsQueryAllowedByType(DatabaseInstance &db, const string &query,
                           const vector<string> &allowed_types,
                           const vector<string> &denied_types);
 
+//! Check if a statement type is read-only (suitable for the query/export/describe tools).
+//! Only SELECT and EXPLAIN are considered read-only.
+bool IsReadOnlyStatementType(StatementType type);
+
 // Result structure for tool calls
 struct CallToolResult {
 	bool success = false;

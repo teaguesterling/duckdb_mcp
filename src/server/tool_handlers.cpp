@@ -91,6 +91,16 @@ bool IsQueryAllowedByType(DatabaseInstance &db, const string &query,
 	return true; // No allowlist restriction, and not in denylist
 }
 
+bool IsReadOnlyStatementType(StatementType type) {
+	switch (type) {
+	case StatementType::SELECT_STATEMENT:
+	case StatementType::EXPLAIN_STATEMENT:
+		return true;
+	default:
+		return false;
+	}
+}
+
 //===--------------------------------------------------------------------===//
 // ToolInputSchema Implementation
 //===--------------------------------------------------------------------===//
@@ -228,14 +238,26 @@ CallToolResult QueryToolHandler::Execute(const Value &arguments) {
 			return CallToolResult::Error("Unsupported format '" + format + "'. Supported formats: json, markdown, csv");
 		}
 
-		// Security check: parse query and validate statement type
+		// Enforce read-only: parse the statement and validate its type
+		Connection conn(db_instance);
+		auto prepared = conn.Prepare(sql);
+		if (prepared->HasError()) {
+			return CallToolResult::Error("SQL error: " + prepared->GetError());
+		}
+
+		if (!IsReadOnlyStatementType(prepared->GetStatementType())) {
+			string type_name = StatementTypeToString(prepared->GetStatementType());
+			return CallToolResult::Error("Query tool only allows read-only statements (got " + type_name +
+			                             "). Use the execute tool for DDL/DML operations.");
+		}
+
+		// Additional security check: validate against allowlist/denylist
 		if (!IsQueryAllowedByType(db_instance, sql, allowed_queries, denied_queries)) {
 			return CallToolResult::Error("Query not allowed by security policy");
 		}
 
-		// Execute query
-		Connection conn(db_instance);
-		auto result = conn.Query(sql);
+		// Execute the validated read-only query
+		auto result = prepared->Execute();
 
 		if (result->HasError()) {
 			return CallToolResult::Error("SQL error: " + result->GetError());
@@ -354,14 +376,26 @@ Value DescribeToolHandler::DescribeTable(const string &table_name) const {
 }
 
 Value DescribeToolHandler::DescribeQuery(const string &query) const {
-	// Security check: parse query and validate statement type
+	// Enforce read-only: parse the statement and validate its type
+	Connection conn(db_instance);
+	auto prepared = conn.Prepare(query);
+	if (prepared->HasError()) {
+		throw IOException("Failed to parse query: " + prepared->GetError());
+	}
+
+	if (!IsReadOnlyStatementType(prepared->GetStatementType())) {
+		string type_name = StatementTypeToString(prepared->GetStatementType());
+		throw InvalidInputException("Describe tool only allows read-only statements (got " + type_name +
+		                            "). Use the execute tool for DDL/DML operations.");
+	}
+
+	// Additional security check: validate against allowlist/denylist
 	if (!IsQueryAllowedByType(db_instance, query, allowed_queries, denied_queries)) {
 		throw InvalidInputException("Query not allowed by security policy");
 	}
 
 	// Use DESCRIBE with subquery syntax - wrap query in parentheses
 	string describe_query = "DESCRIBE (" + query + ")";
-	Connection conn(db_instance);
 	auto describe_result = conn.Query(describe_query);
 
 	if (describe_result->HasError()) {
@@ -437,14 +471,26 @@ CallToolResult ExportToolHandler::Execute(const Value &arguments) {
 			}
 		}
 
-		// Security check: parse query and validate statement type
+		// Enforce read-only: parse the statement and validate its type
+		Connection conn(db_instance);
+		auto prepared = conn.Prepare(query);
+		if (prepared->HasError()) {
+			return CallToolResult::Error("Query error: " + prepared->GetError());
+		}
+
+		if (!IsReadOnlyStatementType(prepared->GetStatementType())) {
+			string type_name = StatementTypeToString(prepared->GetStatementType());
+			return CallToolResult::Error("Export tool only allows read-only statements (got " + type_name +
+			                             "). Use the execute tool for DDL/DML operations.");
+		}
+
+		// Additional security check: validate against allowlist/denylist
 		if (!IsQueryAllowedByType(db_instance, query, allowed_queries, denied_queries)) {
 			return CallToolResult::Error("Query not allowed by security policy");
 		}
 
-		// Execute query
-		Connection conn(db_instance);
-		auto result = conn.Query(query);
+		// Execute the validated read-only query
+		auto result = prepared->Execute();
 
 		if (result->HasError()) {
 			return CallToolResult::Error("Query error: " + result->GetError());
