@@ -287,15 +287,18 @@ void MCPConnection::ParseCapabilities(const Value &server_info) {
 	yyjson_doc *doc = nullptr;
 	try {
 		doc = JSONUtils::Parse(json_str);
-	} catch (...) {
+	} catch (const Exception &e) {
+		SetError("Failed to parse server capabilities: " + string(e.what()));
 		return;
 	}
 
+	// RAII guard so doc is freed on any exit path
+	struct DocGuard {
+		yyjson_doc *d;
+		~DocGuard() { JSONUtils::FreeDocument(d); }
+	} guard{doc};
+
 	auto *root = yyjson_doc_get_root(doc);
-	if (!root) {
-		JSONUtils::FreeDocument(doc);
-		return;
-	}
 
 	// Per MCP spec, a capability key present as an object means it's supported
 	auto *caps = JSONUtils::GetObject(root, "capabilities");
@@ -305,8 +308,6 @@ void MCPConnection::ParseCapabilities(const Value &server_info) {
 		capabilities.supports_prompts = JSONUtils::GetObject(caps, "prompts") != nullptr;
 		capabilities.supports_sampling = JSONUtils::GetObject(caps, "sampling") != nullptr;
 	}
-
-	JSONUtils::FreeDocument(doc);
 }
 
 void MCPConnection::SetError(const string &error, bool recoverable) {
