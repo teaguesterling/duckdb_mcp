@@ -425,8 +425,7 @@ string StdioTransport::ReadFromProcess() {
 			if (result.empty()) {
 				throw IOException("Timeout waiting for process response");
 			}
-			// Partial data received but timeout waiting for more — return what we have
-			break;
+			throw IOException("Timeout waiting for complete response from process (partial data received)");
 		}
 
 		ssize_t bytes_read = read(stdout_fd, buffer, sizeof(buffer) - 1);

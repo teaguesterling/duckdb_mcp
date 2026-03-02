@@ -76,13 +76,10 @@ echo -e "${YELLOW}CR-21: Fast-failing server detection${NC}"
 
 # Test: ATTACH to a server that exits immediately should fail quickly.
 # Before fix: 100ms fixed sleep regardless. After fix: polling detects early exit.
-START_TIME=$(date +%s%N 2>/dev/null || python3 -c "import time; print(int(time.time()*1e9))")
-
 RESULT=$(echo "
 LOAD '${EXTENSION}';
 ATTACH '' AS fast_exit_test (TYPE mcp, COMMAND '${SCRIPT_DIR}/mock_fast_exit.sh', TRANSPORT 'stdio');
 " | timeout 10 "$DUCKDB" -unsigned 2>&1 || true)
-END_TIME=$(date +%s%N 2>/dev/null || python3 -c "import time; print(int(time.time()*1e9))")
 
 if echo "$RESULT" | grep -qi "fail\|error\|not connect\|not available"; then
     pass "CR-21: Fast-exiting server detected as failure"
@@ -108,102 +105,49 @@ fi
 echo ""
 echo -e "${YELLOW}CR-09: PID reuse race prevention${NC}"
 
-# Test: Connect to a server that exits, then disconnect. The key safety property
-# is that StopProcess() should NOT send SIGTERM/SIGKILL to a stale PID when
-# the child has already been reaped by IsProcessRunning().
-#
-# We can't directly observe whether kill() was called on a wrong PID from
-# the SQL layer, but we can verify the sequence doesn't crash or hang:
-# 1. ATTACH to a server (echo server that we can control)
-# 2. Use it briefly
-# 3. Kill the server externally (simulate unexpected exit)
-# 4. DETACH should complete without errors or hanging
-
-# Create a mock server that writes its PID to a file so we can kill it
-PID_FILE=$(mktemp)
-cat > /tmp/mock_pid_server_$$.sh << 'MOCK_EOF'
-#!/bin/bash
-echo $$ > "$1"
-while IFS= read -r line; do
-    id=$(echo "$line" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
-    [ -z "$id" ] && id=1
-    # Respond to initialize
-    if echo "$line" | grep -q '"initialize"'; then
-        echo "{\"jsonrpc\":\"2.0\",\"id\":${id},\"result\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"serverInfo\":{\"name\":\"test\",\"version\":\"1.0\"}}}"
-    else
-        echo "{\"jsonrpc\":\"2.0\",\"id\":${id},\"result\":{\"status\":\"ok\"}}"
-    fi
-done
-MOCK_EOF
-chmod +x /tmp/mock_pid_server_$$.sh
-
-# Test that detach after child exit doesn't hang (completes within timeout)
-RESULT=$(timeout 15 bash -c "
+# Test: ATTACH/DETACH completes without hanging.
+# Verifies that StopProcess() doesn't block indefinitely when the child
+# has already exited and been reaped by IsProcessRunning().
+set +e
+timeout 15 bash -c "
 echo \"
 LOAD '${EXTENSION}';
-ATTACH '' AS pid_test (TYPE mcp, COMMAND '/tmp/mock_pid_server_$$.sh ${PID_FILE}', TRANSPORT 'stdio');
+ATTACH '' AS pid_test (TYPE mcp, COMMAND '${SCRIPT_DIR}/mock_echo_server.sh', TRANSPORT 'stdio');
+DETACH pid_test;
 \" | '${DUCKDB}' -unsigned 2>&1
-" 2>&1 || true)
+" > /dev/null 2>&1
+EXIT_CODE=$?
+set -e
 
-# Even if attach fails, the important thing is it didn't hang
-if [ $? -le 124 ]; then
-    pass "CR-09: ATTACH/DETACH with short-lived server completes without hanging"
+if [ $EXIT_CODE -le 124 ]; then
+    pass "CR-09: ATTACH/DETACH completes without hanging"
 else
-    fail "CR-09: ATTACH/DETACH hung (timeout)" "completion within 15s" "timed out"
+    fail "CR-09: ATTACH/DETACH hung (timeout)" "completion within 15s" "timed out (exit $EXIT_CODE)"
 fi
 
-# Clean up
-rm -f "$PID_FILE" "/tmp/mock_pid_server_$$.sh"
-
-# Second test: verify that after a child is reaped by IsProcessRunning(),
-# StopProcess doesn't kill a new process that reused the PID.
-# Strategy: Fork a process, let it die, spawn a "canary" process, then
-# trigger StopProcess. If the canary survives, no stale kill happened.
-#
-# We do this at the shell level since we can't instrument the C++ code:
-
-# Start a short-lived background process and record its PID
-bash -c "exit 0" &
-DEAD_PID=$!
-wait $DEAD_PID 2>/dev/null || true
-
-# Start a canary process (long-lived sleep)
+# Smoke test: verify that ATTACH/DETACH doesn't send stray signals to
+# unrelated processes. This is a best-effort check — it doesn't exercise
+# the exact PID reuse scenario (which would require a new process to
+# receive the old child's PID), but it confirms StopProcess() is well-
+# behaved in the normal case.
 sleep 300 &
 CANARY_PID=$!
 
-# Run DuckDB with a server that we immediately kill, then detach
-cat > /tmp/mock_canary_server_$$.sh << 'MOCK_EOF'
-#!/bin/bash
-while IFS= read -r line; do
-    id=$(echo "$line" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
-    [ -z "$id" ] && id=1
-    if echo "$line" | grep -q '"initialize"'; then
-        echo "{\"jsonrpc\":\"2.0\",\"id\":${id},\"result\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"serverInfo\":{\"name\":\"test\",\"version\":\"1.0\"}}}"
-    else
-        echo "{\"jsonrpc\":\"2.0\",\"id\":${id},\"result\":{\"status\":\"ok\"}}"
-    fi
-done
-MOCK_EOF
-chmod +x /tmp/mock_canary_server_$$.sh
-
-# ATTACH and DETACH — this exercises the full Connect/Disconnect path
 echo "
 LOAD '${EXTENSION}';
-ATTACH '' AS canary_test (TYPE mcp, COMMAND '/tmp/mock_canary_server_$$.sh', TRANSPORT 'stdio');
+ATTACH '' AS canary_test (TYPE mcp, COMMAND '${SCRIPT_DIR}/mock_echo_server.sh', TRANSPORT 'stdio');
 DETACH canary_test;
 " | timeout 15 "$DUCKDB" -unsigned 2>&1 > /dev/null || true
 
-# Check canary is still alive — if StopProcess sent SIGTERM to wrong PID, canary might be dead
 if kill -0 $CANARY_PID 2>/dev/null; then
-    pass "CR-09: Canary process survived (no stale PID kill)"
+    pass "CR-09: Bystander process survived ATTACH/DETACH cycle"
 else
-    fail "CR-09: Canary process was killed — possible stale PID signal"
+    fail "CR-09: Bystander process was killed — possible stray signal"
 fi
 
 # Clean up canary
 kill $CANARY_PID 2>/dev/null || true
 wait $CANARY_PID 2>/dev/null || true
-rm -f "/tmp/mock_canary_server_$$.sh"
 
 # ==========================================
 # CR-10: Partial JSON line reads
@@ -211,7 +155,7 @@ rm -f "/tmp/mock_canary_server_$$.sh"
 echo ""
 echo -e "${YELLOW}CR-10: Partial JSON line reads${NC}"
 
-# Test: Connect to mock_slow_json.sh which sends JSON in chunks.
+# Test: Connect to a server that sends JSON in chunks with small delays.
 # Before fix: ReadFromProcess() breaks on EAGAIN after first chunk,
 # returning partial JSON. After fix: it loops back to WaitForData()
 # and assembles the complete line.
