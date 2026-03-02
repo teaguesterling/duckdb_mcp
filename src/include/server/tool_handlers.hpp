@@ -14,6 +14,12 @@ bool IsQueryAllowedByType(DatabaseInstance &db, const string &query,
                           const vector<string> &allowed_types,
                           const vector<string> &denied_types);
 
+//! Check if a pre-parsed statement type is allowed by the allowlist/denylist.
+//! Use this overload when the StatementType is already known to avoid redundant Prepare() calls.
+bool IsQueryAllowedByType(StatementType type,
+                          const vector<string> &allowed_types,
+                          const vector<string> &denied_types);
+
 //! Check if a statement type is read-only (suitable for the query/export/describe tools).
 //! Only SELECT and EXPLAIN are considered read-only.
 bool IsReadOnlyStatementType(StatementType type);

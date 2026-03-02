@@ -54,7 +54,7 @@ static string EscapeSQLString(const string &input) {
 // Shared Query Type Checking
 //===--------------------------------------------------------------------===//
 
-bool IsQueryAllowedByType(DatabaseInstance &db, const string &query,
+bool IsQueryAllowedByType(StatementType type,
                           const vector<string> &allowed_types,
                           const vector<string> &denied_types) {
 	// If no restrictions configured, allow everything
@@ -62,14 +62,7 @@ bool IsQueryAllowedByType(DatabaseInstance &db, const string &query,
 		return true;
 	}
 
-	// Parse the query to get its statement type
-	Connection conn(db);
-	auto prepared = conn.Prepare(query);
-	if (prepared->HasError()) {
-		return false; // Fail closed: unparseable queries are denied
-	}
-
-	string type_name = StringUtil::Upper(StatementTypeToString(prepared->GetStatementType()));
+	string type_name = StringUtil::Upper(StatementTypeToString(type));
 
 	// Check denylist first (exact type match)
 	for (const auto &denied : denied_types) {
@@ -89,6 +82,24 @@ bool IsQueryAllowedByType(DatabaseInstance &db, const string &query,
 	}
 
 	return true; // No allowlist restriction, and not in denylist
+}
+
+bool IsQueryAllowedByType(DatabaseInstance &db, const string &query,
+                          const vector<string> &allowed_types,
+                          const vector<string> &denied_types) {
+	// If no restrictions configured, allow everything
+	if (allowed_types.empty() && denied_types.empty()) {
+		return true;
+	}
+
+	// Parse the query to get its statement type
+	Connection conn(db);
+	auto prepared = conn.Prepare(query);
+	if (prepared->HasError()) {
+		return false; // Fail closed: unparseable queries are denied
+	}
+
+	return IsQueryAllowedByType(prepared->GetStatementType(), allowed_types, denied_types);
 }
 
 bool IsReadOnlyStatementType(StatementType type) {
@@ -245,14 +256,16 @@ CallToolResult QueryToolHandler::Execute(const Value &arguments) {
 			return CallToolResult::Error("SQL error: " + prepared->GetError());
 		}
 
-		if (!IsReadOnlyStatementType(prepared->GetStatementType())) {
-			string type_name = StatementTypeToString(prepared->GetStatementType());
+		StatementType stmt_type = prepared->GetStatementType();
+
+		if (!IsReadOnlyStatementType(stmt_type)) {
+			string type_name = StatementTypeToString(stmt_type);
 			return CallToolResult::Error("Query tool only allows read-only statements (got " + type_name +
 			                             "). Use the execute tool for DDL/DML operations.");
 		}
 
 		// Additional security check: validate against allowlist/denylist
-		if (!IsQueryAllowedByType(db_instance, sql, allowed_queries, denied_queries)) {
+		if (!IsQueryAllowedByType(stmt_type, allowed_queries, denied_queries)) {
 			return CallToolResult::Error("Query not allowed by security policy");
 		}
 
@@ -383,14 +396,16 @@ Value DescribeToolHandler::DescribeQuery(const string &query) const {
 		throw IOException("Failed to parse query: " + prepared->GetError());
 	}
 
-	if (!IsReadOnlyStatementType(prepared->GetStatementType())) {
-		string type_name = StatementTypeToString(prepared->GetStatementType());
+	StatementType stmt_type = prepared->GetStatementType();
+
+	if (!IsReadOnlyStatementType(stmt_type)) {
+		string type_name = StatementTypeToString(stmt_type);
 		throw InvalidInputException("Describe tool only allows read-only statements (got " + type_name +
 		                            "). Use the execute tool for DDL/DML operations.");
 	}
 
 	// Additional security check: validate against allowlist/denylist
-	if (!IsQueryAllowedByType(db_instance, query, allowed_queries, denied_queries)) {
+	if (!IsQueryAllowedByType(stmt_type, allowed_queries, denied_queries)) {
 		throw InvalidInputException("Query not allowed by security policy");
 	}
 
@@ -478,14 +493,16 @@ CallToolResult ExportToolHandler::Execute(const Value &arguments) {
 			return CallToolResult::Error("Query error: " + prepared->GetError());
 		}
 
-		if (!IsReadOnlyStatementType(prepared->GetStatementType())) {
-			string type_name = StatementTypeToString(prepared->GetStatementType());
+		StatementType stmt_type = prepared->GetStatementType();
+
+		if (!IsReadOnlyStatementType(stmt_type)) {
+			string type_name = StatementTypeToString(stmt_type);
 			return CallToolResult::Error("Export tool only allows read-only statements (got " + type_name +
 			                             "). Use the execute tool for DDL/DML operations.");
 		}
 
 		// Additional security check: validate against allowlist/denylist
-		if (!IsQueryAllowedByType(db_instance, query, allowed_queries, denied_queries)) {
+		if (!IsQueryAllowedByType(stmt_type, allowed_queries, denied_queries)) {
 			return CallToolResult::Error("Query not allowed by security policy");
 		}
 
