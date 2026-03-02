@@ -278,8 +278,14 @@ void MCPConnection::ParseCapabilities(const Value &server_info) {
 }
 
 void MCPConnection::SetError(const string &error, bool recoverable) {
+	lock_guard<mutex> lock(error_mutex);
 	last_error = error;
 	is_recoverable_error = recoverable;
+}
+
+string MCPConnection::GetLastError() const {
+	lock_guard<mutex> lock(error_mutex);
+	return last_error;
 }
 
 void MCPConnection::HandleTransportError(const string &operation) {
@@ -292,6 +298,7 @@ bool MCPConnection::HasRecoverableError() const {
 }
 
 void MCPConnection::ClearError() {
+	lock_guard<mutex> lock(error_mutex);
 	last_error.clear();
 	is_recoverable_error = false;
 }

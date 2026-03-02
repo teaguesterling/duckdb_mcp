@@ -72,9 +72,7 @@ public:
 	bool Ping();
 
 	// Error handling
-	string GetLastError() const {
-		return last_error;
-	}
+	string GetLastError() const;
 	bool HasRecoverableError() const;
 	void ClearError();
 
@@ -96,6 +94,7 @@ private:
 	atomic<MCPConnectionState> state;
 	MCPCapabilities capabilities;
 	atomic<uint64_t> next_request_id;
+	mutable mutex error_mutex;
 	string last_error;
 	atomic<bool> is_recoverable_error;
 	atomic<uint32_t> consecutive_failures;

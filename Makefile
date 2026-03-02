@@ -22,6 +22,21 @@ integration_test_debug: debug
 	@chmod +x $(PROJ_DIR)test/integration/run_integration_tests.sh
 	BUILD_TYPE=debug $(PROJ_DIR)test/integration/run_integration_tests.sh
 
+# Thread safety tests (concurrent HTTP stress tests)
+.PHONY: thread_safety_test thread_safety_test_release thread_safety_test_debug
+
+thread_safety_test: thread_safety_test_release
+
+thread_safety_test_release: release
+	@echo "Running thread safety tests..."
+	@chmod +x $(PROJ_DIR)test/integration/test_thread_safety.sh
+	$(PROJ_DIR)test/integration/test_thread_safety.sh
+
+thread_safety_test_debug: debug
+	@echo "Running thread safety tests (debug build)..."
+	@chmod +x $(PROJ_DIR)test/integration/test_thread_safety.sh
+	BUILD_TYPE=debug $(PROJ_DIR)test/integration/test_thread_safety.sh
+
 # Full test suite (SQL logic tests + integration tests)
 .PHONY: test_all test_all_release
 
