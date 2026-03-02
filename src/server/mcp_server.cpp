@@ -150,35 +150,10 @@ bool MCPServer::Start() {
 		return true;
 	} else if (config.transport == "http" || config.transport == "https") {
 		// HTTP/HTTPS transport
-		HTTPServerConfig http_config;
-		http_config.host = config.bind_address;
-		http_config.port = config.port;
-		http_config.auth_token = config.auth_token;
-		http_config.cors_origins = config.cors_origins;
-		http_config.enable_health_endpoint = config.enable_health_endpoint;
-		http_config.auth_health_endpoint = config.auth_health_endpoint;
-
-		if (config.transport == "https") {
-			http_config.use_ssl = true;
-			http_config.cert_path = config.ssl_cert_path;
-			http_config.key_path = config.ssl_key_path;
-		}
-
+		auto http_config = MakeHTTPConfig();
 		http_server = make_uniq<HTTPServerTransport>(http_config);
 
-		// Start HTTP server with a handler that routes to ProcessRequest
-		auto handler = [this](const string &request_json) -> string {
-			try {
-				MCPMessage request = MCPMessage::FromJSON(request_json);
-				MCPMessage response = ProcessRequest(request);
-				return response.ToJSON();
-			} catch (const std::exception &e) {
-				return R"({"jsonrpc":"2.0","error":{"code":-32700,"message":"Parse error: )" + string(e.what()) +
-				       R"("},"id":null})";
-			}
-		};
-
-		if (!http_server->Start(handler)) {
+		if (!http_server->Start(MakeHTTPHandler())) {
 			running = false;
 			http_server.reset();
 			return false;
@@ -328,7 +303,20 @@ bool MCPServer::RunHTTPLoop() {
 		throw InvalidInputException("Server must be started before calling RunHTTPLoop()");
 	}
 
-	// Set up HTTP server configuration
+	auto http_config = MakeHTTPConfig();
+	http_server = make_uniq<HTTPServerTransport>(http_config);
+
+	// Run HTTP server in blocking mode (blocks until Stop() is called)
+	bool result = http_server->Run(MakeHTTPHandler());
+
+	// Clean up
+	http_server.reset();
+	running = false;
+
+	return result;
+}
+
+HTTPServerConfig MCPServer::MakeHTTPConfig() const {
 	HTTPServerConfig http_config;
 	http_config.host = config.bind_address;
 	http_config.port = config.port;
@@ -343,28 +331,19 @@ bool MCPServer::RunHTTPLoop() {
 		http_config.key_path = config.ssl_key_path;
 	}
 
-	http_server = make_uniq<HTTPServerTransport>(http_config);
+	return http_config;
+}
 
-	// Create handler that routes requests to ProcessRequest
-	auto handler = [this](const string &request_json) -> string {
+HTTPServerTransport::RequestHandler MCPServer::MakeHTTPHandler() {
+	return [this](const string &request_json) -> string {
 		try {
 			MCPMessage request = MCPMessage::FromJSON(request_json);
 			MCPMessage response = ProcessRequest(request);
 			return response.ToJSON();
-		} catch (const std::exception &e) {
-			return R"({"jsonrpc":"2.0","error":{"code":-32700,"message":"Parse error: )" + string(e.what()) +
-			       R"("},"id":null})";
+		} catch (const std::exception &) {
+			return R"({"jsonrpc":"2.0","error":{"code":-32700,"message":"Parse error"},"id":null})";
 		}
 	};
-
-	// Run HTTP server in blocking mode (blocks until Stop() is called)
-	bool result = http_server->Run(handler);
-
-	// Clean up
-	http_server.reset();
-	running = false;
-
-	return result;
 }
 
 void MCPServer::ServerLoop() {
@@ -891,7 +870,7 @@ void MCPServerManager::ApplyPendingRegistrations() {
 			                                               *reg.db_instance, reg.format);
 			server->RegisterTool(reg.name, std::move(handler));
 		} catch (const std::exception &e) {
-			// Log error but continue with other registrations
+			MCP_LOG_ERROR("SERVER", "Failed to register pending tool '%s': %s", reg.name.c_str(), e.what());
 		}
 	}
 	pending_tools.clear();
@@ -914,7 +893,7 @@ void MCPServerManager::ApplyPendingRegistrations() {
 				server->PublishResource(reg.uri, std::move(provider));
 			}
 		} catch (const std::exception &e) {
-			// Log error but continue with other registrations
+			MCP_LOG_ERROR("SERVER", "Failed to register pending resource '%s': %s", reg.uri.c_str(), e.what());
 		}
 	}
 	pending_resources.clear();
@@ -935,7 +914,7 @@ void MCPServerManager::ApplyPendingRegistrationsTo(MCPServer *external_server) {
 			                                               *reg.db_instance, reg.format);
 			external_server->RegisterTool(reg.name, std::move(handler));
 		} catch (const std::exception &e) {
-			// Log error but continue with other registrations
+			MCP_LOG_ERROR("SERVER", "Failed to register pending tool '%s': %s", reg.name.c_str(), e.what());
 		}
 	}
 	pending_tools.clear();
@@ -955,7 +934,7 @@ void MCPServerManager::ApplyPendingRegistrationsTo(MCPServer *external_server) {
 				external_server->PublishResource(reg.uri, std::move(provider));
 			}
 		} catch (const std::exception &e) {
-			// Log error but continue with other registrations
+			MCP_LOG_ERROR("SERVER", "Failed to register pending resource '%s': %s", reg.uri.c_str(), e.what());
 		}
 	}
 	pending_resources.clear();

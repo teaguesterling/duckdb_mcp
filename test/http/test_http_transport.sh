@@ -240,7 +240,7 @@ stop_server
 # ==========================================
 echo -e "${YELLOW}Test 8: CORS headers${NC}"
 PORT=18087
-start_server $PORT
+start_server $PORT '{"cors_origins": "*"}'
 
 CORS_HEADER=$(curl -s -I -X OPTIONS http://localhost:$PORT/mcp 2>/dev/null | grep -i "Access-Control-Allow-Origin" || echo "")
 

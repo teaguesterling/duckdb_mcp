@@ -10,21 +10,15 @@
 namespace duckdb {
 
 // Constant-time string comparison to prevent timing attacks on auth tokens.
-// Always compares the full length regardless of where a mismatch occurs.
+// Always iterates the full max length regardless of where a mismatch occurs,
+// preventing both content and length leaks via timing.
 static bool ConstantTimeEquals(const string &a, const string &b) {
-	if (a.size() != b.size()) {
-		// Still do a dummy loop to avoid leaking length difference via timing.
-		// XOR against b (or a dummy) to keep constant work.
-		volatile unsigned char dummy = 0;
-		for (size_t i = 0; i < a.size(); i++) {
-			dummy |= static_cast<unsigned char>(a[i]);
-		}
-		(void)dummy;
-		return false;
-	}
-	volatile unsigned char result = 0;
-	for (size_t i = 0; i < a.size(); i++) {
-		result |= static_cast<unsigned char>(a[i]) ^ static_cast<unsigned char>(b[i]);
+	size_t max_len = std::max(a.size(), b.size());
+	volatile unsigned char result = (a.size() != b.size()) ? 1 : 0;
+	for (size_t i = 0; i < max_len; i++) {
+		unsigned char ca = (i < a.size()) ? static_cast<unsigned char>(a[i]) : 0;
+		unsigned char cb = (i < b.size()) ? static_cast<unsigned char>(b[i]) : 0;
+		result |= ca ^ cb;
 	}
 	return result == 0;
 }

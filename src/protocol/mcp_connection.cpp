@@ -1,5 +1,6 @@
 #include "protocol/mcp_connection.hpp"
 #include "duckdb/common/exception.hpp"
+#include "json_utils.hpp"
 #include <ctime>
 #include <thread>
 #include <chrono>
@@ -119,8 +120,9 @@ vector<MCPResource> MCPConnection::ListResources(const string &cursor) {
 
 	vector<MCPResource> resources;
 
-	// Parse response.result into resources
-	// Placeholder implementation - would parse JSON properly
+	// TODO(#28/CR-14): Parse JSON-RPC response result into MCPResource structs.
+	// Requires extracting the "resources" array from response.result and building
+	// the return vector with uri, name, description, mimeType fields.
 
 	return resources;
 }
@@ -178,7 +180,10 @@ vector<string> MCPConnection::ListTools() {
 	}
 
 	vector<string> tools;
-	// Parse response.result into tool names
+
+	// TODO(#28/CR-15): Parse JSON-RPC response result into tool name strings.
+	// Requires extracting the "tools" array from response.result and pulling
+	// the "name" field from each tool object.
 
 	return tools;
 }
@@ -267,14 +272,46 @@ bool MCPConnection::WaitForInitialized() {
 }
 
 void MCPConnection::ParseCapabilities(const Value &server_info) {
-	// Parse server capabilities from initialization response
-	// Placeholder implementation
-	capabilities.supports_resources = true;
-	capabilities.supports_tools = false;
-	capabilities.supports_prompts = false;
-	capabilities.supports_sampling = false;
+	// Reset to defaults
+	capabilities = MCPCapabilities();
 
-	// Would parse actual capabilities from server_info
+	if (server_info.IsNull()) {
+		return;
+	}
+
+	// The result is stored as a JSON VARCHAR string from MCPMessage::FromJSON
+	string json_str = server_info.ToString();
+	if (json_str.empty()) {
+		return;
+	}
+
+	yyjson_doc *doc = yyjson_read(json_str.c_str(), json_str.length(), 0);
+	if (!doc) {
+		return;
+	}
+
+	yyjson_val *root = yyjson_doc_get_root(doc);
+	if (!root || !yyjson_is_obj(root)) {
+		yyjson_doc_free(doc);
+		return;
+	}
+
+	// The initialize response has: { protocolVersion, serverInfo, capabilities }
+	yyjson_val *caps = yyjson_obj_get(root, "capabilities");
+	if (caps && yyjson_is_obj(caps)) {
+		// Presence of a capability key means the server supports it
+		if (yyjson_obj_get(caps, "resources")) {
+			capabilities.supports_resources = true;
+		}
+		if (yyjson_obj_get(caps, "tools")) {
+			capabilities.supports_tools = true;
+		}
+		if (yyjson_obj_get(caps, "prompts")) {
+			capabilities.supports_prompts = true;
+		}
+	}
+
+	yyjson_doc_free(doc);
 }
 
 void MCPConnection::SetError(const string &error, bool recoverable) {

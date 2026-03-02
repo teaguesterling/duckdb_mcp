@@ -599,7 +599,7 @@ static Value MCPServerStartCore(ClientContext &context, const string &transport,
 				}
 
 				// Parse CORS configuration
-				server_config.cors_origins = JSONUtils::GetString(root, "cors_origins", "*");
+				server_config.cors_origins = JSONUtils::GetString(root, "cors_origins", "");
 
 				// Parse health endpoint configuration
 				val = yyjson_obj_get(root, "enable_health_endpoint");

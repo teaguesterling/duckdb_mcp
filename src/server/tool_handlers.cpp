@@ -443,6 +443,9 @@ CallToolResult ExportToolHandler::Execute(const Value &arguments) {
 		}
 
 		// Execute query
+		// TODO(#28/CR-16): When output_path is non-empty, this query runs twice —
+		// once here for validation and again in ExportToFile via COPY. Consider
+		// skipping this initial query for file exports and letting COPY handle errors.
 		Connection conn(db_instance);
 		auto result = conn.Query(query);
 

@@ -544,7 +544,15 @@ curl -X POST http://localhost:8080/mcp \
 
 ### CORS
 
-CORS is enabled by default, allowing browser-based clients to connect from any origin.
+CORS is disabled by default. To enable CORS for browser-based clients, set the `cors_origins` configuration option:
+
+```sql
+-- Allow all origins
+SELECT mcp_server_start('http', 'localhost', 8080, '{"cors_origins": "*"}');
+
+-- Allow specific origins
+SELECT mcp_server_start('http', 'localhost', 8080, '{"cors_origins": "https://example.com, https://app.example.com"}');
+```
 
 ### Example: Using curl
 
