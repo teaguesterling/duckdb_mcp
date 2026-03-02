@@ -308,12 +308,18 @@ bool StdioTransport::StartProcess() {
 	fcntl(stdout_fd, F_SETFL, O_NONBLOCK);
 	fcntl(stderr_fd, F_SETFL, O_NONBLOCK);
 
-	// Give the child process a moment to start and potentially fail
-	usleep(100000); // 100ms
-
-	// Check if process is still running (if it failed quickly, it might be dead)
-	if (!IsProcessRunning()) {
-		return false;
+	// Poll briefly to detect early failure instead of a fixed sleep.
+	// Check every 10ms up to 100ms total — catches fast startup failures sooner.
+	for (int i = 0; i < 10; i++) {
+		if (!IsProcessRunning()) {
+			// Child died immediately — startup failure
+			close(stdin_fd);
+			close(stdout_fd);
+			close(stderr_fd);
+			stdin_fd = stdout_fd = stderr_fd = -1;
+			return false;
+		}
+		usleep(10000); // 10ms
 	}
 
 	return true;
@@ -339,22 +345,25 @@ void StdioTransport::StopProcess() {
 			stderr_fd = -1;
 		}
 
-		// Send SIGTERM for graceful shutdown
-		kill(process_pid, SIGTERM);
+		if (!process_reaped) {
+			// Send SIGTERM for graceful shutdown
+			kill(process_pid, SIGTERM);
 
-		// Wait briefly for process to exit gracefully
-		usleep(100000); // 100ms
+			// Wait briefly for process to exit gracefully
+			usleep(100000); // 100ms
 
-		int status;
-		int wait_result = waitpid(process_pid, &status, WNOHANG);
-		if (wait_result == 0) {
-			// Process still running after SIGTERM - force kill
-			kill(process_pid, SIGKILL);
-			// Blocking wait to reap the zombie
-			waitpid(process_pid, &status, 0);
+			int status;
+			int wait_result = waitpid(process_pid, &status, WNOHANG);
+			if (wait_result == 0) {
+				// Process still running after SIGTERM - force kill
+				kill(process_pid, SIGKILL);
+				// Blocking wait to reap the zombie
+				waitpid(process_pid, &status, 0);
+			}
 		}
 
 		process_pid = -1;
+		process_reaped = false;
 	}
 #endif
 }
@@ -363,14 +372,25 @@ bool StdioTransport::IsProcessRunning() const {
 #ifdef _WIN32
 	return false; // Windows process checking not implemented yet
 #else
-	if (process_pid <= 0) {
+	if (process_pid <= 0 || process_reaped) {
 		return false;
 	}
 
 	int status;
 	int result = waitpid(process_pid, &status, WNOHANG);
 
-	return result == 0; // Process is still running
+	if (result > 0) {
+		// Child exited — mark as reaped to prevent kill() on stale PID
+		process_reaped = true;
+		return false;
+	}
+	if (result < 0) {
+		// Error (e.g., ECHILD) — already reaped or not our child
+		process_reaped = true;
+		return false;
+	}
+
+	return true; // result == 0: process is still running
 #endif
 }
 
@@ -397,14 +417,17 @@ string StdioTransport::ReadFromProcess() {
 		throw IOException("Process stdout not available");
 	}
 
-	if (!WaitForData()) {
-		throw IOException("Timeout waiting for process response");
-	}
-
 	char buffer[4096];
 	string result;
 
 	while (true) {
+		if (!WaitForData()) {
+			if (result.empty()) {
+				throw IOException("Timeout waiting for process response");
+			}
+			throw IOException("Timeout waiting for complete response from process (partial data received)");
+		}
+
 		ssize_t bytes_read = read(stdout_fd, buffer, sizeof(buffer) - 1);
 
 		if (bytes_read > 0) {
@@ -415,15 +438,15 @@ string StdioTransport::ReadFromProcess() {
 			if (result.find('\n') != string::npos) {
 				break;
 			}
+			// No complete line yet — loop to wait for more data
 		} else if (bytes_read == 0) {
 			// EOF
 			break;
 		} else {
-			// Error or would block
 			if (errno != EAGAIN && errno != EWOULDBLOCK) {
 				throw IOException("Error reading from process stdout");
 			}
-			break;
+			// EAGAIN without complete line — loop back to WaitForData()
 		}
 	}
 
