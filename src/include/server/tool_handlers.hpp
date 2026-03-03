@@ -142,7 +142,7 @@ private:
 	vector<string> allowed_queries;
 	vector<string> denied_queries;
 
-	bool ExportToFile(QueryResult &result, const string &format, const string &output_path, const string &query) const;
+	string ExportToFile(QueryResult &result, const string &format, const string &output_path) const;
 	string FormatData(QueryResult &result, const string &format) const;
 };
 

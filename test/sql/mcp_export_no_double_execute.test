@@ -1,0 +1,127 @@
+# name: test/sql/mcp_export_no_double_execute.test
+# description: Verify export tool does not run query more times than necessary (issue #37)
+# group: [sql]
+
+require duckdb_mcp
+
+statement ok
+LOAD duckdb_mcp;
+
+# Force clean state
+statement ok
+SELECT mcp_server_stop(true);
+
+# Start server with memory transport
+query I
+SELECT mcp_server_start('memory');
+----
+{'success': true, 'running': true, 'message': 'MCP server started on memory transport (background mode)', 'transport': memory, 'listen': localhost, 'port': 0, 'background': true, 'requests_received': 0, 'responses_sent': 0, 'errors_returned': 0}
+
+# Initialize handshake
+statement ok
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0.1"}}}');
+
+# =============================================================================
+# TEST 1: File export does not execute query more than needed
+# =============================================================================
+# DuckDB's Connection::Query() binds nextval during planning (consuming 1 value)
+# then executes it (consuming another). This is internal DuckDB behavior. The fix
+# ensures we don't add MORE executions on top (the original bug ran the query 4 times).
+
+statement ok
+CREATE SEQUENCE test_seq START 1;
+
+# Export nextval('test_seq') to a CSV file
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT nextval(''test_seq'') as val","format":"csv","output":"/tmp/mcp_test_double_exec.csv"}}}') LIKE '%Data exported%';
+----
+true
+
+# The export consumed 2 values (DuckDB bind + execute), so nextval should return 3.
+# Before the fix, 4 values were consumed and nextval would return 5.
+query I
+SELECT nextval('test_seq');
+----
+3
+
+statement ok
+DROP SEQUENCE test_seq;
+
+# =============================================================================
+# TEST 2: Inline return works correctly
+# =============================================================================
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT 42 as answer","format":"csv"}}}') LIKE '%42%';
+----
+true
+
+# =============================================================================
+# TEST 3: File export produces correct data
+# =============================================================================
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT 100 as num, ''hello'' as txt","format":"csv","output":"/tmp/mcp_test_export_data.csv"}}}') LIKE '%Data exported%';
+----
+true
+
+# Verify the file content by reading it back
+query II
+SELECT * FROM read_csv('/tmp/mcp_test_export_data.csv');
+----
+100	hello
+
+# =============================================================================
+# TEST 4: Error propagation from COPY
+# =============================================================================
+
+# Exporting to a non-writable path should return an error message (not generic "Failed to export")
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":40,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT 1","format":"csv","output":"/nonexistent_dir/test.csv"}}}') LIKE '%error%';
+----
+true
+
+# Verify it's NOT the old generic error message
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":41,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT 1","format":"csv","output":"/nonexistent_dir/test.csv"}}}') NOT LIKE '%Failed to export to file%';
+----
+true
+
+# =============================================================================
+# TEST 5: File and inline paths consume the same number of sequence values
+# =============================================================================
+# Both paths should use conn.Query() exactly once, consuming the same number of values.
+
+statement ok
+CREATE SEQUENCE inline_seq START 1;
+
+statement ok
+CREATE SEQUENCE file_seq START 1;
+
+# Inline export
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":50,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT nextval(''inline_seq'') as val","format":"csv"}}}') LIKE '%val%';
+----
+true
+
+# File export
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":51,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT nextval(''file_seq'') as val","format":"csv","output":"/tmp/mcp_test_seq_parity.csv"}}}') LIKE '%Data exported%';
+----
+true
+
+# Both should have consumed the same number of values
+query I
+SELECT nextval('inline_seq') = nextval('file_seq');
+----
+true
+
+statement ok
+DROP SEQUENCE inline_seq;
+
+statement ok
+DROP SEQUENCE file_seq;
+
+# Clean up
+statement ok
+SELECT mcp_server_stop();
