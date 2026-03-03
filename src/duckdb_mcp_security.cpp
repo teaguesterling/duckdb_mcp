@@ -470,19 +470,15 @@ MCPConnectionParams ParseMCPConfigFile(const string &config_file_path, const str
 		// Parse args (optional)
 		yyjson_val *args_val = yyjson_obj_get(server_config, "args");
 		if (args_val && yyjson_is_arr(args_val)) {
-			size_t idx, max;
-			yyjson_val *arg;
-			yyjson_arr_foreach(args_val, idx, max, arg) {
-				if (yyjson_is_str(arg)) {
-					params.args.push_back(yyjson_get_str(arg));
-				} else if (yyjson_is_int(arg)) {
-					params.args.push_back(std::to_string(yyjson_get_sint(arg)));
-				} else if (yyjson_is_real(arg)) {
-					params.args.push_back(std::to_string(yyjson_get_real(arg)));
-				} else if (yyjson_is_bool(arg)) {
-					params.args.push_back(yyjson_get_bool(arg) ? "true" : "false");
+			try {
+				size_t idx, max;
+				yyjson_val *arg;
+				yyjson_arr_foreach(args_val, idx, max, arg) {
+					params.args.push_back(YyjsonValToString(arg, "ARGS"));
 				}
-				// null, object, and array items are skipped
+			} catch (...) {
+				yyjson_doc_free(doc);
+				throw;
 			}
 		}
 
@@ -495,22 +491,17 @@ MCPConnectionParams ParseMCPConfigFile(const string &config_file_path, const str
 		// Parse env (optional)
 		yyjson_val *env_val = yyjson_obj_get(server_config, "env");
 		if (env_val && yyjson_is_obj(env_val)) {
-			size_t idx, max;
-			yyjson_val *key, *val;
-			yyjson_obj_foreach(env_val, idx, max, key, val) {
-				if (!yyjson_is_str(key)) {
-					continue;
+			try {
+				size_t idx, max;
+				yyjson_val *key, *val;
+				yyjson_obj_foreach(env_val, idx, max, key, val) {
+					if (yyjson_is_str(key)) {
+						params.env[yyjson_get_str(key)] = YyjsonValToString(val, "ENV");
+					}
 				}
-				if (yyjson_is_str(val)) {
-					params.env[yyjson_get_str(key)] = yyjson_get_str(val);
-				} else if (yyjson_is_int(val)) {
-					params.env[yyjson_get_str(key)] = std::to_string(yyjson_get_sint(val));
-				} else if (yyjson_is_real(val)) {
-					params.env[yyjson_get_str(key)] = std::to_string(yyjson_get_real(val));
-				} else if (yyjson_is_bool(val)) {
-					params.env[yyjson_get_str(key)] = yyjson_get_bool(val) ? "true" : "false";
-				}
-				// null, object, and array values are skipped
+			} catch (...) {
+				yyjson_doc_free(doc);
+				throw;
 			}
 		}
 
