@@ -120,9 +120,28 @@ vector<MCPResource> MCPConnection::ListResources(const string &cursor) {
 
 	vector<MCPResource> resources;
 
-	// TODO(#28/CR-14): Parse JSON-RPC response result into MCPResource structs.
-	// Requires extracting the "resources" array from response.result and building
-	// the return vector with uri, name, description, mimeType fields.
+	if (!response.result.IsNull()) {
+		string json_str = response.result.ToString();
+		yyjson_doc *doc = yyjson_read(json_str.c_str(), json_str.length(), 0);
+		if (doc) {
+			yyjson_val *root = yyjson_doc_get_root(doc);
+			yyjson_val *arr = yyjson_is_obj(root) ? yyjson_obj_get(root, "resources") : nullptr;
+			if (arr && yyjson_is_arr(arr)) {
+				yyjson_arr_iter iter;
+				yyjson_arr_iter_init(arr, &iter);
+				yyjson_val *item;
+				while ((item = yyjson_arr_iter_next(&iter))) {
+					MCPResource res;
+					res.uri = JSONUtils::GetString(item, "uri");
+					res.name = JSONUtils::GetString(item, "name");
+					res.description = JSONUtils::GetString(item, "description");
+					res.mime_type = JSONUtils::GetString(item, "mimeType");
+					resources.push_back(std::move(res));
+				}
+			}
+			yyjson_doc_free(doc);
+		}
+	}
 
 	return resources;
 }
@@ -181,9 +200,26 @@ vector<string> MCPConnection::ListTools() {
 
 	vector<string> tools;
 
-	// TODO(#28/CR-15): Parse JSON-RPC response result into tool name strings.
-	// Requires extracting the "tools" array from response.result and pulling
-	// the "name" field from each tool object.
+	if (!response.result.IsNull()) {
+		string json_str = response.result.ToString();
+		yyjson_doc *doc = yyjson_read(json_str.c_str(), json_str.length(), 0);
+		if (doc) {
+			yyjson_val *root = yyjson_doc_get_root(doc);
+			yyjson_val *arr = yyjson_is_obj(root) ? yyjson_obj_get(root, "tools") : nullptr;
+			if (arr && yyjson_is_arr(arr)) {
+				yyjson_arr_iter iter;
+				yyjson_arr_iter_init(arr, &iter);
+				yyjson_val *item;
+				while ((item = yyjson_arr_iter_next(&iter))) {
+					string name = JSONUtils::GetString(item, "name");
+					if (!name.empty()) {
+						tools.push_back(std::move(name));
+					}
+				}
+			}
+			yyjson_doc_free(doc);
+		}
+	}
 
 	return tools;
 }

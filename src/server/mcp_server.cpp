@@ -464,7 +464,8 @@ MCPMessage MCPServer::HandleRequest(const MCPMessage &request) {
 			                           "Method not found: " + request.method);
 		}
 	} catch (const std::exception &e) {
-		return CreateErrorResponse(request.id, MCPErrorCodes::INTERNAL_ERROR, "Internal error: " + string(e.what()));
+		MCP_LOG_ERROR("SERVER", "Unhandled exception in request handler: %s", e.what());
+		return CreateErrorResponse(request.id, MCPErrorCodes::INTERNAL_ERROR, "Internal error");
 	}
 }
 
@@ -864,6 +865,7 @@ void MCPServerManager::ApplyPendingRegistrations() {
 	}
 
 	// Apply pending tool registrations
+	idx_t tool_failures = 0;
 	for (auto &reg : pending_tools) {
 		try {
 			ToolInputSchema input_schema = ParseToolInputSchema(reg.properties_json, reg.required_json);
@@ -871,12 +873,18 @@ void MCPServerManager::ApplyPendingRegistrations() {
 			                                               *reg.db_instance, reg.format);
 			server->RegisterTool(reg.name, std::move(handler));
 		} catch (const std::exception &e) {
+			tool_failures++;
 			MCP_LOG_ERROR("SERVER", "Failed to register pending tool '%s': %s", reg.name.c_str(), e.what());
 		}
+	}
+	if (tool_failures > 0) {
+		MCP_LOG_WARN("SERVER", "%llu of %llu pending tool registration(s) failed",
+		             (unsigned long long)tool_failures, (unsigned long long)pending_tools.size());
 	}
 	pending_tools.clear();
 
 	// Apply pending resource registrations
+	idx_t resource_failures = 0;
 	for (auto &reg : pending_resources) {
 		try {
 			if (reg.type == "table") {
@@ -894,8 +902,13 @@ void MCPServerManager::ApplyPendingRegistrations() {
 				server->PublishResource(reg.uri, std::move(provider));
 			}
 		} catch (const std::exception &e) {
+			resource_failures++;
 			MCP_LOG_ERROR("SERVER", "Failed to register pending resource '%s': %s", reg.uri.c_str(), e.what());
 		}
+	}
+	if (resource_failures > 0) {
+		MCP_LOG_WARN("SERVER", "%llu of %llu pending resource registration(s) failed",
+		             (unsigned long long)resource_failures, (unsigned long long)pending_resources.size());
 	}
 	pending_resources.clear();
 }
@@ -908,6 +921,7 @@ void MCPServerManager::ApplyPendingRegistrationsTo(MCPServer *external_server) {
 	}
 
 	// Apply pending tool registrations to the external server
+	idx_t tool_failures = 0;
 	for (auto &reg : pending_tools) {
 		try {
 			ToolInputSchema input_schema = ParseToolInputSchema(reg.properties_json, reg.required_json);
@@ -915,12 +929,18 @@ void MCPServerManager::ApplyPendingRegistrationsTo(MCPServer *external_server) {
 			                                               *reg.db_instance, reg.format);
 			external_server->RegisterTool(reg.name, std::move(handler));
 		} catch (const std::exception &e) {
+			tool_failures++;
 			MCP_LOG_ERROR("SERVER", "Failed to register pending tool '%s': %s", reg.name.c_str(), e.what());
 		}
+	}
+	if (tool_failures > 0) {
+		MCP_LOG_WARN("SERVER", "%llu of %llu pending tool registration(s) failed",
+		             (unsigned long long)tool_failures, (unsigned long long)pending_tools.size());
 	}
 	pending_tools.clear();
 
 	// Apply pending resource registrations to the external server
+	idx_t resource_failures = 0;
 	for (auto &reg : pending_resources) {
 		try {
 			if (reg.type == "table") {
@@ -935,8 +955,13 @@ void MCPServerManager::ApplyPendingRegistrationsTo(MCPServer *external_server) {
 				external_server->PublishResource(reg.uri, std::move(provider));
 			}
 		} catch (const std::exception &e) {
+			resource_failures++;
 			MCP_LOG_ERROR("SERVER", "Failed to register pending resource '%s': %s", reg.uri.c_str(), e.what());
 		}
+	}
+	if (resource_failures > 0) {
+		MCP_LOG_WARN("SERVER", "%llu of %llu pending resource registration(s) failed",
+		             (unsigned long long)resource_failures, (unsigned long long)pending_resources.size());
 	}
 	pending_resources.clear();
 }
