@@ -119,10 +119,10 @@ else
     fail "Initialize request" "Response containing serverInfo" "$RESPONSE"
 fi
 
-if echo "$RESPONSE" | grep -q '"version":"1.4.0"'; then
-    pass "Server reports version 1.4.0"
+if echo "$RESPONSE" | grep -q '"version":"1.5.2"'; then
+    pass "Server reports version 1.5.2"
 else
-    fail "Server version" "1.4.0" "$RESPONSE"
+    fail "Server version" "1.5.2" "$RESPONSE"
 fi
 
 stop_server
@@ -321,27 +321,171 @@ fi
 stop_server
 
 # ==========================================
-# Test 8: CORS headers
+# Test 8: CORS disabled by default
 # ==========================================
-echo -e "${YELLOW}Test 8: CORS headers${NC}"
+echo -e "${YELLOW}Test 8: CORS disabled by default (no cors_origins config)${NC}"
 PORT=18087
-start_server $PORT '{"cors_origins": "*"}'
+start_server $PORT
 
-CORS_HEADER=$(curl -s -I -X OPTIONS http://localhost:$PORT/mcp 2>/dev/null | grep -i "Access-Control-Allow-Origin" || echo "")
+# OPTIONS request should NOT have CORS headers when cors_origins is not configured
+CORS_HEADER=$(curl -s -I -X OPTIONS http://localhost:$PORT/mcp -H "Origin: https://example.com" 2>/dev/null | grep -i "Access-Control-Allow-Origin" || echo "")
 
-if echo "$CORS_HEADER" | grep -qi "Access-Control-Allow-Origin"; then
-    pass "CORS headers are present"
+if [ -z "$CORS_HEADER" ]; then
+    pass "No CORS headers when cors_origins not configured"
 else
-    fail "CORS headers" "Access-Control-Allow-Origin header" "$CORS_HEADER"
+    fail "Default CORS" "No Access-Control-Allow-Origin header" "$CORS_HEADER"
+fi
+
+# POST request should also NOT have CORS headers
+POST_CORS=$(curl -s -D - -X POST http://localhost:$PORT/mcp \
+    -H "Content-Type: application/json" \
+    -H "Origin: https://evil.example.com" \
+    -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
+    2>/dev/null | grep -i "Access-Control-Allow-Origin" || echo "")
+
+if [ -z "$POST_CORS" ]; then
+    pass "No CORS headers on POST when cors_origins not configured"
+else
+    fail "Default CORS POST" "No Access-Control-Allow-Origin header" "$POST_CORS"
 fi
 
 stop_server
 
 # ==========================================
-# Test 9: Alternative endpoint (/mcp)
+# Test 9: CORS wildcard allows all origins
 # ==========================================
-echo -e "${YELLOW}Test 9: Alternative endpoint (/mcp)${NC}"
+echo -e "${YELLOW}Test 9: CORS wildcard allows all origins${NC}"
 PORT=18088
+start_server $PORT '{"cors_origins": "*"}'
+
+# OPTIONS preflight should return CORS headers
+OPTIONS_HEADERS=$(curl -s -I -X OPTIONS http://localhost:$PORT/mcp \
+    -H "Origin: https://example.com" \
+    2>/dev/null)
+
+CORS_ORIGIN=$(echo "$OPTIONS_HEADERS" | grep -i "Access-Control-Allow-Origin" || echo "")
+if echo "$CORS_ORIGIN" | grep -q '\*'; then
+    pass "Wildcard CORS returns Access-Control-Allow-Origin: *"
+else
+    fail "Wildcard CORS origin" "Access-Control-Allow-Origin: *" "$CORS_ORIGIN"
+fi
+
+CORS_METHODS=$(echo "$OPTIONS_HEADERS" | grep -i "Access-Control-Allow-Methods" || echo "")
+if echo "$CORS_METHODS" | grep -qi "POST"; then
+    pass "Wildcard CORS returns Allow-Methods including POST"
+else
+    fail "Wildcard CORS methods" "Access-Control-Allow-Methods containing POST" "$CORS_METHODS"
+fi
+
+CORS_HEADERS_HDR=$(echo "$OPTIONS_HEADERS" | grep -i "Access-Control-Allow-Headers" || echo "")
+if echo "$CORS_HEADERS_HDR" | grep -qi "Content-Type"; then
+    pass "Wildcard CORS returns Allow-Headers including Content-Type"
+else
+    fail "Wildcard CORS headers" "Access-Control-Allow-Headers containing Content-Type" "$CORS_HEADERS_HDR"
+fi
+
+# Wildcard should NOT have Vary: Origin
+VARY_HEADER=$(echo "$OPTIONS_HEADERS" | grep -i "^Vary:" | grep -i "Origin" || echo "")
+if [ -z "$VARY_HEADER" ]; then
+    pass "Wildcard CORS does not set Vary: Origin"
+else
+    fail "Wildcard Vary" "No Vary: Origin header" "$VARY_HEADER"
+fi
+
+# POST request should also have CORS headers
+POST_CORS=$(curl -s -D - -X POST http://localhost:$PORT/mcp \
+    -H "Content-Type: application/json" \
+    -H "Origin: https://any-origin.example.com" \
+    -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
+    2>/dev/null | grep -i "Access-Control-Allow-Origin" || echo "")
+
+if echo "$POST_CORS" | grep -q '\*'; then
+    pass "Wildcard CORS headers present on POST response"
+else
+    fail "Wildcard CORS POST" "Access-Control-Allow-Origin: *" "$POST_CORS"
+fi
+
+stop_server
+
+# ==========================================
+# Test 10: CORS specific origin - matching
+# ==========================================
+echo -e "${YELLOW}Test 10: CORS specific origin - matching origin${NC}"
+PORT=18089
+start_server $PORT '{"cors_origins": "https://allowed.example.com, https://also-allowed.example.com"}'
+
+# Request from allowed origin should get CORS headers echoing that origin
+OPTIONS_HEADERS=$(curl -s -I -X OPTIONS http://localhost:$PORT/mcp \
+    -H "Origin: https://allowed.example.com" \
+    2>/dev/null)
+
+CORS_ORIGIN=$(echo "$OPTIONS_HEADERS" | grep -i "Access-Control-Allow-Origin" || echo "")
+if echo "$CORS_ORIGIN" | grep -q "https://allowed.example.com"; then
+    pass "Specific CORS echoes matching origin"
+else
+    fail "Specific CORS origin" "Access-Control-Allow-Origin: https://allowed.example.com" "$CORS_ORIGIN"
+fi
+
+# Should have Vary: Origin for specific origins
+VARY_HEADER=$(echo "$OPTIONS_HEADERS" | grep -i "^Vary:" | grep -i "Origin" || echo "")
+if [ -n "$VARY_HEADER" ]; then
+    pass "Specific CORS sets Vary: Origin"
+else
+    fail "Specific CORS Vary" "Vary: Origin header" "$VARY_HEADER"
+fi
+
+# Second allowed origin should also work
+CORS_ORIGIN2=$(curl -s -I -X OPTIONS http://localhost:$PORT/mcp \
+    -H "Origin: https://also-allowed.example.com" \
+    2>/dev/null | grep -i "Access-Control-Allow-Origin" || echo "")
+
+if echo "$CORS_ORIGIN2" | grep -q "https://also-allowed.example.com"; then
+    pass "Specific CORS echoes second allowed origin"
+else
+    fail "Specific CORS second origin" "Access-Control-Allow-Origin: https://also-allowed.example.com" "$CORS_ORIGIN2"
+fi
+
+stop_server
+
+# ==========================================
+# Test 11: CORS specific origin - non-matching
+# ==========================================
+echo -e "${YELLOW}Test 11: CORS specific origin - non-matching origin${NC}"
+PORT=18090
+start_server $PORT '{"cors_origins": "https://allowed.example.com"}'
+
+# Request from disallowed origin should NOT get CORS headers
+OPTIONS_HEADERS=$(curl -s -I -X OPTIONS http://localhost:$PORT/mcp \
+    -H "Origin: https://evil.example.com" \
+    2>/dev/null)
+
+CORS_ORIGIN=$(echo "$OPTIONS_HEADERS" | grep -i "Access-Control-Allow-Origin" || echo "")
+if [ -z "$CORS_ORIGIN" ]; then
+    pass "Non-matching origin gets no CORS headers"
+else
+    fail "Non-matching CORS" "No Access-Control-Allow-Origin header" "$CORS_ORIGIN"
+fi
+
+# POST from disallowed origin should also not get CORS headers
+POST_CORS=$(curl -s -D - -X POST http://localhost:$PORT/mcp \
+    -H "Content-Type: application/json" \
+    -H "Origin: https://evil.example.com" \
+    -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
+    2>/dev/null | grep -i "Access-Control-Allow-Origin" || echo "")
+
+if [ -z "$POST_CORS" ]; then
+    pass "Non-matching origin gets no CORS headers on POST"
+else
+    fail "Non-matching CORS POST" "No Access-Control-Allow-Origin header" "$POST_CORS"
+fi
+
+stop_server
+
+# ==========================================
+# Test 12: Alternative endpoint (/mcp)
+# ==========================================
+echo -e "${YELLOW}Test 12: Alternative endpoint (/mcp)${NC}"
+PORT=18091
 start_server $PORT
 
 RESPONSE=$(curl -s -X POST http://localhost:$PORT/mcp \
