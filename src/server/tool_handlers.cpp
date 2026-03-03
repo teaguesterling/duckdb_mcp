@@ -1,6 +1,7 @@
 #include "server/tool_handlers.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/string_util.hpp"
+#include "duckdb/main/appender.hpp"
 #include "duckdb/parser/keyword_helper.hpp"
 #include "json_utils.hpp"
 #include "result_formatter.hpp"
@@ -456,14 +457,18 @@ CallToolResult ExportToolHandler::Execute(const Value &arguments) {
 			}
 		}
 
-		// Enforce read-only: parse the statement and validate its type
+		// Parse-only validation: get statement type without executing (no side effects).
+		// ExtractStatements does not bind or optimize, so nextval etc. are not called.
 		Connection conn(db_instance);
-		auto prepared = conn.Prepare(query);
-		if (prepared->HasError()) {
-			return CallToolResult::Error("Query error: " + prepared->GetError());
+		auto statements = conn.ExtractStatements(query);
+		if (statements.empty()) {
+			return CallToolResult::Error("Query error: could not parse query");
+		}
+		if (statements.size() > 1) {
+			return CallToolResult::Error("Query error: only a single statement is allowed");
 		}
 
-		StatementType stmt_type = prepared->GetStatementType();
+		StatementType stmt_type = statements[0]->type;
 
 		if (!IsReadOnlyStatementType(stmt_type)) {
 			string type_name = StatementTypeToString(stmt_type);
@@ -471,30 +476,26 @@ CallToolResult ExportToolHandler::Execute(const Value &arguments) {
 			                             "). Use the execute tool for DDL/DML operations.");
 		}
 
-		// Additional security check: validate against allowlist/denylist
 		if (!IsQueryAllowedByType(stmt_type, allowed_queries, denied_queries)) {
 			return CallToolResult::Error("Query not allowed by security policy");
 		}
 
-		// Execute the validated read-only query
-		// TODO(#28/CR-16): When output_path is non-empty, this query runs twice —
-		// once here for validation and again in ExportToFile via COPY. Consider
-		// skipping this initial query for file exports and letting COPY handle errors.
-		auto result = prepared->Execute();
-
+		// Execute the user's query exactly once
+		auto result = conn.Query(query);
 		if (result->HasError()) {
 			return CallToolResult::Error("Query error: " + result->GetError());
 		}
 
 		if (!output_path.empty()) {
-			// Export to file
-			if (ExportToFile(*result, format, output_path, query)) {
+			// File export: write the already-materialized result to file
+			string error = ExportToFile(*result, format, output_path);
+			if (error.empty()) {
 				return CallToolResult::Success(Value("Data exported to " + output_path));
 			} else {
-				return CallToolResult::Error("Failed to export to file");
+				return CallToolResult::Error(error);
 			}
 		} else {
-			// Return formatted data
+			// Inline return: format the result
 			string formatted_data = FormatData(*result, format);
 			return CallToolResult::Success(Value(formatted_data));
 		}
@@ -514,31 +515,58 @@ ToolInputSchema ExportToolHandler::GetInputSchema() const {
 	return schema;
 }
 
-bool ExportToolHandler::ExportToFile(QueryResult &result, const string &format, const string &output_path,
-                                     const string &query) const {
+string ExportToolHandler::ExportToFile(QueryResult &result, const string &format,
+                                       const string &output_path) const {
 	try {
-		// Escape single quotes in the output path to prevent SQL injection
 		string safe_path = EscapeSQLString(output_path);
 
-		// Use DuckDB's COPY TO functionality
-		string copy_query;
-		if (format == "csv") {
-			copy_query = "COPY (" + query + ") TO '" + safe_path + "' (FORMAT CSV, HEADER)";
-		} else if (format == "json") {
-			copy_query = "COPY (" + query + ") TO '" + safe_path + "' (FORMAT JSON)";
-		} else if (format == "parquet") {
-			copy_query = "COPY (" + query + ") TO '" + safe_path + "' (FORMAT PARQUET)";
-		} else {
-			return false; // Unsupported format
+		// Materialize the result into a temp table, then COPY the table to file.
+		// Using COPY (subquery) TO from within a nested execution context
+		// (e.g., scalar function) causes DuckDB to execute the subquery twice.
+		// By materializing first, we ensure the user's query runs exactly once.
+		// Note: the temp table is connection-local and auto-cleaned when conn
+		// goes out of scope, so no cleanup is needed on exception paths.
+		Connection conn(db_instance);
+		string temp_table = "__mcp_export_temp";
+
+		// Build CREATE TEMP TABLE from the result's column names and types
+		string create_sql = "CREATE TEMPORARY TABLE " + temp_table + "(";
+		for (idx_t col = 0; col < result.ColumnCount(); col++) {
+			if (col > 0) {
+				create_sql += ", ";
+			}
+			create_sql += KeywordHelper::WriteQuoted(result.names[col], '"') + " " + result.types[col].ToString();
+		}
+		create_sql += ")";
+
+		auto create_result = conn.Query(create_sql);
+		if (create_result->HasError()) {
+			return "Export error: " + create_result->GetError();
 		}
 
-		Connection conn(db_instance);
-		auto copy_result = conn.Query(copy_query);
+		// Insert data from the already-materialized result
+		auto &materialized = result.Cast<MaterializedQueryResult>();
+		auto &collection = materialized.Collection();
 
-		return !copy_result->HasError();
+		if (collection.Count() > 0) {
+			Appender appender(conn, temp_table);
+			for (auto &chunk : collection.Chunks()) {
+				appender.AppendDataChunk(chunk);
+			}
+			appender.Close();
+		}
+
+		// COPY the temp table to file (no subquery = no double-execution)
+		string copy_query = "COPY " + temp_table + " TO '" + safe_path + "' (FORMAT " +
+		                    StringUtil::Upper(format) + (format == "csv" ? ", HEADER" : "") + ")";
+		auto copy_result = conn.Query(copy_query);
+		if (copy_result->HasError()) {
+			return "Export error: " + copy_result->GetError();
+		}
+		return "";
 
 	} catch (const std::exception &e) {
-		return false;
+		return "Export error: " + string(e.what());
 	}
 }
 
