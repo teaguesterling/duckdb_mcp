@@ -4,7 +4,6 @@
 // Note: This must be included before other headers that might conflict
 #include "httplib.hpp"
 
-#include <cstring>
 #include <iostream>
 #include <sstream>
 
@@ -28,12 +27,17 @@ static bool ConstantTimeEquals(const string &a, const string &b) {
 		return false;
 	}
 
-	// Copy into fixed-size zero-initialized buffers so the loop below
-	// touches exactly kCompareSize bytes with no data-dependent branches.
-	unsigned char buf_a[kCompareSize] = {};
-	unsigned char buf_b[kCompareSize] = {};
-	std::memcpy(buf_a, a.data(), a.size());
-	std::memcpy(buf_b, b.data(), b.size());
+	// Copy into fixed-size volatile buffers so the compiler cannot
+	// reason about their contents or eliminate the comparison loop.
+	// Byte-by-byte copy is required because memcpy cannot target volatile.
+	volatile unsigned char buf_a[kCompareSize] = {};
+	volatile unsigned char buf_b[kCompareSize] = {};
+	for (size_t i = 0; i < a.size(); i++) {
+		buf_a[i] = static_cast<unsigned char>(a[i]);
+	}
+	for (size_t i = 0; i < b.size(); i++) {
+		buf_b[i] = static_cast<unsigned char>(b[i]);
+	}
 
 	// Length mismatch feeds into the result but does not short-circuit.
 	volatile unsigned char result = (a.size() != b.size()) ? 1 : 0;
