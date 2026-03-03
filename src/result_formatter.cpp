@@ -28,7 +28,7 @@ string ResultFormatter::GetMimeType(const string &format) {
 	if (format == "json") {
 		return "application/json";
 	} else if (format == "jsonl") {
-		return "application/jsonl";
+		return "application/x-ndjson";
 	} else if (format == "csv") {
 		return "text/csv";
 	} else if (format == "markdown") {
@@ -37,9 +37,7 @@ string ResultFormatter::GetMimeType(const string &format) {
 	return "text/plain";
 }
 
-// Escape a string for safe inclusion in a JSON string value.
-// Handles quotes, backslashes, and control characters.
-static string EscapeJsonString(const string &input) {
+string ResultFormatter::EscapeJsonString(const string &input) {
 	string result;
 	result.reserve(input.size());
 	for (char c : input) {

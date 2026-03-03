@@ -40,6 +40,10 @@ public:
 	// Get a comma-separated list of supported format names
 	static string GetSupportedFormatsList();
 
+	// Escape a string for safe inclusion in a JSON string value.
+	// Handles quotes, backslashes, and control characters.
+	static string EscapeJsonString(const string &input);
+
 	// List of supported formats
 	static const vector<string> SUPPORTED_FORMATS;
 };

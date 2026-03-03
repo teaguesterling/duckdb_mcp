@@ -8,41 +8,9 @@
 
 namespace duckdb {
 
-// Escape a string for safe inclusion in a JSON string value.
-// Handles quotes, backslashes, and control characters.
+// Delegate to shared implementation in ResultFormatter
 static string EscapeJsonString(const string &input) {
-	string result;
-	result.reserve(input.size());
-	for (char c : input) {
-		switch (c) {
-		case '"':
-			result += "\\\"";
-			break;
-		case '\\':
-			result += "\\\\";
-			break;
-		case '\n':
-			result += "\\n";
-			break;
-		case '\r':
-			result += "\\r";
-			break;
-		case '\t':
-			result += "\\t";
-			break;
-		default:
-			if (static_cast<unsigned char>(c) < 0x20) {
-				// Control character - encode as \u00XX
-				char buf[8];
-				snprintf(buf, sizeof(buf), "\\u%04x", static_cast<unsigned char>(c));
-				result += buf;
-			} else {
-				result += c;
-			}
-			break;
-		}
-	}
-	return result;
+	return ResultFormatter::EscapeJsonString(input);
 }
 
 // Escape single quotes in a string for SQL string literals
