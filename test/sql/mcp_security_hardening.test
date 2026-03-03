@@ -34,15 +34,15 @@ SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":1,"method":"tools/call","p
 ----
 true
 
-# DELETE with SELECT in a comment should be BLOCKED (type is DELETE, not SELECT)
+# DELETE with SELECT in a comment should be BLOCKED (read-only enforcement rejects non-SELECT)
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"query","arguments":{"sql":"DELETE FROM hardening_test WHERE id = 1 -- SELECT"}}}') LIKE '%not allowed%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"query","arguments":{"sql":"DELETE FROM hardening_test WHERE id = 1 -- SELECT"}}}') LIKE '%read-only%';
 ----
 true
 
-# INSERT with SELECT substring should be BLOCKED (type is INSERT)
+# INSERT with SELECT substring should be BLOCKED (read-only enforcement rejects non-SELECT)
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"query","arguments":{"sql":"INSERT INTO hardening_test SELECT * FROM hardening_test"}}}') LIKE '%not allowed%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"query","arguments":{"sql":"INSERT INTO hardening_test SELECT * FROM hardening_test"}}}') LIKE '%read-only%';
 ----
 true
 
@@ -65,15 +65,15 @@ SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":4,"method":"tools/call","p
 ----
 true
 
-# Actual DELETE should be blocked
+# Actual DELETE should be blocked (read-only enforcement)
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"query","arguments":{"sql":"DELETE FROM hardening_test"}}}') LIKE '%not allowed%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"query","arguments":{"sql":"DELETE FROM hardening_test"}}}') LIKE '%read-only%';
 ----
 true
 
-# Malformed SQL should be denied (fail closed)
+# Malformed SQL should be denied (fail closed - parse error)
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"query","arguments":{"sql":"THIS IS NOT VALID SQL"}}}') LIKE '%not allowed%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"query","arguments":{"sql":"THIS IS NOT VALID SQL"}}}') LIKE '%error%';
 ----
 true
 
@@ -90,9 +90,9 @@ SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":7,"method":"tools/call","p
 ----
 true
 
-# Describe with a DROP query should be blocked
+# Describe with a DROP query should be blocked (read-only enforcement)
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"describe","arguments":{"query":"DROP TABLE hardening_test"}}}') LIKE '%not allowed%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"describe","arguments":{"query":"DROP TABLE hardening_test"}}}') LIKE '%read-only%';
 ----
 true
 
@@ -109,9 +109,9 @@ SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":9,"method":"tools/call","p
 ----
 true
 
-# Export with non-SELECT should be blocked
+# Export with non-SELECT should be blocked (read-only enforcement)
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"export","arguments":{"query":"DELETE FROM hardening_test","format":"csv"}}}') LIKE '%not allowed%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"export","arguments":{"query":"DELETE FROM hardening_test","format":"csv"}}}') LIKE '%read-only%';
 ----
 true
 
