@@ -993,7 +993,7 @@ static string MCPPublishTableCore(ClientContext &context, const string &table_na
 	string format = format_in.empty() ? "json" : format_in;
 
 	if (!ResultFormatter::IsFormatSupported(format)) {
-		return "ERROR: Unsupported format '" + format + "'. Supported formats: json, csv, markdown";
+		return "ERROR: Unsupported format '" + format + "'. Supported formats: " + ResultFormatter::GetSupportedFormatsList();
 	}
 
 	auto &db_instance = DatabaseInstance::GetDatabase(context);
@@ -1066,7 +1066,7 @@ static string MCPPublishQueryCore(ClientContext &context, const string &query, c
 	string format = format_in.empty() ? "json" : format_in;
 
 	if (!ResultFormatter::IsFormatSupported(format)) {
-		return "ERROR: Unsupported format '" + format + "'. Supported formats: json, csv, markdown";
+		return "ERROR: Unsupported format '" + format + "'. Supported formats: " + ResultFormatter::GetSupportedFormatsList();
 	}
 
 	auto &db_instance = DatabaseInstance::GetDatabase(context);

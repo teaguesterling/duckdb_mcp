@@ -408,52 +408,79 @@ statement ok
 SELECT mcp_server_stop();
 
 # =============================================================================
-# SECTION 11: Unsupported Format Validation (Issue #8)
+# SECTION 11: Format Validation and JSONL Support (Issue #8)
 # =============================================================================
 
 statement ok
 SELECT mcp_server_start('memory');
 
-# Test unsupported format returns error, not fallback data
+# -- Query tool: JSONL format should now work (one JSON object per line) --
+
+# JSONL output should contain JSON object with column name and value (escaped in JSON-RPC response)
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":120,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 1","format":"jsonl"}}}') LIKE '%Unsupported format%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":120,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 42 as num, ''hello'' as msg","format":"jsonl"}}}') LIKE '%\"num\":\"42\"%';
+----
+true
+
+# JSONL output should contain both columns
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":121,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 42 as num, ''hello'' as msg","format":"jsonl"}}}') LIKE '%\"msg\":\"hello\"%';
+----
+true
+
+# JSONL text content should start with { not [{ (text field starts with escaped {)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":122,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 1 as id","format":"jsonl"}}}') LIKE '%"text":"{%';
+----
+true
+
+# -- Query tool: unsupported formats still return errors --
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":123,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 1","format":"table"}}}') LIKE '%Unsupported format%';
 ----
 true
 
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":121,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 1","format":"table"}}}') LIKE '%Unsupported format%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":124,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 1","format":"box"}}}') LIKE '%Unsupported format%';
+----
+true
+
+# -- Verify all supported formats still work --
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":125,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 42 as num","format":"json"}}}') LIKE '%42%';
 ----
 true
 
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":122,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 1","format":"box"}}}') LIKE '%Unsupported format%';
-----
-true
-
-# Verify supported formats still work
-query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":123,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 42 as num","format":"json"}}}') LIKE '%42%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":126,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 42 as num","format":"markdown"}}}') LIKE '%| num |%';
 ----
 true
 
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":124,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 42 as num","format":"markdown"}}}') LIKE '%| num |%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":127,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 42 as num","format":"csv"}}}') LIKE '%num%';
 ----
 true
 
+# -- Export tool: JSONL inline should now work --
+
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":125,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 42 as num","format":"csv"}}}') LIKE '%num%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":130,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT 1 as id, ''test'' as val","format":"jsonl"}}}') LIKE '%\"id\":\"1\"%';
 ----
 true
 
-# Test export tool format validation
+# -- Export tool: parquet inline still unsupported (binary format) --
+
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":130,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT 1","format":"parquet"}}}') LIKE '%Unsupported format%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":131,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT 1","format":"parquet"}}}') LIKE '%Unsupported format%';
 ----
 true
 
+# -- Export tool: markdown inline should now work --
+
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":131,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT 1","format":"jsonl"}}}') LIKE '%Unsupported format%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":132,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT 42 as num","format":"markdown"}}}') LIKE '%num%';
 ----
 true
 

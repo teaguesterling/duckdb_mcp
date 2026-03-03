@@ -8,41 +8,9 @@
 
 namespace duckdb {
 
-// Escape a string for safe inclusion in a JSON string value.
-// Handles quotes, backslashes, and control characters.
+// Delegate to shared implementation in ResultFormatter
 static string EscapeJsonString(const string &input) {
-	string result;
-	result.reserve(input.size());
-	for (char c : input) {
-		switch (c) {
-		case '"':
-			result += "\\\"";
-			break;
-		case '\\':
-			result += "\\\\";
-			break;
-		case '\n':
-			result += "\\n";
-			break;
-		case '\r':
-			result += "\\r";
-			break;
-		case '\t':
-			result += "\\t";
-			break;
-		default:
-			if (static_cast<unsigned char>(c) < 0x20) {
-				// Control character - encode as \u00XX
-				char buf[8];
-				snprintf(buf, sizeof(buf), "\\u%04x", static_cast<unsigned char>(c));
-				result += buf;
-			} else {
-				result += c;
-			}
-			break;
-		}
-	}
-	return result;
+	return ResultFormatter::EscapeJsonString(input);
 }
 
 // Escape single quotes in a string for SQL string literals
@@ -245,8 +213,9 @@ CallToolResult QueryToolHandler::Execute(const Value &arguments) {
 		}
 
 		// Validate format
-		if (format != "json" && format != "csv" && format != "markdown") {
-			return CallToolResult::Error("Unsupported format '" + format + "'. Supported formats: json, markdown, csv");
+		if (!ResultFormatter::IsFormatSupported(format)) {
+			return CallToolResult::Error("Unsupported format '" + format + "'. Supported formats: " +
+			                             ResultFormatter::GetSupportedFormatsList());
 		}
 
 		// Enforce read-only: parse the statement and validate its type
@@ -473,10 +442,11 @@ CallToolResult ExportToolHandler::Execute(const Value &arguments) {
 
 		// Validate format based on output mode
 		if (output_path.empty()) {
-			// Inline return - only json and csv supported
-			if (format != "json" && format != "csv") {
+			// Inline return - all text formats supported
+			if (!ResultFormatter::IsFormatSupported(format)) {
 				return CallToolResult::Error("Unsupported format '" + format +
-				                             "' for inline return. Supported formats: json, csv");
+				                             "' for inline return. Supported formats: " +
+				                             ResultFormatter::GetSupportedFormatsList());
 			}
 		} else {
 			// File export - json, csv, and parquet supported
@@ -573,71 +543,8 @@ bool ExportToolHandler::ExportToFile(QueryResult &result, const string &format, 
 }
 
 string ExportToolHandler::FormatData(QueryResult &result, const string &format) const {
-	if (format == "json") {
-		// Convert to JSON (similar to other handlers)
-		string json = "[";
-		bool first_row = true;
-
-		while (auto chunk = result.Fetch()) {
-			for (idx_t i = 0; i < chunk->size(); i++) {
-				if (!first_row) {
-					json += ",";
-				}
-				first_row = false;
-
-				json += "{";
-				for (idx_t col = 0; col < chunk->ColumnCount(); col++) {
-					if (col > 0)
-						json += ",";
-					json += "\"" + EscapeJsonString(result.names[col]) + "\":";
-
-					auto value = chunk->GetValue(col, i);
-					if (value.IsNull()) {
-						json += "null";
-					} else {
-						json += "\"" + EscapeJsonString(value.ToString()) + "\"";
-					}
-				}
-				json += "}";
-			}
-		}
-		json += "]";
-		return json;
-
-	} else if (format == "csv") {
-		// Convert to CSV (RFC 4180 compliant)
-		string csv;
-
-		// Header
-		for (idx_t col = 0; col < result.names.size(); col++) {
-			if (col > 0)
-				csv += ",";
-			csv += ResultFormatter::QuoteCSVField(result.names[col]);
-		}
-		csv += "\n";
-
-		// Data
-		while (auto chunk = result.Fetch()) {
-			for (idx_t i = 0; i < chunk->size(); i++) {
-				for (idx_t col = 0; col < chunk->ColumnCount(); col++) {
-					if (col > 0)
-						csv += ",";
-					auto value = chunk->GetValue(col, i);
-					if (value.IsNull()) {
-						// NULL -> empty field (no quotes)
-					} else {
-						csv += ResultFormatter::QuoteCSVField(value.ToString());
-					}
-				}
-				csv += "\n";
-			}
-		}
-		return csv;
-
-	} else {
-		// Default to string representation
-		return result.ToString();
-	}
+	// Delegate to shared ResultFormatter utility
+	return ResultFormatter::Format(result, format);
 }
 
 //===--------------------------------------------------------------------===//

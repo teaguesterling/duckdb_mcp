@@ -704,8 +704,15 @@ SELECT mcp_publish_table('test_products', 'data://bad_format', 'parquet') LIKE '
 ----
 true
 
+# jsonl is now a supported format - publishing should succeed
 query I
-SELECT mcp_publish_query('SELECT 1', 'data://bad_format2', 'jsonl', 0) LIKE '%ERROR%Unsupported format%';
+SELECT mcp_publish_query('SELECT 1', 'data://jsonl_resource', 'jsonl', 0) LIKE '%SUCCESS%';
+----
+true
+
+# An actually unsupported format should still error
+query I
+SELECT mcp_publish_query('SELECT 1', 'data://bad_format2', 'xlsx', 0) LIKE '%ERROR%Unsupported format%';
 ----
 true
 
