@@ -243,7 +243,7 @@ PORT=18087
 start_server $PORT
 
 # OPTIONS request should NOT have CORS headers when cors_origins is not configured
-CORS_HEADER=$(curl -s -I -X OPTIONS http://localhost:$PORT/mcp 2>/dev/null | grep -i "Access-Control-Allow-Origin" || echo "")
+CORS_HEADER=$(curl -s -I -X OPTIONS http://localhost:$PORT/mcp -H "Origin: https://example.com" 2>/dev/null | grep -i "Access-Control-Allow-Origin" || echo "")
 
 if [ -z "$CORS_HEADER" ]; then
     pass "No CORS headers when cors_origins not configured"
