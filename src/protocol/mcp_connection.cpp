@@ -1,6 +1,6 @@
 #include "protocol/mcp_connection.hpp"
-#include "json_utils.hpp"
 #include "duckdb/common/exception.hpp"
+#include "json_utils.hpp"
 #include <ctime>
 #include <thread>
 #include <chrono>
@@ -120,8 +120,9 @@ vector<MCPResource> MCPConnection::ListResources(const string &cursor) {
 
 	vector<MCPResource> resources;
 
-	// Parse response.result into resources
-	// Placeholder implementation - would parse JSON properly
+	// TODO(#28/CR-14): Parse JSON-RPC response result into MCPResource structs.
+	// Requires extracting the "resources" array from response.result and building
+	// the return vector with uri, name, description, mimeType fields.
 
 	return resources;
 }
@@ -179,7 +180,10 @@ vector<string> MCPConnection::ListTools() {
 	}
 
 	vector<string> tools;
-	// Parse response.result into tool names
+
+	// TODO(#28/CR-15): Parse JSON-RPC response result into tool name strings.
+	// Requires extracting the "tools" array from response.result and pulling
+	// the "name" field from each tool object.
 
 	return tools;
 }

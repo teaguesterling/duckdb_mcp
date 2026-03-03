@@ -7,6 +7,7 @@
 #include <atomic>
 #ifndef __EMSCRIPTEN__
 #include <thread>
+#include "server/http_server_transport.hpp"
 #endif
 #include <unordered_map>
 #include <ctime>
@@ -16,9 +17,7 @@ namespace duckdb {
 // Forward declarations
 class ResourceProvider;
 class ToolHandler;
-#ifndef __EMSCRIPTEN__
-class HTTPServerTransport;
-#else
+#ifdef __EMSCRIPTEN__
 class WebMCPTransport;
 #endif
 
@@ -51,7 +50,7 @@ struct MCPServerConfig {
 	bool execute_allow_set = false;    // SET, VARIABLE_SET, PRAGMA
 
 	// CORS configuration
-	string cors_origins = "*";               // CORS origins: empty=disabled, "*"=wildcard, or comma-separated origins
+	string cors_origins;                     // CORS origins: empty=disabled (default), "*"=wildcard, or comma-separated origins
 
 	// Health endpoint configuration
 	bool enable_health_endpoint = true;      // Enable /health endpoint
@@ -195,6 +194,8 @@ private:
 	// Request handling
 #ifndef __EMSCRIPTEN__
 	void ServerLoop();
+	HTTPServerConfig MakeHTTPConfig() const;
+	HTTPServerTransport::RequestHandler MakeHTTPHandler();
 #endif
 	void HandleConnection(unique_ptr<MCPTransport> transport);
 	MCPMessage HandleRequest(const MCPMessage &request);
@@ -243,6 +244,10 @@ struct PendingResourceRegistration {
 };
 
 // Global server instance management
+// TODO(#28/CR-17): Singleton architecture (MCPSecurityConfig, MCPServerManager,
+// MCPConfigManager, MCPLogger, MCPTemplateManager) shares state across database
+// instances. Consider moving to per-instance state via DuckDB's DatabaseInstance
+// extension data if multi-database support is needed.
 class MCPServerManager {
 public:
 	static MCPServerManager &GetInstance();

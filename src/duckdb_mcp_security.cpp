@@ -317,7 +317,14 @@ MCPConnectionParams ParseMCPAttachParams(const AttachInfo &info) {
 							yyjson_arr_foreach(root, idx, max, arg) {
 								if (yyjson_is_str(arg)) {
 									params.args.push_back(yyjson_get_str(arg));
+								} else if (yyjson_is_int(arg)) {
+									params.args.push_back(std::to_string(yyjson_get_sint(arg)));
+								} else if (yyjson_is_real(arg)) {
+									params.args.push_back(std::to_string(yyjson_get_real(arg)));
+								} else if (yyjson_is_bool(arg)) {
+									params.args.push_back(yyjson_get_bool(arg) ? "true" : "false");
 								}
+								// null, object, and array items are skipped (no reasonable coercion)
 							}
 						}
 						yyjson_doc_free(doc);
@@ -356,9 +363,19 @@ MCPConnectionParams ParseMCPAttachParams(const AttachInfo &info) {
 							size_t idx, max;
 							yyjson_val *key, *val;
 							yyjson_obj_foreach(root, idx, max, key, val) {
-								if (yyjson_is_str(key) && yyjson_is_str(val)) {
-									params.env[yyjson_get_str(key)] = yyjson_get_str(val);
+								if (!yyjson_is_str(key)) {
+									continue;
 								}
+								if (yyjson_is_str(val)) {
+									params.env[yyjson_get_str(key)] = yyjson_get_str(val);
+								} else if (yyjson_is_int(val)) {
+									params.env[yyjson_get_str(key)] = std::to_string(yyjson_get_sint(val));
+								} else if (yyjson_is_real(val)) {
+									params.env[yyjson_get_str(key)] = std::to_string(yyjson_get_real(val));
+								} else if (yyjson_is_bool(val)) {
+									params.env[yyjson_get_str(key)] = yyjson_get_bool(val) ? "true" : "false";
+								}
+								// null, object, and array values are skipped
 							}
 						}
 						yyjson_doc_free(doc);
@@ -448,7 +465,14 @@ MCPConnectionParams ParseMCPConfigFile(const string &config_file_path, const str
 			yyjson_arr_foreach(args_val, idx, max, arg) {
 				if (yyjson_is_str(arg)) {
 					params.args.push_back(yyjson_get_str(arg));
+				} else if (yyjson_is_int(arg)) {
+					params.args.push_back(std::to_string(yyjson_get_sint(arg)));
+				} else if (yyjson_is_real(arg)) {
+					params.args.push_back(std::to_string(yyjson_get_real(arg)));
+				} else if (yyjson_is_bool(arg)) {
+					params.args.push_back(yyjson_get_bool(arg) ? "true" : "false");
 				}
+				// null, object, and array items are skipped
 			}
 		}
 
@@ -464,9 +488,19 @@ MCPConnectionParams ParseMCPConfigFile(const string &config_file_path, const str
 			size_t idx, max;
 			yyjson_val *key, *val;
 			yyjson_obj_foreach(env_val, idx, max, key, val) {
-				if (yyjson_is_str(key) && yyjson_is_str(val)) {
-					params.env[yyjson_get_str(key)] = yyjson_get_str(val);
+				if (!yyjson_is_str(key)) {
+					continue;
 				}
+				if (yyjson_is_str(val)) {
+					params.env[yyjson_get_str(key)] = yyjson_get_str(val);
+				} else if (yyjson_is_int(val)) {
+					params.env[yyjson_get_str(key)] = std::to_string(yyjson_get_sint(val));
+				} else if (yyjson_is_real(val)) {
+					params.env[yyjson_get_str(key)] = std::to_string(yyjson_get_real(val));
+				} else if (yyjson_is_bool(val)) {
+					params.env[yyjson_get_str(key)] = yyjson_get_bool(val) ? "true" : "false";
+				}
+				// null, object, and array values are skipped
 			}
 		}
 
