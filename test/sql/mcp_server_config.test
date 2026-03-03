@@ -74,6 +74,28 @@ statement ok
 SELECT mcp_server_stop();
 
 # =============================================================================
+# SECTION 3b: Default Result Format - JSONL
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory', '{"default_result_format": "jsonl"}');
+
+# Query without format param should return JSONL (one JSON object per line, no array wrapper)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":25,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM config_test"}}}') LIKE '%\"id\":\"1\"%';
+----
+true
+
+# JSONL text content should start with { not [{ (text field starts with escaped {)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":26,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM config_test"}}}') LIKE '%"text":"{%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop();
+
+# =============================================================================
 # SECTION 4: Tool Enablement - Disable Query Tool
 # =============================================================================
 

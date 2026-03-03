@@ -2,7 +2,7 @@
 
 namespace duckdb {
 
-const vector<string> ResultFormatter::SUPPORTED_FORMATS = {"json", "csv", "markdown"};
+const vector<string> ResultFormatter::SUPPORTED_FORMATS = {"json", "jsonl", "csv", "markdown"};
 
 bool ResultFormatter::IsFormatSupported(const string &format) {
 	for (const auto &f : SUPPORTED_FORMATS) {
@@ -13,9 +13,22 @@ bool ResultFormatter::IsFormatSupported(const string &format) {
 	return false;
 }
 
+string ResultFormatter::GetSupportedFormatsList() {
+	string list;
+	for (idx_t i = 0; i < SUPPORTED_FORMATS.size(); i++) {
+		if (i > 0) {
+			list += ", ";
+		}
+		list += SUPPORTED_FORMATS[i];
+	}
+	return list;
+}
+
 string ResultFormatter::GetMimeType(const string &format) {
 	if (format == "json") {
 		return "application/json";
+	} else if (format == "jsonl") {
+		return "application/jsonl";
 	} else if (format == "csv") {
 		return "text/csv";
 	} else if (format == "markdown") {
@@ -24,9 +37,48 @@ string ResultFormatter::GetMimeType(const string &format) {
 	return "text/plain";
 }
 
+// Escape a string for safe inclusion in a JSON string value.
+// Handles quotes, backslashes, and control characters.
+static string EscapeJsonString(const string &input) {
+	string result;
+	result.reserve(input.size());
+	for (char c : input) {
+		switch (c) {
+		case '"':
+			result += "\\\"";
+			break;
+		case '\\':
+			result += "\\\\";
+			break;
+		case '\n':
+			result += "\\n";
+			break;
+		case '\r':
+			result += "\\r";
+			break;
+		case '\t':
+			result += "\\t";
+			break;
+		default:
+			if (static_cast<unsigned char>(c) < 0x20) {
+				// Control character - encode as \u00XX
+				char buf[8];
+				snprintf(buf, sizeof(buf), "\\u%04x", static_cast<unsigned char>(c));
+				result += buf;
+			} else {
+				result += c;
+			}
+			break;
+		}
+	}
+	return result;
+}
+
 string ResultFormatter::Format(QueryResult &result, const string &format) {
 	if (format == "json") {
 		return FormatAsJSON(result);
+	} else if (format == "jsonl") {
+		return FormatAsJSONL(result);
 	} else if (format == "csv") {
 		return FormatAsCSV(result);
 	} else if (format == "markdown") {
@@ -52,13 +104,13 @@ string ResultFormatter::FormatAsJSON(QueryResult &result) {
 			for (idx_t col = 0; col < chunk->ColumnCount(); col++) {
 				if (col > 0)
 					json += ",";
-				json += "\"" + result.names[col] + "\":";
+				json += "\"" + EscapeJsonString(result.names[col]) + "\":";
 
 				auto value = chunk->GetValue(col, i);
 				if (value.IsNull()) {
 					json += "null";
 				} else {
-					json += "\"" + value.ToString() + "\"";
+					json += "\"" + EscapeJsonString(value.ToString()) + "\"";
 				}
 			}
 			json += "}";
@@ -66,6 +118,30 @@ string ResultFormatter::FormatAsJSON(QueryResult &result) {
 	}
 	json += "]";
 	return json;
+}
+
+string ResultFormatter::FormatAsJSONL(QueryResult &result) {
+	string jsonl;
+
+	while (auto chunk = result.Fetch()) {
+		for (idx_t i = 0; i < chunk->size(); i++) {
+			jsonl += "{";
+			for (idx_t col = 0; col < chunk->ColumnCount(); col++) {
+				if (col > 0)
+					jsonl += ",";
+				jsonl += "\"" + EscapeJsonString(result.names[col]) + "\":";
+
+				auto value = chunk->GetValue(col, i);
+				if (value.IsNull()) {
+					jsonl += "null";
+				} else {
+					jsonl += "\"" + EscapeJsonString(value.ToString()) + "\"";
+				}
+			}
+			jsonl += "}\n";
+		}
+	}
+	return jsonl;
 }
 
 string ResultFormatter::QuoteCSVField(const string &field) {
