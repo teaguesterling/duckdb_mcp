@@ -550,19 +550,14 @@ string ExportToolHandler::ExportToFile(QueryResult &result, const string &format
 	try {
 		string safe_path = EscapeSQLString(output_path);
 
-		if (format != "csv" && format != "json" && format != "parquet") {
-			return "Unsupported export format: " + format;
-		}
-
 		// Materialize the result into a temp table, then COPY the table to file.
 		// Using COPY (subquery) TO from within a nested execution context
 		// (e.g., scalar function) causes DuckDB to execute the subquery twice.
 		// By materializing first, we ensure the user's query runs exactly once.
+		// Note: the temp table is connection-local and auto-cleaned when conn
+		// goes out of scope, so no cleanup is needed on exception paths.
 		Connection conn(db_instance);
 		string temp_table = "__mcp_export_temp";
-
-		// Clean up any leftover temp table from a prior failed export on this connection
-		conn.Query("DROP TABLE IF EXISTS " + temp_table);
 
 		// Build CREATE TEMP TABLE from the result's column names and types
 		string create_sql = "CREATE TEMPORARY TABLE " + temp_table + "(";
@@ -595,10 +590,6 @@ string ExportToolHandler::ExportToFile(QueryResult &result, const string &format
 		string copy_query = "COPY " + temp_table + " TO '" + safe_path + "' (FORMAT " +
 		                    StringUtil::Upper(format) + (format == "csv" ? ", HEADER" : "") + ")";
 		auto copy_result = conn.Query(copy_query);
-
-		// Always clean up the temp table
-		conn.Query("DROP TABLE IF EXISTS " + temp_table);
-
 		if (copy_result->HasError()) {
 			return "Export error: " + copy_result->GetError();
 		}
