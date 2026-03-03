@@ -613,6 +613,11 @@ static Value MCPServerStartCore(ClientContext &context, const string &transport,
 
 				// Parse HTTP-specific configuration
 				server_config.auth_token = JSONUtils::GetString(root, "auth_token", "");
+				// "Bearer " prefix (7 bytes) + token must fit in the 256-byte
+				// constant-time comparison buffer used by ConstantTimeEquals.
+				if (server_config.auth_token.size() > 249) {
+					throw InvalidInputException("auth_token exceeds maximum length of 249 characters");
+				}
 				server_config.ssl_cert_path = JSONUtils::GetString(root, "ssl_cert_path", "");
 				server_config.ssl_key_path = JSONUtils::GetString(root, "ssl_key_path", "");
 
@@ -993,7 +998,7 @@ static string MCPPublishTableCore(ClientContext &context, const string &table_na
 	string format = format_in.empty() ? "json" : format_in;
 
 	if (!ResultFormatter::IsFormatSupported(format)) {
-		return "ERROR: Unsupported format '" + format + "'. Supported formats: json, csv, markdown";
+		return "ERROR: Unsupported format '" + format + "'. Supported formats: " + ResultFormatter::GetSupportedFormatsList();
 	}
 
 	auto &db_instance = DatabaseInstance::GetDatabase(context);
@@ -1066,7 +1071,7 @@ static string MCPPublishQueryCore(ClientContext &context, const string &query, c
 	string format = format_in.empty() ? "json" : format_in;
 
 	if (!ResultFormatter::IsFormatSupported(format)) {
-		return "ERROR: Unsupported format '" + format + "'. Supported formats: json, csv, markdown";
+		return "ERROR: Unsupported format '" + format + "'. Supported formats: " + ResultFormatter::GetSupportedFormatsList();
 	}
 
 	auto &db_instance = DatabaseInstance::GetDatabase(context);

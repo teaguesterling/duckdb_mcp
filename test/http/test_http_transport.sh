@@ -236,6 +236,91 @@ fi
 stop_server
 
 # ==========================================
+# Test 7b: Auth - shorter token rejected (403)
+# ==========================================
+echo -e "${YELLOW}Test 7b: Auth - shorter token rejected${NC}"
+PORT=18186
+start_server $PORT '{"auth_token":"secret123"}'
+
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:$PORT/mcp \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer s" \
+    -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
+    2>/dev/null || echo "000")
+
+if [ "$HTTP_CODE" = "403" ]; then
+    pass "Shorter token returns 403 Forbidden"
+else
+    fail "Shorter token status" "403" "$HTTP_CODE"
+fi
+
+stop_server
+
+# ==========================================
+# Test 7c: Auth - longer token rejected (403)
+# ==========================================
+echo -e "${YELLOW}Test 7c: Auth - longer token rejected${NC}"
+PORT=18286
+start_server $PORT '{"auth_token":"secret123"}'
+
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:$PORT/mcp \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer secret123extrabyteshere" \
+    -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
+    2>/dev/null || echo "000")
+
+if [ "$HTTP_CODE" = "403" ]; then
+    pass "Longer token returns 403 Forbidden"
+else
+    fail "Longer token status" "403" "$HTTP_CODE"
+fi
+
+stop_server
+
+# ==========================================
+# Test 7d: Auth - same-length wrong token rejected (403)
+# ==========================================
+echo -e "${YELLOW}Test 7d: Auth - same-length wrong token rejected${NC}"
+PORT=18386
+start_server $PORT '{"auth_token":"secret123"}'
+
+# "secret123" is 9 chars; "wrongtokn" is also 9 chars
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:$PORT/mcp \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer wrongtokn" \
+    -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
+    2>/dev/null || echo "000")
+
+if [ "$HTTP_CODE" = "403" ]; then
+    pass "Same-length wrong token returns 403 Forbidden"
+else
+    fail "Same-length wrong token status" "403" "$HTTP_CODE"
+fi
+
+stop_server
+
+# ==========================================
+# Test 7e: Auth - correct prefix, wrong suffix rejected (403)
+# ==========================================
+echo -e "${YELLOW}Test 7e: Auth - correct prefix wrong suffix rejected${NC}"
+PORT=18486
+start_server $PORT '{"auth_token":"secret123"}'
+
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:$PORT/mcp \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer secret124" \
+    -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
+    2>/dev/null || echo "000")
+
+if [ "$HTTP_CODE" = "403" ]; then
+    pass "Correct prefix wrong suffix returns 403 Forbidden"
+else
+    fail "Correct prefix wrong suffix status" "403" "$HTTP_CODE"
+fi
+
+stop_server
+
+# ==========================================
 # Test 8: CORS disabled by default
 # ==========================================
 echo -e "${YELLOW}Test 8: CORS disabled by default (no cors_origins config)${NC}"
