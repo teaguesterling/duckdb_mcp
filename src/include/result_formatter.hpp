@@ -11,6 +11,9 @@ public:
 	// Format result as JSON array of objects
 	static string FormatAsJSON(QueryResult &result);
 
+	// Format result as JSON Lines (one JSON object per line)
+	static string FormatAsJSONL(QueryResult &result);
+
 	// Format result as CSV (RFC 4180 compliant)
 	static string FormatAsCSV(QueryResult &result);
 
@@ -24,7 +27,7 @@ public:
 	// - Escapes pipe characters in cell values
 	static string FormatAsMarkdown(QueryResult &result);
 
-	// Format result in the specified format (json, csv, markdown)
+	// Format result in the specified format (json, jsonl, csv, markdown)
 	// Returns empty string for unsupported formats
 	static string Format(QueryResult &result, const string &format);
 
@@ -33,6 +36,13 @@ public:
 
 	// Check if a format is supported
 	static bool IsFormatSupported(const string &format);
+
+	// Get a comma-separated list of supported format names
+	static string GetSupportedFormatsList();
+
+	// Escape a string for safe inclusion in a JSON string value.
+	// Handles quotes, backslashes, and control characters.
+	static string EscapeJsonString(const string &input);
 
 	// List of supported formats
 	static const vector<string> SUPPORTED_FORMATS;

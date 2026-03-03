@@ -84,7 +84,7 @@ public:
 	}
 	string GetDescription() const override {
 		return "Execute a read-only SQL query and return results. "
-		       "Supported formats: json (default), markdown, csv.";
+		       "Supported formats: json (default), jsonl, csv, markdown.";
 	}
 	ToolInputSchema GetInputSchema() const override;
 
@@ -132,7 +132,7 @@ public:
 		return "export";
 	}
 	string GetDescription() const override {
-		return "Export query results. Inline return supports: json, csv. "
+		return "Export query results. Inline return supports: json, jsonl, csv, markdown. "
 		       "File export (with 'output' path) additionally supports: parquet.";
 	}
 	ToolInputSchema GetInputSchema() const override;
