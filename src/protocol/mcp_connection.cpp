@@ -1,5 +1,6 @@
 #include "protocol/mcp_connection.hpp"
 #include "duckdb/common/exception.hpp"
+#include "duckdb_mcp_logging.hpp"
 #include "json_utils.hpp"
 #include <ctime>
 #include <thread>
@@ -122,24 +123,28 @@ vector<MCPResource> MCPConnection::ListResources(const string &cursor) {
 
 	if (!response.result.IsNull()) {
 		string json_str = response.result.ToString();
-		yyjson_doc *doc = yyjson_read(json_str.c_str(), json_str.length(), 0);
-		if (doc) {
-			yyjson_val *root = yyjson_doc_get_root(doc);
-			yyjson_val *arr = yyjson_is_obj(root) ? yyjson_obj_get(root, "resources") : nullptr;
-			if (arr && yyjson_is_arr(arr)) {
-				yyjson_arr_iter iter;
-				yyjson_arr_iter_init(arr, &iter);
-				yyjson_val *item;
-				while ((item = yyjson_arr_iter_next(&iter))) {
-					MCPResource res;
-					res.uri = JSONUtils::GetString(item, "uri");
-					res.name = JSONUtils::GetString(item, "name");
-					res.description = JSONUtils::GetString(item, "description");
-					res.mime_type = JSONUtils::GetString(item, "mimeType");
-					resources.push_back(std::move(res));
-				}
+		yyjson_doc *doc = JSONUtils::Parse(json_str);
+		struct DocGuard {
+			yyjson_doc *d;
+			~DocGuard() { JSONUtils::FreeDocument(d); }
+		} guard{doc};
+
+		yyjson_val *root = yyjson_doc_get_root(doc);
+		yyjson_val *arr = yyjson_is_obj(root) ? yyjson_obj_get(root, "resources") : nullptr;
+		if (arr && yyjson_is_arr(arr)) {
+			yyjson_arr_iter iter;
+			yyjson_arr_iter_init(arr, &iter);
+			yyjson_val *item;
+			while ((item = yyjson_arr_iter_next(&iter))) {
+				MCPResource res;
+				res.uri = JSONUtils::GetString(item, "uri");
+				res.name = JSONUtils::GetString(item, "name");
+				res.description = JSONUtils::GetString(item, "description");
+				res.mime_type = JSONUtils::GetString(item, "mimeType");
+				resources.push_back(std::move(res));
 			}
-			yyjson_doc_free(doc);
+		} else {
+			MCP_LOG_WARN("CONNECTION", "ListResources response missing 'resources' array");
 		}
 	}
 
@@ -202,22 +207,26 @@ vector<string> MCPConnection::ListTools() {
 
 	if (!response.result.IsNull()) {
 		string json_str = response.result.ToString();
-		yyjson_doc *doc = yyjson_read(json_str.c_str(), json_str.length(), 0);
-		if (doc) {
-			yyjson_val *root = yyjson_doc_get_root(doc);
-			yyjson_val *arr = yyjson_is_obj(root) ? yyjson_obj_get(root, "tools") : nullptr;
-			if (arr && yyjson_is_arr(arr)) {
-				yyjson_arr_iter iter;
-				yyjson_arr_iter_init(arr, &iter);
-				yyjson_val *item;
-				while ((item = yyjson_arr_iter_next(&iter))) {
-					string name = JSONUtils::GetString(item, "name");
-					if (!name.empty()) {
-						tools.push_back(std::move(name));
-					}
+		yyjson_doc *doc = JSONUtils::Parse(json_str);
+		struct DocGuard {
+			yyjson_doc *d;
+			~DocGuard() { JSONUtils::FreeDocument(d); }
+		} guard{doc};
+
+		yyjson_val *root = yyjson_doc_get_root(doc);
+		yyjson_val *arr = yyjson_is_obj(root) ? yyjson_obj_get(root, "tools") : nullptr;
+		if (arr && yyjson_is_arr(arr)) {
+			yyjson_arr_iter iter;
+			yyjson_arr_iter_init(arr, &iter);
+			yyjson_val *item;
+			while ((item = yyjson_arr_iter_next(&iter))) {
+				string name = JSONUtils::GetString(item, "name");
+				if (!name.empty()) {
+					tools.push_back(std::move(name));
 				}
 			}
-			yyjson_doc_free(doc);
+		} else {
+			MCP_LOG_WARN("CONNECTION", "ListTools response missing 'tools' array");
 		}
 	}
 
