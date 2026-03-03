@@ -1,0 +1,221 @@
+# name: test/sql/mcp_json_output_escaping.test
+# description: JSON output format must escape special characters in string values (issue #52)
+# group: [sql]
+
+# Load the MCP extension
+require duckdb_mcp
+
+statement ok
+LOAD duckdb_mcp;
+
+# =============================================================================
+# SETUP
+# =============================================================================
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# Issue #52: Double quotes in values must be escaped in JSON output
+# =============================================================================
+# When a tool returns content with " characters in values, the JSON output
+# must escape them as \" so that the result is valid, parseable JSON.
+#
+# Without escaping, output is:  [{"content":""""hello"}]  (INVALID JSON)
+# With proper escaping, output: [{"content":"\"\"\"hello"}]  (valid JSON)
+#
+# Detection strategy: FormatAsJSON escapes " to \", and the JSON-RPC layer
+# then escapes that to \\\". We check for the triple-backslash-quote pattern
+# using chr() to build the expected sequence without SQL escaping issues.
+#
+# chr(92) = backslash (\), chr(34) = double quote (")
+# Inner JSON \" becomes \\\" in the JSON-RPC response.
+# So we look for: \\"  which is chr(92) || chr(92) || chr(92) || chr(34)
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# ---- Test 1: Double quotes in query tool JSON output ----
+# Three consecutive double quotes followed by text
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT chr(34) || chr(34) || chr(34) || ''hello'' as content","format":"json"}}}')
+  LIKE '%' || chr(92) || chr(92) || chr(92) || chr(34) || chr(92) || chr(92) || chr(92) || chr(34) || chr(92) || chr(92) || chr(92) || chr(34) || 'hello%';
+----
+true
+
+# ---- Test 2: Single double quote in value ----
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT ''say '' || chr(34) || ''hi'' || chr(34) as content","format":"json"}}}')
+  LIKE '%say ' || chr(92) || chr(92) || chr(92) || chr(34) || 'hi' || chr(92) || chr(92) || chr(92) || chr(34) || '%';
+----
+true
+
+# ---- Test 3: Backslash in value must be escaped ----
+# A literal backslash in the value should be escaped to \\ in the inner JSON,
+# which becomes \\\\ in the JSON-RPC response.
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT chr(92) || ''path'' as content","format":"json"}}}')
+  LIKE '%' || chr(92) || chr(92) || chr(92) || chr(92) || 'path%';
+----
+true
+
+# ---- Test 4: Newline in value must be escaped ----
+# A newline (chr(10)) should become \n in inner JSON, which becomes \\n in response.
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT ''line1'' || chr(10) || ''line2'' as content","format":"json"}}}')
+  LIKE '%line1' || chr(92) || chr(92) || 'nline2%';
+----
+true
+
+# ---- Test 5: Tab in value must be escaped ----
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT ''col1'' || chr(9) || ''col2'' as content","format":"json"}}}')
+  LIKE '%col1' || chr(92) || chr(92) || 'tcol2%';
+----
+true
+
+# ---- Test 6: Mixed special characters ----
+# Value with quote, backslash, and newline together
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT chr(34) || chr(92) || chr(10) as content","format":"json"}}}')
+  LIKE '%' || chr(92) || chr(92) || chr(92) || chr(34) || chr(92) || chr(92) || chr(92) || chr(92) || chr(92) || chr(92) || 'n%';
+----
+true
+
+# ---- Test 7: Column names with special chars are also escaped ----
+# Use a table with a column name containing a double quote
+statement ok
+CREATE TABLE col_escape_test ("col""name" INTEGER);
+
+statement ok
+INSERT INTO col_escape_test VALUES (1);
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM col_escape_test","format":"json"}}}')
+  LIKE '%col' || chr(92) || chr(92) || chr(92) || chr(34) || 'name%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# Published tool JSON escaping (mcp_publish_tool with format='json')
+# =============================================================================
+# This is the specific scenario described in issue #52: a tool published
+# with format='json' that returns content containing double quotes.
+
+statement ok
+SELECT mcp_publish_tool(
+    'quote_test',
+    'Returns content with double quotes',
+    'SELECT chr(34) || chr(34) || chr(34) || ''Shared fixtures'' as content',
+    '{}',
+    '[]',
+    'json'
+);
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# ---- Test 8: Published tool with JSON format escapes quotes ----
+# This reproduces the exact scenario from issue #52
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"quote_test","arguments":{}}}')
+  LIKE '%' || chr(92) || chr(92) || chr(92) || chr(34) || chr(92) || chr(92) || chr(92) || chr(34) || chr(92) || chr(92) || chr(92) || chr(34) || 'Shared fixtures%';
+----
+true
+
+# ---- Test 9: Published tool result is valid JSON (not malformed) ----
+# The response must NOT contain four consecutive unescaped quotes
+# If escaping is broken, we'd see \\"\\"\\"\\" (four quotes) instead of \\\"\\\"\\\".
+# Check that the response does NOT contain the broken pattern.
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"quote_test","arguments":{}}}')
+  LIKE '%' || chr(92) || chr(34) || chr(92) || chr(34) || chr(92) || chr(34) || chr(92) || chr(34) || 'Shared%';
+----
+false
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# JSONL format escaping
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# ---- Test 10: JSONL format also escapes double quotes ----
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT chr(34) || ''hello'' || chr(34) as content","format":"jsonl"}}}')
+  LIKE '%' || chr(92) || chr(92) || chr(92) || chr(34) || 'hello' || chr(92) || chr(92) || chr(92) || chr(34) || '%';
+----
+true
+
+# ---- Test 11: JSONL format escapes backslashes ----
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT chr(92) || ''hello'' as content","format":"jsonl"}}}')
+  LIKE '%' || chr(92) || chr(92) || chr(92) || chr(92) || 'hello%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# CSV format escaping (RFC 4180)
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# ---- Test 12: CSV format doubles internal quotes per RFC 4180 ----
+# A value "hi" should become """hi""" in CSV (each " doubled, wrapped in quotes)
+# In the JSON-RPC response, each " appears as \" giving: \"\"\"hi\"\"\"
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT chr(34) || ''hi'' || chr(34) as val","format":"csv"}}}')
+  LIKE '%' || chr(92) || chr(34) || chr(92) || chr(34) || chr(92) || chr(34) || 'hi' || chr(92) || chr(34) || chr(92) || chr(34) || chr(92) || chr(34) || '%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# Edge cases
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# ---- Test 13: Empty string value ----
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":40,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT '''' as content","format":"json"}}}')
+  LIKE '%"result"%';
+----
+true
+
+# ---- Test 14: Value that is just a single double quote ----
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":41,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT chr(34) as content","format":"json"}}}')
+  LIKE '%' || chr(92) || chr(92) || chr(92) || chr(34) || '%';
+----
+true
+
+# ---- Test 15: Value that is just a single backslash ----
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT chr(92) as content","format":"json"}}}')
+  LIKE '%' || chr(92) || chr(92) || chr(92) || chr(92) || '%';
+----
+true
+
+# ---- Test 16: Multiple rows with special chars ----
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":43,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM (VALUES (chr(34) || ''first''), (chr(34) || ''second'')) t(content)","format":"json"}}}')
+  LIKE '%' || chr(92) || chr(92) || chr(92) || chr(34) || 'first%' || chr(92) || chr(92) || chr(92) || chr(34) || 'second%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
