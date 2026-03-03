@@ -287,6 +287,8 @@ private:
 
 	// Apply pending registrations to server
 	void ApplyPendingRegistrations();
+	// Shared implementation: apply and clear pending registrations to a target server
+	void ApplyRegistrationsTo(MCPServer *target);
 };
 
 } // namespace duckdb

@@ -13,6 +13,7 @@
 #include "protocol/mcp_transport.hpp"
 #endif
 #include "duckdb/common/exception.hpp"
+#include <cinttypes>
 #include "duckdb_mcp_security.hpp"
 #include "json_utils.hpp"
 #include <ctime>
@@ -863,11 +864,21 @@ size_t MCPServerManager::GetPendingResourceCount() const {
 
 void MCPServerManager::ApplyPendingRegistrations() {
 	// Note: This is called from StartServer which already holds the lock
-
 	if (!server) {
 		return;
 	}
+	ApplyRegistrationsTo(server.get());
+}
 
+void MCPServerManager::ApplyPendingRegistrationsTo(MCPServer *external_server) {
+	lock_guard<mutex> lock(manager_mutex);
+	if (!external_server) {
+		return;
+	}
+	ApplyRegistrationsTo(external_server);
+}
+
+void MCPServerManager::ApplyRegistrationsTo(MCPServer *target) {
 	// Apply pending tool registrations
 	idx_t tool_failures = 0;
 	for (auto &reg : pending_tools) {
@@ -875,15 +886,15 @@ void MCPServerManager::ApplyPendingRegistrations() {
 			ToolInputSchema input_schema = ParseToolInputSchema(reg.properties_json, reg.required_json);
 			auto handler = make_shared_ptr<SQLToolHandler>(reg.name, reg.description, reg.sql_template, input_schema,
 			                                               *reg.db_instance, reg.format);
-			server->RegisterTool(reg.name, std::move(handler));
+			target->RegisterTool(reg.name, std::move(handler));
 		} catch (const std::exception &e) {
 			tool_failures++;
 			MCP_LOG_ERROR("SERVER", "Failed to register pending tool '%s': %s", reg.name.c_str(), e.what());
 		}
 	}
 	if (tool_failures > 0) {
-		MCP_LOG_WARN("SERVER", "%llu of %llu pending tool registration(s) failed",
-		             (unsigned long long)tool_failures, (unsigned long long)pending_tools.size());
+		MCP_LOG_WARN("SERVER", "%" PRIu64 " of %" PRIu64 " pending tool registration(s) failed",
+		             tool_failures, static_cast<uint64_t>(pending_tools.size()));
 	}
 	pending_tools.clear();
 
@@ -892,18 +903,15 @@ void MCPServerManager::ApplyPendingRegistrations() {
 	for (auto &reg : pending_resources) {
 		try {
 			if (reg.type == "table") {
-				// TableResourceProvider(table_name, format, db)
 				auto provider = make_shared_ptr<TableResourceProvider>(reg.source, reg.format, *reg.db_instance);
-				server->PublishResource(reg.uri, std::move(provider));
+				target->PublishResource(reg.uri, std::move(provider));
 			} else if (reg.type == "query") {
-				// QueryResourceProvider(query, format, db, refresh_interval_seconds)
 				auto provider =
 				    make_shared_ptr<QueryResourceProvider>(reg.source, reg.format, *reg.db_instance, reg.refresh_seconds);
-				server->PublishResource(reg.uri, std::move(provider));
+				target->PublishResource(reg.uri, std::move(provider));
 			} else if (reg.type == "resource") {
-				// StaticResourceProvider(content, mime_type, description)
 				auto provider = make_shared_ptr<StaticResourceProvider>(reg.source, reg.mime_type, reg.description);
-				server->PublishResource(reg.uri, std::move(provider));
+				target->PublishResource(reg.uri, std::move(provider));
 			}
 		} catch (const std::exception &e) {
 			resource_failures++;
@@ -911,61 +919,8 @@ void MCPServerManager::ApplyPendingRegistrations() {
 		}
 	}
 	if (resource_failures > 0) {
-		MCP_LOG_WARN("SERVER", "%llu of %llu pending resource registration(s) failed",
-		             (unsigned long long)resource_failures, (unsigned long long)pending_resources.size());
-	}
-	pending_resources.clear();
-}
-
-void MCPServerManager::ApplyPendingRegistrationsTo(MCPServer *external_server) {
-	lock_guard<mutex> lock(manager_mutex);
-
-	if (!external_server) {
-		return;
-	}
-
-	// Apply pending tool registrations to the external server
-	idx_t tool_failures = 0;
-	for (auto &reg : pending_tools) {
-		try {
-			ToolInputSchema input_schema = ParseToolInputSchema(reg.properties_json, reg.required_json);
-			auto handler = make_shared_ptr<SQLToolHandler>(reg.name, reg.description, reg.sql_template, input_schema,
-			                                               *reg.db_instance, reg.format);
-			external_server->RegisterTool(reg.name, std::move(handler));
-		} catch (const std::exception &e) {
-			tool_failures++;
-			MCP_LOG_ERROR("SERVER", "Failed to register pending tool '%s': %s", reg.name.c_str(), e.what());
-		}
-	}
-	if (tool_failures > 0) {
-		MCP_LOG_WARN("SERVER", "%llu of %llu pending tool registration(s) failed",
-		             (unsigned long long)tool_failures, (unsigned long long)pending_tools.size());
-	}
-	pending_tools.clear();
-
-	// Apply pending resource registrations to the external server
-	idx_t resource_failures = 0;
-	for (auto &reg : pending_resources) {
-		try {
-			if (reg.type == "table") {
-				auto provider = make_shared_ptr<TableResourceProvider>(reg.source, reg.format, *reg.db_instance);
-				external_server->PublishResource(reg.uri, std::move(provider));
-			} else if (reg.type == "query") {
-				auto provider =
-				    make_shared_ptr<QueryResourceProvider>(reg.source, reg.format, *reg.db_instance, reg.refresh_seconds);
-				external_server->PublishResource(reg.uri, std::move(provider));
-			} else if (reg.type == "resource") {
-				auto provider = make_shared_ptr<StaticResourceProvider>(reg.source, reg.mime_type, reg.description);
-				external_server->PublishResource(reg.uri, std::move(provider));
-			}
-		} catch (const std::exception &e) {
-			resource_failures++;
-			MCP_LOG_ERROR("SERVER", "Failed to register pending resource '%s': %s", reg.uri.c_str(), e.what());
-		}
-	}
-	if (resource_failures > 0) {
-		MCP_LOG_WARN("SERVER", "%llu of %llu pending resource registration(s) failed",
-		             (unsigned long long)resource_failures, (unsigned long long)pending_resources.size());
+		MCP_LOG_WARN("SERVER", "%" PRIu64 " of %" PRIu64 " pending resource registration(s) failed",
+		             resource_failures, static_cast<uint64_t>(pending_resources.size()));
 	}
 	pending_resources.clear();
 }
