@@ -1,0 +1,92 @@
+# name: test/sql/mcp_attach_nonstring_args.test
+# description: Test that non-string values in ARGS arrays and ENV objects are handled correctly
+# group: [sql]
+
+# Issue #41: Non-string JSON array items were silently dropped in config parsing.
+# This test verifies that integers, floats, and booleans in ARGS/ENV are
+# converted to their string representation, and that unsupported types
+# (null, nested objects, nested arrays) produce clear errors.
+
+require duckdb_mcp
+
+statement ok
+LOAD duckdb_mcp;
+
+# =============================================================================
+# SECTION 1: ARGS with non-string values should parse successfully
+# =============================================================================
+
+# Integer in ARGS array: ["--port", 8080] should keep 8080 as "8080"
+# The error proves parsing succeeded (MCP connection fails, not JSON parsing)
+statement error
+ATTACH '' AS int_args (TYPE mcp, COMMAND 'nonexistent_binary', ARGS '["--port", 8080]', TRANSPORT 'stdio');
+----
+MCP
+
+# Boolean in ARGS array: ["--verbose", true] should keep true as "true"
+statement error
+ATTACH '' AS bool_args (TYPE mcp, COMMAND 'nonexistent_binary', ARGS '["--verbose", true]', TRANSPORT 'stdio');
+----
+MCP
+
+# Float in ARGS array: ["--threshold", 0.5] should keep 0.5
+statement error
+ATTACH '' AS float_args (TYPE mcp, COMMAND 'nonexistent_binary', ARGS '["--threshold", 0.5]', TRANSPORT 'stdio');
+----
+MCP
+
+# Mixed types: strings, integers, booleans, and floats together
+statement error
+ATTACH '' AS mixed_args (TYPE mcp, COMMAND 'nonexistent_binary', ARGS '["--port", 8080, "--verbose", true, "--rate", 1.5]', TRANSPORT 'stdio');
+----
+MCP
+
+# =============================================================================
+# SECTION 2: ENV with non-string values should parse successfully
+# =============================================================================
+
+# Integer ENV value: {"PORT": 8080} should convert to PORT="8080"
+statement error
+ATTACH '' AS int_env (TYPE mcp, COMMAND 'nonexistent_binary', ENV '{"PORT": 8080}', TRANSPORT 'stdio');
+----
+MCP
+
+# Boolean ENV value: {"DEBUG": true} should convert to DEBUG="true"
+statement error
+ATTACH '' AS bool_env (TYPE mcp, COMMAND 'nonexistent_binary', ENV '{"DEBUG": true}', TRANSPORT 'stdio');
+----
+MCP
+
+# Mixed ENV types
+statement error
+ATTACH '' AS mixed_env (TYPE mcp, COMMAND 'nonexistent_binary', ENV '{"PORT": 8080, "DEBUG": true, "NAME": "test"}', TRANSPORT 'stdio');
+----
+MCP
+
+# =============================================================================
+# SECTION 3: Unsupported types should produce clear errors
+# =============================================================================
+
+# Null in ARGS array should error
+statement error
+ATTACH '' AS null_args (TYPE mcp, COMMAND 'nonexistent_binary', ARGS '["--flag", null]', TRANSPORT 'stdio');
+----
+Unsupported JSON value type in ARGS
+
+# Nested object in ARGS array should error
+statement error
+ATTACH '' AS obj_args (TYPE mcp, COMMAND 'nonexistent_binary', ARGS '["--config", {"key": "val"}]', TRANSPORT 'stdio');
+----
+Unsupported JSON value type in ARGS
+
+# Nested array in ARGS array should error
+statement error
+ATTACH '' AS arr_args (TYPE mcp, COMMAND 'nonexistent_binary', ARGS '["--list", [1, 2, 3]]', TRANSPORT 'stdio');
+----
+Unsupported JSON value type in ARGS
+
+# Null ENV value should error
+statement error
+ATTACH '' AS null_env (TYPE mcp, COMMAND 'nonexistent_binary', ENV '{"EMPTY": null}', TRANSPORT 'stdio');
+----
+Unsupported JSON value type in ENV
