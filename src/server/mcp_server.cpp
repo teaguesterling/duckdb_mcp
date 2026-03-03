@@ -149,16 +149,8 @@ bool MCPServer::Start() {
 		server_thread = make_uniq<std::thread>(&MCPServer::ServerLoop, this);
 		return true;
 	} else if (config.transport == "http" || config.transport == "https") {
-		// HTTP/HTTPS transport
-		auto http_config = MakeHTTPConfig();
-		http_server = make_uniq<HTTPServerTransport>(http_config);
-
-		if (!http_server->Start(MakeHTTPHandler())) {
-			running = false;
-			http_server.reset();
-			return false;
-		}
-		return true;
+		// HTTP/HTTPS transport (non-blocking background mode)
+		return StartHTTPServer(/*blocking=*/false);
 	}
 #endif // !__EMSCRIPTEN__
 	else {
@@ -303,16 +295,28 @@ bool MCPServer::RunHTTPLoop() {
 		throw InvalidInputException("Server must be started before calling RunHTTPLoop()");
 	}
 
+	// Blocking mode - runs in calling thread until Stop() is called
+	return StartHTTPServer(/*blocking=*/true);
+}
+
+bool MCPServer::StartHTTPServer(bool blocking) {
 	auto http_config = MakeHTTPConfig();
 	http_server = make_uniq<HTTPServerTransport>(http_config);
+	auto handler = MakeHTTPHandler();
 
-	// Run HTTP server in blocking mode (blocks until Stop() is called)
-	bool result = http_server->Run(MakeHTTPHandler());
-
-	// Clean up
-	http_server.reset();
-	running = false;
-
+	bool result;
+	if (blocking) {
+		result = http_server->Run(handler);
+		// Blocking call returned - clean up
+		http_server.reset();
+		running = false;
+	} else {
+		result = http_server->Start(handler);
+		if (!result) {
+			running = false;
+			http_server.reset();
+		}
+	}
 	return result;
 }
 

@@ -196,6 +196,10 @@ private:
 	void ServerLoop();
 	HTTPServerConfig MakeHTTPConfig() const;
 	HTTPServerTransport::RequestHandler MakeHTTPHandler();
+	//! Shared HTTP server setup: creates HTTPServerTransport and starts it
+	//! @param blocking If true, runs in calling thread (Run); if false, spawns background thread (Start)
+	//! @return true if server started successfully
+	bool StartHTTPServer(bool blocking);
 #endif
 	void HandleConnection(unique_ptr<MCPTransport> transport);
 	MCPMessage HandleRequest(const MCPMessage &request);
