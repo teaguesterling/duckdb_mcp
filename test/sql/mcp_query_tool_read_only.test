@@ -1,0 +1,235 @@
+# name: test/sql/mcp_query_tool_read_only.test
+# description: Test that query, export, and describe tools enforce read-only semantics
+# group: [sql]
+
+# Load the MCP extension
+require duckdb_mcp
+
+statement ok
+LOAD duckdb_mcp;
+
+# =============================================================================
+# SETUP
+# =============================================================================
+
+statement ok
+SELECT mcp_server_stop(true);
+
+statement ok
+CREATE TABLE readonly_test AS SELECT 1 as id, 'data' as value;
+
+# =============================================================================
+# DEFAULT CONFIG: Query tool should enforce read-only without any allowlist
+# =============================================================================
+# This is the core bug: with no allowlist/denylist configured (the default),
+# the query tool allows DDL and DML operations.
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# SELECT should work (read-only)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM readonly_test"}}}') LIKE '%data%';
+----
+true
+
+# EXPLAIN should work (read-only)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"query","arguments":{"sql":"EXPLAIN SELECT * FROM readonly_test"}}}') NOT LIKE '%error%';
+----
+true
+
+# CREATE TABLE should be BLOCKED (DDL)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"query","arguments":{"sql":"CREATE TABLE should_not_exist AS SELECT 1"}}}') LIKE '%read-only%';
+----
+true
+
+# Verify table was NOT created
+statement error
+SELECT * FROM should_not_exist;
+----
+does not exist
+
+# INSERT should be BLOCKED (DML)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"query","arguments":{"sql":"INSERT INTO readonly_test VALUES (2, ''injected'')"}}}') LIKE '%read-only%';
+----
+true
+
+# Verify no rows were inserted
+query I
+SELECT COUNT(*) FROM readonly_test;
+----
+1
+
+# UPDATE should be BLOCKED (DML)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"query","arguments":{"sql":"UPDATE readonly_test SET value = ''hacked''"}}}') LIKE '%read-only%';
+----
+true
+
+# Verify data unchanged
+query I
+SELECT value FROM readonly_test;
+----
+data
+
+# DELETE should be BLOCKED (DML)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"query","arguments":{"sql":"DELETE FROM readonly_test"}}}') LIKE '%read-only%';
+----
+true
+
+# Verify data still exists
+query I
+SELECT COUNT(*) FROM readonly_test;
+----
+1
+
+# DROP TABLE should be BLOCKED (DDL)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"query","arguments":{"sql":"DROP TABLE readonly_test"}}}') LIKE '%read-only%';
+----
+true
+
+# Verify table still exists
+query I
+SELECT COUNT(*) FROM readonly_test;
+----
+1
+
+# ALTER TABLE should be BLOCKED (DDL)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"query","arguments":{"sql":"ALTER TABLE readonly_test ADD COLUMN extra INTEGER"}}}') LIKE '%read-only%';
+----
+true
+
+# COPY should be BLOCKED
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"query","arguments":{"sql":"COPY readonly_test TO ''/tmp/exfil.csv''"}}}') LIKE '%read-only%';
+----
+true
+
+# ATTACH should be BLOCKED
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"query","arguments":{"sql":"ATTACH '':memory:'' AS sneaky"}}}') LIKE '%read-only%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# EXPORT TOOL: Should also enforce read-only on the query parameter
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# Normal SELECT via export should work
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT * FROM readonly_test","format":"csv"}}}') LIKE '%data%';
+----
+true
+
+# CREATE TABLE via export should be BLOCKED
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"export","arguments":{"query":"CREATE TABLE export_bypass AS SELECT 1","format":"csv"}}}') LIKE '%read-only%';
+----
+true
+
+# Verify table was NOT created
+statement error
+SELECT * FROM export_bypass;
+----
+does not exist
+
+# INSERT via export should be BLOCKED
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"export","arguments":{"query":"INSERT INTO readonly_test VALUES (99, ''export_inject'')","format":"csv"}}}') LIKE '%read-only%';
+----
+true
+
+# Verify no rows were inserted
+query I
+SELECT COUNT(*) FROM readonly_test;
+----
+1
+
+# DROP TABLE via export should be BLOCKED
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":23,"method":"tools/call","params":{"name":"export","arguments":{"query":"DROP TABLE readonly_test","format":"csv"}}}') LIKE '%read-only%';
+----
+true
+
+# Verify table still exists
+query I
+SELECT COUNT(*) FROM readonly_test;
+----
+1
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# DESCRIBE TOOL: query parameter should enforce read-only
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# Describe with SELECT query should work
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"describe","arguments":{"query":"SELECT * FROM readonly_test"}}}') LIKE '%id%';
+----
+true
+
+# Describe with DDL query should be BLOCKED
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":31,"method":"tools/call","params":{"name":"describe","arguments":{"query":"DROP TABLE readonly_test"}}}') LIKE '%read-only%';
+----
+true
+
+# Verify table still exists
+query I
+SELECT COUNT(*) FROM readonly_test;
+----
+1
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# ALLOWLIST + READ-ONLY: Both checks should apply
+# =============================================================================
+# Even with SELECT in the allowlist, non-read-only statements should still
+# be blocked by the read-only enforcement.
+
+statement ok
+SELECT mcp_server_start('memory', '{"allowed_queries": ["SELECT"]}');
+
+# SELECT should work (passes both read-only and allowlist)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":40,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM readonly_test"}}}') LIKE '%data%';
+----
+true
+
+# DDL should be blocked even if not in allowlist
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":41,"method":"tools/call","params":{"name":"query","arguments":{"sql":"CREATE TABLE blocked_by_both AS SELECT 1"}}}') NOT LIKE '%success%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# Cleanup
+# =============================================================================
+
+statement ok
+DROP TABLE IF EXISTS readonly_test;
+
+statement ok
+SELECT mcp_server_stop(true);

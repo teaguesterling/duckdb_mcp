@@ -54,7 +54,7 @@ static string EscapeSQLString(const string &input) {
 // Shared Query Type Checking
 //===--------------------------------------------------------------------===//
 
-bool IsQueryAllowedByType(DatabaseInstance &db, const string &query,
+bool IsQueryAllowedByType(StatementType type,
                           const vector<string> &allowed_types,
                           const vector<string> &denied_types) {
 	// If no restrictions configured, allow everything
@@ -62,14 +62,7 @@ bool IsQueryAllowedByType(DatabaseInstance &db, const string &query,
 		return true;
 	}
 
-	// Parse the query to get its statement type
-	Connection conn(db);
-	auto prepared = conn.Prepare(query);
-	if (prepared->HasError()) {
-		return false; // Fail closed: unparseable queries are denied
-	}
-
-	string type_name = StringUtil::Upper(StatementTypeToString(prepared->GetStatementType()));
+	string type_name = StringUtil::Upper(StatementTypeToString(type));
 
 	// Check denylist first (exact type match)
 	for (const auto &denied : denied_types) {
@@ -89,6 +82,34 @@ bool IsQueryAllowedByType(DatabaseInstance &db, const string &query,
 	}
 
 	return true; // No allowlist restriction, and not in denylist
+}
+
+bool IsQueryAllowedByType(DatabaseInstance &db, const string &query,
+                          const vector<string> &allowed_types,
+                          const vector<string> &denied_types) {
+	// If no restrictions configured, allow everything
+	if (allowed_types.empty() && denied_types.empty()) {
+		return true;
+	}
+
+	// Parse the query to get its statement type
+	Connection conn(db);
+	auto prepared = conn.Prepare(query);
+	if (prepared->HasError()) {
+		return false; // Fail closed: unparseable queries are denied
+	}
+
+	return IsQueryAllowedByType(prepared->GetStatementType(), allowed_types, denied_types);
+}
+
+bool IsReadOnlyStatementType(StatementType type) {
+	switch (type) {
+	case StatementType::SELECT_STATEMENT:
+	case StatementType::EXPLAIN_STATEMENT:
+		return true;
+	default:
+		return false;
+	}
 }
 
 //===--------------------------------------------------------------------===//
@@ -228,14 +249,28 @@ CallToolResult QueryToolHandler::Execute(const Value &arguments) {
 			return CallToolResult::Error("Unsupported format '" + format + "'. Supported formats: json, markdown, csv");
 		}
 
-		// Security check: parse query and validate statement type
-		if (!IsQueryAllowedByType(db_instance, sql, allowed_queries, denied_queries)) {
+		// Enforce read-only: parse the statement and validate its type
+		Connection conn(db_instance);
+		auto prepared = conn.Prepare(sql);
+		if (prepared->HasError()) {
+			return CallToolResult::Error("SQL error: " + prepared->GetError());
+		}
+
+		StatementType stmt_type = prepared->GetStatementType();
+
+		if (!IsReadOnlyStatementType(stmt_type)) {
+			string type_name = StatementTypeToString(stmt_type);
+			return CallToolResult::Error("Query tool only allows read-only statements (got " + type_name +
+			                             "). Use the execute tool for DDL/DML operations.");
+		}
+
+		// Additional security check: validate against allowlist/denylist
+		if (!IsQueryAllowedByType(stmt_type, allowed_queries, denied_queries)) {
 			return CallToolResult::Error("Query not allowed by security policy");
 		}
 
-		// Execute query
-		Connection conn(db_instance);
-		auto result = conn.Query(sql);
+		// Execute the validated read-only query
+		auto result = prepared->Execute();
 
 		if (result->HasError()) {
 			return CallToolResult::Error("SQL error: " + result->GetError());
@@ -354,14 +389,28 @@ Value DescribeToolHandler::DescribeTable(const string &table_name) const {
 }
 
 Value DescribeToolHandler::DescribeQuery(const string &query) const {
-	// Security check: parse query and validate statement type
-	if (!IsQueryAllowedByType(db_instance, query, allowed_queries, denied_queries)) {
+	// Enforce read-only: parse the statement and validate its type
+	Connection conn(db_instance);
+	auto prepared = conn.Prepare(query);
+	if (prepared->HasError()) {
+		throw IOException("Failed to parse query: " + prepared->GetError());
+	}
+
+	StatementType stmt_type = prepared->GetStatementType();
+
+	if (!IsReadOnlyStatementType(stmt_type)) {
+		string type_name = StatementTypeToString(stmt_type);
+		throw InvalidInputException("Describe tool only allows read-only statements (got " + type_name +
+		                            "). Use the execute tool for DDL/DML operations.");
+	}
+
+	// Additional security check: validate against allowlist/denylist
+	if (!IsQueryAllowedByType(stmt_type, allowed_queries, denied_queries)) {
 		throw InvalidInputException("Query not allowed by security policy");
 	}
 
 	// Use DESCRIBE with subquery syntax - wrap query in parentheses
 	string describe_query = "DESCRIBE (" + query + ")";
-	Connection conn(db_instance);
 	auto describe_result = conn.Query(describe_query);
 
 	if (describe_result->HasError()) {
@@ -437,17 +486,31 @@ CallToolResult ExportToolHandler::Execute(const Value &arguments) {
 			}
 		}
 
-		// Security check: parse query and validate statement type
-		if (!IsQueryAllowedByType(db_instance, query, allowed_queries, denied_queries)) {
+		// Enforce read-only: parse the statement and validate its type
+		Connection conn(db_instance);
+		auto prepared = conn.Prepare(query);
+		if (prepared->HasError()) {
+			return CallToolResult::Error("Query error: " + prepared->GetError());
+		}
+
+		StatementType stmt_type = prepared->GetStatementType();
+
+		if (!IsReadOnlyStatementType(stmt_type)) {
+			string type_name = StatementTypeToString(stmt_type);
+			return CallToolResult::Error("Export tool only allows read-only statements (got " + type_name +
+			                             "). Use the execute tool for DDL/DML operations.");
+		}
+
+		// Additional security check: validate against allowlist/denylist
+		if (!IsQueryAllowedByType(stmt_type, allowed_queries, denied_queries)) {
 			return CallToolResult::Error("Query not allowed by security policy");
 		}
 
-		// Execute query
+		// Execute the validated read-only query
 		// TODO(#28/CR-16): When output_path is non-empty, this query runs twice —
 		// once here for validation and again in ExportToFile via COPY. Consider
 		// skipping this initial query for file exports and letting COPY handle errors.
-		Connection conn(db_instance);
-		auto result = conn.Query(query);
+		auto result = prepared->Execute();
 
 		if (result->HasError()) {
 			return CallToolResult::Error("Query error: " + result->GetError());

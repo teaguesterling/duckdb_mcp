@@ -64,6 +64,24 @@ SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":6,"method":"initialize","p
 ----
 true
 
+# capabilities must NOT contain prompts (server doesn't advertise it)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":7,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}') NOT LIKE '%"prompts"%';
+----
+true
+
+# capabilities must NOT contain sampling (server doesn't advertise it)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":8,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}') NOT LIKE '%"sampling"%';
+----
+true
+
+# capabilities must be a nested object inside result (parseable structure)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":9,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}') LIKE '%"capabilities":{"resources":{%';
+----
+true
+
 # =============================================================================
 # SECTION 1b: Notifications (no response expected per JSON-RPC 2.0 spec)
 # =============================================================================

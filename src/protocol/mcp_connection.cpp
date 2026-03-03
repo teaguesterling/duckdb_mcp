@@ -272,54 +272,57 @@ bool MCPConnection::WaitForInitialized() {
 }
 
 void MCPConnection::ParseCapabilities(const Value &server_info) {
-	// Reset to defaults
-	capabilities = MCPCapabilities();
+	// Reset to defaults (nothing supported)
+	capabilities.supports_resources = false;
+	capabilities.supports_tools = false;
+	capabilities.supports_prompts = false;
+	capabilities.supports_sampling = false;
 
 	if (server_info.IsNull()) {
 		return;
 	}
 
-	// The result is stored as a JSON VARCHAR string from MCPMessage::FromJSON
+	// response.result is stored as a VARCHAR JSON string by MCPMessage::FromJSON
 	string json_str = server_info.ToString();
 	if (json_str.empty()) {
 		return;
 	}
 
-	yyjson_doc *doc = yyjson_read(json_str.c_str(), json_str.length(), 0);
-	if (!doc) {
+	yyjson_doc *doc = nullptr;
+	try {
+		doc = JSONUtils::Parse(json_str);
+	} catch (const Exception &e) {
+		SetError("Failed to parse server capabilities: " + string(e.what()));
 		return;
 	}
 
-	yyjson_val *root = yyjson_doc_get_root(doc);
-	if (!root || !yyjson_is_obj(root)) {
-		yyjson_doc_free(doc);
-		return;
-	}
+	// RAII guard so doc is freed on any exit path
+	struct DocGuard {
+		yyjson_doc *d;
+		~DocGuard() { JSONUtils::FreeDocument(d); }
+	} guard{doc};
 
-	// The initialize response has: { protocolVersion, serverInfo, capabilities }
-	yyjson_val *caps = yyjson_obj_get(root, "capabilities");
-	if (caps && yyjson_is_obj(caps)) {
-		// Presence of a capability key means the server supports it
-		if (yyjson_obj_get(caps, "resources")) {
-			capabilities.supports_resources = true;
-		}
-		if (yyjson_obj_get(caps, "tools")) {
-			capabilities.supports_tools = true;
-		}
-		if (yyjson_obj_get(caps, "prompts")) {
-			capabilities.supports_prompts = true;
-		}
-		if (yyjson_obj_get(caps, "sampling")) {
-			capabilities.supports_sampling = true;
-		}
-	}
+	auto *root = yyjson_doc_get_root(doc);
 
-	yyjson_doc_free(doc);
+	// Per MCP spec, a capability key present as an object means it's supported
+	auto *caps = JSONUtils::GetObject(root, "capabilities");
+	if (caps) {
+		capabilities.supports_resources = JSONUtils::GetObject(caps, "resources") != nullptr;
+		capabilities.supports_tools = JSONUtils::GetObject(caps, "tools") != nullptr;
+		capabilities.supports_prompts = JSONUtils::GetObject(caps, "prompts") != nullptr;
+		capabilities.supports_sampling = JSONUtils::GetObject(caps, "sampling") != nullptr;
+	}
 }
 
 void MCPConnection::SetError(const string &error, bool recoverable) {
+	lock_guard<mutex> lock(error_mutex);
 	last_error = error;
 	is_recoverable_error = recoverable;
+}
+
+string MCPConnection::GetLastError() const {
+	lock_guard<mutex> lock(error_mutex);
+	return last_error;
 }
 
 void MCPConnection::HandleTransportError(const string &operation) {
@@ -332,6 +335,7 @@ bool MCPConnection::HasRecoverableError() const {
 }
 
 void MCPConnection::ClearError() {
+	lock_guard<mutex> lock(error_mutex);
 	last_error.clear();
 	is_recoverable_error = false;
 }
