@@ -1,9 +1,9 @@
 [commands.build]
 cmd = "make -j 2"
-description = ""
-format = "make_error"
+description = "Build the extension (time consuming, don't use timeoutes)"
+format = "gcc_error,make_error,cmake_log"
 
 [commands.test]
 cmd = "make test"
-description = ""
-format = "make_error"
+description = "Run tests"
+format = "duckdb_tests"
