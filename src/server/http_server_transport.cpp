@@ -10,15 +10,41 @@
 namespace duckdb {
 
 // Constant-time string comparison to prevent timing attacks on auth tokens.
-// Always iterates the full max length regardless of where a mismatch occurs,
-// preventing both content and length leaks via timing.
+//
+// Uses a fixed-size comparison buffer so the iteration count is independent
+// of both input lengths.  Earlier versions iterated max(a,b) times which
+// still let an attacker probe for the expected token length by sending
+// increasingly long inputs and observing the timing transition.
+//
+// 256 bytes is sufficient for "Bearer " (7 bytes) + any reasonable token.
 static bool ConstantTimeEquals(const string &a, const string &b) {
-	size_t max_len = std::max(a.size(), b.size());
+	static constexpr size_t kCompareSize = 256;
+
+	// Strings longer than the buffer cannot be valid tokens;
+	// return false without constant-time guarantees since the
+	// attacker already knows their own input length.
+	if (a.size() > kCompareSize || b.size() > kCompareSize) {
+		return false;
+	}
+
+	// Copy into fixed-size volatile buffers so the compiler cannot
+	// reason about their contents or eliminate the comparison loop.
+	// Byte-by-byte copy is required because memcpy cannot target volatile.
+	volatile unsigned char buf_a[kCompareSize] = {};
+	volatile unsigned char buf_b[kCompareSize] = {};
+	for (size_t i = 0; i < a.size(); i++) {
+		buf_a[i] = static_cast<unsigned char>(a[i]);
+	}
+	for (size_t i = 0; i < b.size(); i++) {
+		buf_b[i] = static_cast<unsigned char>(b[i]);
+	}
+
+	// Length mismatch feeds into the result but does not short-circuit.
 	volatile unsigned char result = (a.size() != b.size()) ? 1 : 0;
-	for (size_t i = 0; i < max_len; i++) {
-		unsigned char ca = (i < a.size()) ? static_cast<unsigned char>(a[i]) : 0;
-		unsigned char cb = (i < b.size()) ? static_cast<unsigned char>(b[i]) : 0;
-		result |= ca ^ cb;
+
+	// Fixed iteration count -- no timing correlation with either string.
+	for (size_t i = 0; i < kCompareSize; i++) {
+		result |= buf_a[i] ^ buf_b[i];
 	}
 	return result == 0;
 }
