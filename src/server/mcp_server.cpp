@@ -340,7 +340,8 @@ HTTPServerTransport::RequestHandler MCPServer::MakeHTTPHandler() {
 			MCPMessage request = MCPMessage::FromJSON(request_json);
 			MCPMessage response = ProcessRequest(request);
 			return response.ToJSON();
-		} catch (const std::exception &) {
+		} catch (const std::exception &e) {
+			MCP_LOG_ERROR("HTTP", "Failed to process request: %s", e.what());
 			return R"({"jsonrpc":"2.0","error":{"code":-32700,"message":"Parse error"},"id":null})";
 		}
 	};

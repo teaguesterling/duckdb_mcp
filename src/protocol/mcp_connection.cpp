@@ -309,6 +309,9 @@ void MCPConnection::ParseCapabilities(const Value &server_info) {
 		if (yyjson_obj_get(caps, "prompts")) {
 			capabilities.supports_prompts = true;
 		}
+		if (yyjson_obj_get(caps, "sampling")) {
+			capabilities.supports_sampling = true;
+		}
 	}
 
 	yyjson_doc_free(doc);
