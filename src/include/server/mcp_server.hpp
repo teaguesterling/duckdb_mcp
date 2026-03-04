@@ -243,14 +243,11 @@ struct PendingResourceRegistration {
 	DatabaseInstance *db_instance;
 };
 
-// Global server instance management
-// TODO(#28/CR-17): Singleton architecture (MCPSecurityConfig, MCPServerManager,
-// MCPConfigManager, MCPLogger, MCPTemplateManager) shares state across database
-// instances. Consider moving to per-instance state via DuckDB's DatabaseInstance
-// extension data if multi-database support is needed.
+// Per-instance server management
 class MCPServerManager {
 public:
-	static MCPServerManager &GetInstance();
+	MCPServerManager() = default;
+	~MCPServerManager();
 
 	bool StartServer(const MCPServerConfig &config);
 	void StopServer();

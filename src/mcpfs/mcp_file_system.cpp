@@ -1,4 +1,5 @@
 #include "mcpfs/mcp_file_system.hpp"
+#include "mcp_instance_state.hpp"
 #include "protocol/mcp_connection.hpp"
 #include "client/mcp_storage_extension.hpp"
 #include "duckdb/common/exception.hpp"
@@ -109,7 +110,7 @@ void MCPFileHandle::LoadResourceContent() {
 
 // MCPFileSystem implementation
 
-MCPFileSystem::MCPFileSystem() {
+MCPFileSystem::MCPFileSystem(DatabaseInstance &db) : db_instance(db) {
 }
 
 unique_ptr<FileHandle> MCPFileSystem::OpenFile(const string &path, FileOpenFlags flags,
@@ -325,8 +326,8 @@ bool MCPFileSystem::CanHandleFile(const string &fpath) {
 }
 
 shared_ptr<MCPConnection> MCPFileSystem::GetConnection(const string &server_name) {
-	// Get connection from the global registry
-	auto connection = MCPConnectionRegistry::GetInstance().GetConnection(server_name);
+	// Get connection from the per-instance registry
+	auto connection = MCPInstanceState::Get(db_instance).connection_registry.GetConnection(server_name);
 	if (!connection) {
 		throw IOException("No MCP connection found in registry for server: '" + server_name + "'");
 	}

@@ -14,6 +14,7 @@
 #endif
 #include "duckdb/common/exception.hpp"
 #include "duckdb_mcp_security.hpp"
+#include "mcp_instance_state.hpp"
 #include "json_utils.hpp"
 #include <ctime>
 
@@ -111,8 +112,7 @@ bool MCPServer::Start() {
 	}
 
 	// Check if serving is disabled
-	auto &security = MCPSecurityConfig::GetInstance();
-	if (security.IsServingDisabled()) {
+	if (MCPInstanceState::Get(*config.db_instance).security.IsServingDisabled()) {
 		return false; // Server functionality is disabled
 	}
 
@@ -178,8 +178,7 @@ bool MCPServer::StartForeground() {
 	}
 
 	// Check if serving is disabled
-	auto &security = MCPSecurityConfig::GetInstance();
-	if (security.IsServingDisabled()) {
+	if (MCPInstanceState::Get(*config.db_instance).security.IsServingDisabled()) {
 		return false; // Server functionality is disabled
 	}
 
@@ -789,9 +788,8 @@ MCPMessage MCPServer::CreateErrorResponse(const Value &id, int code, const strin
 // MCPServerManager Implementation
 //===--------------------------------------------------------------------===//
 
-MCPServerManager &MCPServerManager::GetInstance() {
-	static MCPServerManager instance;
-	return instance;
+MCPServerManager::~MCPServerManager() {
+	StopServer();
 }
 
 bool MCPServerManager::StartServer(const MCPServerConfig &config) {

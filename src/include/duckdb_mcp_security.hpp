@@ -14,11 +14,6 @@ namespace duckdb {
 //! Manages security settings for MCP server connections
 class MCPSecurityConfig {
 public:
-	static MCPSecurityConfig &GetInstance() {
-		static MCPSecurityConfig instance;
-		return instance;
-	}
-
 	//! Set allowed MCP command paths (colon-delimited)
 	void SetAllowedCommands(const string &commands);
 
@@ -70,10 +65,11 @@ public:
 	//! Validate ATTACH parameters for security
 	void ValidateAttachSecurity(const string &command, const vector<string> &args) const;
 
-private:
 	MCPSecurityConfig()
 	    : servers_locked(false), commands_locked(false), serving_disabled(false), server_file("./.mcp.json") {
 	}
+
+private:
 
 	mutable mutex config_mutex;
 	vector<string> allowed_commands;
@@ -120,10 +116,10 @@ struct MCPConnectionParams {
 };
 
 //! Parse structured ATTACH parameters from AttachInfo
-MCPConnectionParams ParseMCPAttachParams(const class AttachInfo &info);
+MCPConnectionParams ParseMCPAttachParams(DatabaseInstance &db, const class AttachInfo &info);
 
 //! Parse .mcp.json configuration file and extract server parameters
-MCPConnectionParams ParseMCPConfigFile(const string &config_file_path, const string &server_name);
+MCPConnectionParams ParseMCPConfigFile(DatabaseInstance &db, const string &config_file_path, const string &server_name);
 
 #endif // !__EMSCRIPTEN__
 
