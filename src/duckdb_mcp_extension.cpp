@@ -50,6 +50,7 @@ static void MCPGetResourceFunction(DataChunk &args, ExpressionState &state, Vect
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	auto result_data = FlatVector::GetData<string_t>(result);
 	auto &result_validity = FlatVector::Validity(result);
+	auto &registry = MCPInstanceState::Get(state.GetContext()).connection_registry;
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		if (server_vector.GetValue(i).IsNull() || resource_vector.GetValue(i).IsNull()) {
@@ -62,7 +63,7 @@ static void MCPGetResourceFunction(DataChunk &args, ExpressionState &state, Vect
 
 		try {
 			// Get connection from registry
-			auto connection = MCPInstanceState::Get(state.GetContext()).connection_registry.GetConnection(server_name);
+			auto connection = registry.GetConnection(server_name);
 			if (!connection) {
 				throw InvalidInputException("MCP server not attached: " + server_name);
 			}
@@ -98,6 +99,7 @@ static void MCPListResourcesFunction(DataChunk &args, ExpressionState &state, Ve
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	auto result_data = FlatVector::GetData<string_t>(result);
 	auto &result_validity = FlatVector::Validity(result);
+	auto &registry = MCPInstanceState::Get(state.GetContext()).connection_registry;
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		if (server_vector.GetValue(i).IsNull()) {
@@ -109,7 +111,7 @@ static void MCPListResourcesFunction(DataChunk &args, ExpressionState &state, Ve
 
 		try {
 			// Get connection from registry
-			auto connection = MCPInstanceState::Get(state.GetContext()).connection_registry.GetConnection(server_name);
+			auto connection = registry.GetConnection(server_name);
 			if (!connection) {
 				throw InvalidInputException("MCP server not attached: " + server_name);
 			}
@@ -146,6 +148,7 @@ static void MCPCallToolFunction(DataChunk &args, ExpressionState &state, Vector 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	auto result_data = FlatVector::GetData<string_t>(result);
 	auto &result_validity = FlatVector::Validity(result);
+	auto &registry = MCPInstanceState::Get(state.GetContext()).connection_registry;
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		if (server_vector.GetValue(i).IsNull() || tool_vector.GetValue(i).IsNull()) {
@@ -159,7 +162,7 @@ static void MCPCallToolFunction(DataChunk &args, ExpressionState &state, Vector 
 
 		try {
 			// Get connection from registry
-			auto connection = MCPInstanceState::Get(state.GetContext()).connection_registry.GetConnection(server_name);
+			auto connection = registry.GetConnection(server_name);
 			if (!connection) {
 				throw InvalidInputException("MCP server not attached: " + server_name);
 			}
@@ -201,6 +204,7 @@ static void MCPListToolsFunction(DataChunk &args, ExpressionState &state, Vector
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	auto result_data = FlatVector::GetData<string_t>(result);
 	auto &result_validity = FlatVector::Validity(result);
+	auto &registry = MCPInstanceState::Get(state.GetContext()).connection_registry;
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		if (server_vector.GetValue(i).IsNull()) {
@@ -212,7 +216,7 @@ static void MCPListToolsFunction(DataChunk &args, ExpressionState &state, Vector
 
 		try {
 			// Get connection from registry
-			auto connection = MCPInstanceState::Get(state.GetContext()).connection_registry.GetConnection(server_name);
+			auto connection = registry.GetConnection(server_name);
 			if (!connection) {
 				throw InvalidInputException("MCP server not attached: " + server_name);
 			}
@@ -247,6 +251,7 @@ static void MCPListPromptsFunction(DataChunk &args, ExpressionState &state, Vect
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	auto result_data = FlatVector::GetData<string_t>(result);
 	auto &result_validity = FlatVector::Validity(result);
+	auto &registry = MCPInstanceState::Get(state.GetContext()).connection_registry;
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		if (server_vector.GetValue(i).IsNull()) {
@@ -258,7 +263,7 @@ static void MCPListPromptsFunction(DataChunk &args, ExpressionState &state, Vect
 
 		try {
 			// Get connection from registry
-			auto connection = MCPInstanceState::Get(state.GetContext()).connection_registry.GetConnection(server_name);
+			auto connection = registry.GetConnection(server_name);
 			if (!connection) {
 				throw InvalidInputException("MCP server not attached: " + server_name);
 			}
@@ -295,6 +300,7 @@ static void MCPGetPromptFunction(DataChunk &args, ExpressionState &state, Vector
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	auto result_data = FlatVector::GetData<string_t>(result);
 	auto &result_validity = FlatVector::Validity(result);
+	auto &registry = MCPInstanceState::Get(state.GetContext()).connection_registry;
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		if (server_vector.GetValue(i).IsNull() || prompt_vector.GetValue(i).IsNull()) {
@@ -308,7 +314,7 @@ static void MCPGetPromptFunction(DataChunk &args, ExpressionState &state, Vector
 
 		try {
 			// Get connection from registry
-			auto connection = MCPInstanceState::Get(state.GetContext()).connection_registry.GetConnection(server_name);
+			auto connection = registry.GetConnection(server_name);
 			if (!connection) {
 				throw InvalidInputException("MCP server not attached: " + server_name);
 			}
@@ -349,6 +355,7 @@ static void MCPReconnectServerFunction(DataChunk &args, ExpressionState &state, 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	auto result_data = FlatVector::GetData<string_t>(result);
 	auto &result_validity = FlatVector::Validity(result);
+	auto &registry = MCPInstanceState::Get(state.GetContext()).connection_registry;
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		if (server_vector.GetValue(i).IsNull()) {
@@ -360,7 +367,7 @@ static void MCPReconnectServerFunction(DataChunk &args, ExpressionState &state, 
 
 		try {
 			// Get connection from registry
-			auto connection = MCPInstanceState::Get(state.GetContext()).connection_registry.GetConnection(server_name);
+			auto connection = registry.GetConnection(server_name);
 			if (!connection) {
 				result_data[i] = StringVector::AddString(result, "ERROR: MCP server not found: " + server_name);
 				continue;
@@ -401,6 +408,7 @@ static void MCPServerHealthFunction(DataChunk &args, ExpressionState &state, Vec
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	auto result_data = FlatVector::GetData<string_t>(result);
 	auto &result_validity = FlatVector::Validity(result);
+	auto &registry = MCPInstanceState::Get(state.GetContext()).connection_registry;
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		if (server_vector.GetValue(i).IsNull()) {
@@ -412,7 +420,7 @@ static void MCPServerHealthFunction(DataChunk &args, ExpressionState &state, Vec
 
 		try {
 			// Get connection from registry
-			auto connection = MCPInstanceState::Get(state.GetContext()).connection_registry.GetConnection(server_name);
+			auto connection = registry.GetConnection(server_name);
 			if (!connection) {
 				result_data[i] = StringVector::AddString(result, "ERROR: MCP server not found: " + server_name);
 				continue;
@@ -865,10 +873,10 @@ static void MCPServerStopForceFunction(DataChunk &args, ExpressionState &state, 
 
 // Get MCP server status
 static void MCPServerStatusFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	auto &server_manager = MCPInstanceState::Get(state.GetContext()).server_manager;
+
 	for (idx_t i = 0; i < args.size(); i++) {
 		try {
-			auto &server_manager = MCPInstanceState::Get(state.GetContext()).server_manager;
-
 			if (!server_manager.IsServerRunning()) {
 				result.SetValue(i, CreateMCPStatus(true, false, "Server is stopped"));
 				continue;
@@ -950,11 +958,11 @@ static void MCPServerSendRequestFunction(DataChunk &args, ExpressionState &state
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	auto result_data = FlatVector::GetData<string_t>(result);
+	auto &server_manager = MCPInstanceState::Get(state.GetContext()).server_manager;
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		try {
 			// Check if a server is running
-			auto &server_manager = MCPInstanceState::Get(state.GetContext()).server_manager;
 			if (!server_manager.IsServerRunning()) {
 				result_data[i] = StringVector::AddString(
 				    result,
@@ -1410,6 +1418,7 @@ static void MCPListResourcesWithCursorFunction(DataChunk &args, ExpressionState 
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	auto result_data = FlatVector::GetData<string_t>(result);
+	auto &registry = MCPInstanceState::Get(state.GetContext()).connection_registry;
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		if (server_vector.GetValue(i).IsNull()) {
@@ -1421,7 +1430,7 @@ static void MCPListResourcesWithCursorFunction(DataChunk &args, ExpressionState 
 		string cursor = cursor_vector.GetValue(i).IsNull() ? "" : cursor_vector.GetValue(i).ToString();
 
 		try {
-			auto connection = MCPInstanceState::Get(state.GetContext()).connection_registry.GetConnection(server_name);
+			auto connection = registry.GetConnection(server_name);
 			if (!connection) {
 				throw InvalidInputException("MCP server not attached: " + server_name);
 			}
@@ -1454,6 +1463,7 @@ static void MCPListToolsWithCursorFunction(DataChunk &args, ExpressionState &sta
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	auto result_data = FlatVector::GetData<string_t>(result);
+	auto &registry = MCPInstanceState::Get(state.GetContext()).connection_registry;
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		if (server_vector.GetValue(i).IsNull()) {
@@ -1465,7 +1475,7 @@ static void MCPListToolsWithCursorFunction(DataChunk &args, ExpressionState &sta
 		string cursor = cursor_vector.GetValue(i).IsNull() ? "" : cursor_vector.GetValue(i).ToString();
 
 		try {
-			auto connection = MCPInstanceState::Get(state.GetContext()).connection_registry.GetConnection(server_name);
+			auto connection = registry.GetConnection(server_name);
 			if (!connection) {
 				throw InvalidInputException("MCP server not attached: " + server_name);
 			}
@@ -1498,6 +1508,7 @@ static void MCPListPromptsWithCursorFunction(DataChunk &args, ExpressionState &s
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	auto result_data = FlatVector::GetData<string_t>(result);
+	auto &registry = MCPInstanceState::Get(state.GetContext()).connection_registry;
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		if (server_vector.GetValue(i).IsNull()) {
@@ -1509,7 +1520,7 @@ static void MCPListPromptsWithCursorFunction(DataChunk &args, ExpressionState &s
 		string cursor = cursor_vector.GetValue(i).IsNull() ? "" : cursor_vector.GetValue(i).ToString();
 
 		try {
-			auto connection = MCPInstanceState::Get(state.GetContext()).connection_registry.GetConnection(server_name);
+			auto connection = registry.GetConnection(server_name);
 			if (!connection) {
 				throw InvalidInputException("MCP server not attached: " + server_name);
 			}
@@ -1627,6 +1638,7 @@ static void MCPRenderPromptTemplateFunction(DataChunk &args, ExpressionState &st
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	auto result_data = FlatVector::GetData<string_t>(result);
 	auto &result_validity = FlatVector::Validity(result);
+	auto &template_manager = MCPInstanceState::Get(state.GetContext()).template_manager;
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		if (name_vector.GetValue(i).IsNull()) {
@@ -1659,8 +1671,7 @@ static void MCPRenderPromptTemplateFunction(DataChunk &args, ExpressionState &st
 		}
 
 		try {
-			auto &manager = MCPInstanceState::Get(state.GetContext()).template_manager;
-			string rendered = manager.RenderTemplate(name, template_args);
+			string rendered = template_manager.RenderTemplate(name, template_args);
 			result_data[i] = StringVector::AddString(result, rendered);
 
 		} catch (const std::exception &e) {
@@ -1676,10 +1687,10 @@ static void MCPRenderPromptTemplateFunction(DataChunk &args, ExpressionState &st
 static void MCPWebMCPSyncFunction(DataChunk &args, ExpressionState &state, Vector &result) {
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	auto result_data = FlatVector::GetData<string_t>(result);
+	auto &server_manager = MCPInstanceState::Get(state.GetContext()).server_manager;
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		try {
-			auto &server_manager = MCPInstanceState::Get(state.GetContext()).server_manager;
 			if (!server_manager.IsServerRunning()) {
 				result_data[i] = StringVector::AddString(result, "ERROR: No MCP server running");
 				continue;
