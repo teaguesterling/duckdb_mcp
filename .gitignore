@@ -9,3 +9,9 @@ test/python/__pycache__/
 make.out
 venv/
 *.log
+
+# blq
+.lq/*
+!.lq/hooks/
+!.lq/config.toml
+!.lq/commands.toml

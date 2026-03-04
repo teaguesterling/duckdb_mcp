@@ -8,7 +8,7 @@ and grouped by severity.
 
 ## High Severity
 
-### CR-01: Missing JSON escaping in ListTablesToolHandler output
+### CR-01: Missing JSON escaping in ListTablesToolHandler output ✓ Fixed (PR #31, Issue #22)
 
 **File:** `src/server/tool_handlers.cpp:840-858`
 
@@ -31,7 +31,7 @@ JSON parsers.
 
 ---
 
-### CR-02: Missing JSON escaping in DatabaseInfoToolHandler output
+### CR-02: Missing JSON escaping in DatabaseInfoToolHandler output ✓ Fixed (PR #31, Issue #22)
 
 **File:** `src/server/tool_handlers.cpp:950-1165`
 
@@ -51,7 +51,7 @@ handles all cases and should be used instead.
 
 ---
 
-### CR-03: Missing JSON escaping in ExportToolHandler::FormatData
+### CR-03: Missing JSON escaping in ExportToolHandler::FormatData ✓ Fixed (PR #31, Issue #22)
 
 **File:** `src/server/tool_handlers.cpp:522-538`
 
@@ -66,7 +66,7 @@ json += "\"" + value.ToString() + "\"";
 
 ---
 
-### CR-04: Use-after-free in ResourceRegistry/ToolRegistry pointer access
+### CR-04: Use-after-free in ResourceRegistry/ToolRegistry pointer access ✓ Fixed (PR #30, Issue #24)
 
 **File:** `src/server/mcp_server.cpp:45-49` and `79-83`
 
@@ -89,7 +89,7 @@ pointer is dangling. Same pattern exists in `ToolRegistry::GetTool()`.
 
 ## Medium Severity
 
-### CR-05: ExportToolHandler::FormatData CSV output lacks quoting
+### CR-05: ExportToolHandler::FormatData CSV output lacks quoting ✓ Fixed (PR #29, Issue #23)
 
 **File:** `src/server/tool_handlers.cpp:541-565`
 
@@ -105,7 +105,7 @@ Headers (column names) are also unquoted.
 
 ---
 
-### CR-06: Error messages in HTTP handler lambda leak internals
+### CR-06: Error messages in HTTP handler lambda leak internals — Open (tracked in Issue #28)
 
 **File:** `src/server/mcp_server.cpp:176` and `355`
 
@@ -125,7 +125,7 @@ Two problems:
 
 ---
 
-### CR-07: COPY_STATEMENT not gated by ExecuteToolHandler
+### CR-07: COPY_STATEMENT not gated by ExecuteToolHandler ✓ Fixed (PR #32, Issue #26)
 
 **File:** `src/server/tool_handlers.cpp:1318-1355`
 
@@ -139,7 +139,7 @@ COPY FROM can read arbitrary files, bypassing intended restrictions.
 
 ---
 
-### CR-08: MCPSecurityConfig is not thread-safe
+### CR-08: MCPSecurityConfig is not thread-safe ✓ Fixed (Issue #25)
 
 **File:** `src/include/duckdb_mcp_security.hpp:73-78`
 
@@ -152,7 +152,7 @@ vector.
 
 ---
 
-### CR-09: PID reuse race in StdioTransport process management
+### CR-09: PID reuse race in StdioTransport process management ✓ Fixed (PR #33, Issue #27)
 
 **File:** `src/protocol/mcp_transport.cpp:362-375`
 
@@ -173,7 +173,7 @@ potentially targeting a different process.
 
 ---
 
-### CR-10: ReadFromProcess can return partial JSON lines
+### CR-10: ReadFromProcess can return partial JSON lines ✓ Fixed (PR #33, Issue #27)
 
 **File:** `src/protocol/mcp_transport.cpp:407-428`
 
@@ -197,7 +197,7 @@ processes.
 
 ---
 
-### CR-11: `last_error` string is not thread-safe
+### CR-11: `last_error` string is not thread-safe ✓ Fixed (Issue #25)
 
 **File:** `src/include/protocol/mcp_connection.hpp:99`
 
@@ -208,7 +208,7 @@ Written by `SetError()` and read by `GetLastError()` from different threads.
 
 ---
 
-### CR-12: `start_time` is not atomic
+### CR-12: `start_time` is not atomic ✓ Fixed (Issue #25)
 
 **File:** `src/include/server/mcp_server.hpp:183`
 
@@ -221,7 +221,7 @@ Plain `time_t` while all other counters on the same object are `atomic`.
 
 ## Low Severity / Design
 
-### CR-13: ParseCapabilities hardcodes wrong defaults
+### CR-13: ParseCapabilities hardcodes wrong defaults ✓ Fixed (PR #44, Issue #36)
 
 **File:** `src/protocol/mcp_connection.cpp:269-278`
 
@@ -239,7 +239,7 @@ will break.
 
 ---
 
-### CR-14: ListResources returns empty vector (stub)
+### CR-14: ListResources returns empty vector (stub) — Open (tracked in Issue #28)
 
 **File:** `src/protocol/mcp_connection.cpp:104-126`
 
@@ -250,7 +250,7 @@ returns an empty vector with a "Placeholder implementation" comment.
 
 ---
 
-### CR-15: ListTools returns empty vector (stub)
+### CR-15: ListTools returns empty vector (stub) — Open (tracked in Issue #28)
 
 **File:** `src/protocol/mcp_connection.cpp:169-184`
 
@@ -260,7 +260,7 @@ Same as CR-14 but for tools.
 
 ---
 
-### CR-16: ExportToFile double-executes the query
+### CR-16: ExportToFile double-executes the query — Open (Issue #37)
 
 **File:** `src/server/tool_handlers.cpp:447` and `481-500`
 
@@ -271,7 +271,7 @@ runs the same query again via `COPY (query) TO ...`.
 
 ---
 
-### CR-17: Global singletons share state across database instances
+### CR-17: Global singletons share state across database instances — Open (Issue #38)
 
 **Files:** `MCPSecurityConfig`, `MCPServerManager`, `MCPConfigManager`,
 `MCPLogger`, `MCPTemplateManager`
@@ -286,7 +286,7 @@ mean:
 
 ---
 
-### CR-18: Constant-time comparison still leaks token length
+### CR-18: Constant-time comparison still leaks token length — Open (Issue #39)
 
 **File:** `src/server/http_server_transport.cpp:14-30`
 
@@ -297,7 +297,7 @@ When lengths differ, the dummy loop iterates `a.size()` times, not
 
 ---
 
-### CR-19: Silently swallowed exceptions in ApplyPendingRegistrations
+### CR-19: Silently swallowed exceptions in ApplyPendingRegistrations — Open (tracked in Issue #28)
 
 **File:** `src/server/mcp_server.cpp:888-896`
 
@@ -314,7 +314,7 @@ pending registration fails.
 
 ---
 
-### CR-20: Duplicated HTTP server setup code
+### CR-20: Duplicated HTTP server setup code — Open (Issue #40)
 
 **File:** `src/server/mcp_server.cpp:151-187` vs `322-368`
 
@@ -325,7 +325,7 @@ pending registration fails.
 
 ---
 
-### CR-21: Fragile sleep after fork
+### CR-21: Fragile sleep after fork ✓ Fixed (PR #33, Issue #27)
 
 **File:** `src/protocol/mcp_transport.cpp:312`
 
@@ -336,7 +336,7 @@ may not suffice; on fast systems it wastes 100ms of startup latency.
 
 ---
 
-### CR-22: Non-string JSON array items silently dropped
+### CR-22: Non-string JSON array items silently dropped — Open (Issue #41)
 
 **File:** `src/duckdb_mcp_security.cpp:300-304`
 
@@ -356,7 +356,7 @@ yyjson_arr_foreach(root, idx, max, arg) {
 
 ---
 
-### CR-23: CORS defaults to wildcard
+### CR-23: CORS defaults to wildcard — Open (Issue #42)
 
 **File:** `src/include/server/mcp_server.hpp:54`
 
@@ -374,8 +374,19 @@ future item.
 
 ## Summary
 
-| Severity | Count | Key Areas |
-|----------|-------|-----------|
-| High     | 4     | JSON escaping (3), use-after-free in registries (1) |
-| Medium   | 8     | CSV escaping, error leaks, COPY bypass, thread safety (3), PID race, partial reads |
-| Low      | 11    | Stubs, singletons, duplicated code, silent errors, timing leaks, defaults |
+| Severity | Total | Fixed | Open | Key Areas |
+|----------|-------|-------|------|-----------|
+| High     | 4     | 4     | 0    | JSON escaping (3), use-after-free in registries (1) |
+| Medium   | 8     | 6     | 2    | ✓ CSV, COPY, PID race/partial reads, thread safety (3) — ○ error leaks (CR-06) |
+| Low      | 11    | 2     | 9    | ✓ Fragile sleep, ParseCapabilities — ○ stubs, singletons, duplicated code, silent errors, timing leaks, defaults |
+
+### Status as of 2026-03-02
+
+**Fixed (12 of 23):** CR-01/CR-02/CR-03 (PR #31, Issue #22), CR-04 (PR #30, Issue #24),
+CR-05 (PR #29, Issue #23), CR-07 (PR #32, Issue #26), CR-08/CR-11/CR-12 (PR #35, Issue #25),
+CR-09/CR-10/CR-21 (PR #33, Issue #27), CR-13 (PR #44, Issue #36)
+
+**Tracked in open issues (4):** CR-06/CR-14/CR-15/CR-19 (Issue #28)
+
+**Separate open issues (6):** CR-16 (Issue #37), CR-17 (Issue #38),
+CR-18 (Issue #39), CR-20 (Issue #40), CR-22 (Issue #41), CR-23 (Issue #42)
