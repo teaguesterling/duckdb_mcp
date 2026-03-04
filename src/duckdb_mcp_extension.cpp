@@ -1177,7 +1177,8 @@ static void MCPPublishResourceFunction(DataChunk &args, ExpressionState &state, 
 	auto &content_vector = args.data[1];
 	auto &mime_type_vector = args.data[2];
 	auto &description_vector = args.data[3];
-	bool suppress = MCPInstanceState::Get(state.GetContext()).config.config_mode;
+	auto &db = DatabaseInstance::GetDatabase(state.GetContext());
+	bool suppress = MCPInstanceState::Get(db).config.config_mode;
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	auto result_data = FlatVector::GetData<string_t>(result);
@@ -1190,7 +1191,6 @@ static void MCPPublishResourceFunction(DataChunk &args, ExpressionState &state, 
 			    mime_type_vector.GetValue(i).IsNull() ? "" : mime_type_vector.GetValue(i).ToString();
 			string description =
 			    description_vector.GetValue(i).IsNull() ? "" : description_vector.GetValue(i).ToString();
-			auto &db = DatabaseInstance::GetDatabase(state.GetContext());
 			string msg = MCPPublishResourceCore(db, resource_uri, content, mime_type, description);
 			result_data[i] = StringVector::AddString(result, suppress ? "" : msg);
 		} catch (const std::exception &e) {
@@ -1563,7 +1563,8 @@ static void MCPRegisterPromptTemplateFunction(DataChunk &args, ExpressionState &
 	auto &name_vector = args.data[0];
 	auto &description_vector = args.data[1];
 	auto &template_vector = args.data[2];
-	bool suppress = MCPInstanceState::Get(state.GetContext()).config.config_mode;
+	auto &db = DatabaseInstance::GetDatabase(state.GetContext());
+	bool suppress = MCPInstanceState::Get(db).config.config_mode;
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	auto result_data = FlatVector::GetData<string_t>(result);
@@ -1577,7 +1578,6 @@ static void MCPRegisterPromptTemplateFunction(DataChunk &args, ExpressionState &
 		}
 
 		try {
-			auto &db = DatabaseInstance::GetDatabase(state.GetContext());
 			string msg = MCPRegisterPromptTemplateCore(db, name_vector.GetValue(i).ToString(),
 			                                           description_vector.GetValue(i).ToString(),
 			                                           template_vector.GetValue(i).ToString());

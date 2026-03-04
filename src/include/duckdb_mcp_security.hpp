@@ -65,11 +65,12 @@ public:
 	//! Validate ATTACH parameters for security
 	void ValidateAttachSecurity(const string &command, const vector<string> &args) const;
 
+	friend class MCPInstanceState;
+
+private:
 	MCPSecurityConfig()
 	    : servers_locked(false), commands_locked(false), serving_disabled(false), server_file("./.mcp.json") {
 	}
-
-private:
 
 	mutable mutex config_mutex;
 	vector<string> allowed_commands;
