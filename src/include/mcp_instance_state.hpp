@@ -10,6 +10,11 @@
 #include "client/mcp_storage_extension.hpp"
 #endif
 
+// Detect DuckDB v1.5+ (GetEstimatedCacheMemory added to ObjectCacheEntry)
+#if __has_include("duckdb/common/column_index_map.hpp")
+#define MCP_HAS_CACHE_MEMORY_API
+#endif
+
 namespace duckdb {
 
 //! Per-DatabaseInstance state for the MCP extension.
@@ -23,10 +28,12 @@ public:
 	string GetObjectType() override {
 		return ObjectType();
 	}
+#ifdef MCP_HAS_CACHE_MEMORY_API
 	//! Return invalid to prevent eviction
 	optional_idx GetEstimatedCacheMemory() const override {
 		return optional_idx();
 	}
+#endif
 
 	//! Get the per-instance state for a DatabaseInstance
 	static MCPInstanceState &Get(DatabaseInstance &db);
