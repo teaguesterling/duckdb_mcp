@@ -24,10 +24,17 @@ public:
 
 	// Format result as GitHub-flavored markdown table
 	// - Right-aligns numeric columns
-	// - Escapes pipe characters in cell values
+	// - Escapes pipe characters in header names and cell values
 	static string FormatAsMarkdown(QueryResult &result);
 
-	// Format result in the specified format (json, jsonl, csv, markdown)
+	// Format result as plain text (no headers, tab-separated columns, one row per line)
+	// NULLs are rendered as empty strings
+	static string FormatAsText(QueryResult &result);
+
+	// Escape pipe characters in a string for use in markdown table cells/headers
+	static string EscapeMarkdownCell(const string &input);
+
+	// Format result in the specified format (json, jsonl, csv, markdown, text)
 	// Returns empty string for unsupported formats
 	static string Format(QueryResult &result, const string &format);
 

@@ -1195,6 +1195,10 @@ static string MCPPublishToolCore(ClientContext &context, const string &tool_name
 	string required_json = required_json_in.empty() ? "[]" : required_json_in;
 	string format = format_in.empty() ? "json" : format_in;
 
+	if (!ResultFormatter::IsFormatSupported(format)) {
+		return "ERROR: Unsupported format '" + format + "'. Supported formats: " + ResultFormatter::GetSupportedFormatsList();
+	}
+
 	auto &db_instance = DatabaseInstance::GetDatabase(context);
 	auto &server_manager = MCPServerManager::GetInstance();
 

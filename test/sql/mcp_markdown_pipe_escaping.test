@@ -1,0 +1,151 @@
+# name: test/sql/mcp_markdown_pipe_escaping.test
+# description: Markdown pipe escaping in headers/cells and plain text format (issue #55)
+# group: [sql]
+
+require duckdb_mcp
+
+statement ok
+LOAD duckdb_mcp;
+
+# =============================================================================
+# SETUP
+# =============================================================================
+
+statement ok
+SELECT mcp_server_stop(true);
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# =============================================================================
+# Issue #55: Pipe characters in markdown column headers must be escaped
+# =============================================================================
+# chr(124) = pipe (|), chr(92) = backslash (\)
+# In markdown output, | becomes \| which appears as \| in the result text.
+# In the JSON-RPC response, backslash is escaped again, so \| becomes \\|.
+
+# ---- Test 1: Pipe in column name is escaped in markdown ----
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 1 AS \"col' || chr(124) || 'name\"","format":"markdown"}}}')
+  LIKE '%col' || chr(92) || chr(92) || chr(124) || 'name%';
+----
+true
+
+# ---- Test 2: Pipe in cell value is escaped in markdown ----
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT ''a'' || chr(124) || ''b'' AS val","format":"markdown"}}}')
+  LIKE '%a' || chr(92) || chr(92) || chr(124) || 'b%';
+----
+true
+
+# ---- Test 3: Multiple pipes in header and value ----
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT ''x'' || chr(124) || ''y'' || chr(124) || ''z'' AS \"a' || chr(124) || 'b' || chr(124) || 'c\"","format":"markdown"}}}')
+  LIKE '%a' || chr(92) || chr(92) || chr(124) || 'b' || chr(92) || chr(92) || chr(124) || 'c%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# Plain text format
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# ---- Test 4: Text format single column, single row ----
+# Text format: no headers, values only, newline-terminated
+# In the JSON-RPC response, the newline becomes \\n
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT ''hello'' AS val","format":"text"}}}')
+  LIKE '%hello%';
+----
+true
+
+# ---- Test 5: Text format has no column headers ----
+# The column name "val" should NOT appear in text output
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT ''hello'' AS my_column","format":"text"}}}')
+  LIKE '%my_column%';
+----
+false
+
+# ---- Test 6: Text format multiple columns are tab-separated ----
+# chr(9) = tab; in the JSON-RPC response the tab char is escaped by yyjson to \t
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT ''a'' AS c1, ''b'' AS c2, ''c'' AS c3","format":"text"}}}')
+  LIKE '%a' || chr(92) || 'tb' || chr(92) || 'tc%';
+----
+true
+
+# ---- Test 7: Text format multiple rows ----
+# Newline chars are escaped by yyjson to \n in the JSON response
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM (VALUES (''row1''), (''row2''), (''row3'')) t(val)","format":"text"}}}')
+  LIKE '%row1' || chr(92) || 'nrow2' || chr(92) || 'nrow3%';
+----
+true
+
+# ---- Test 8: Text format NULLs rendered as empty string ----
+# NULL between two tabs: a\t\tc (two adjacent tabs with no value between)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":14,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT ''a'' AS c1, NULL AS c2, ''c'' AS c3","format":"text"}}}')
+  LIKE '%a' || chr(92) || 't' || chr(92) || 'tc%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# Publishing tools with text format
+# =============================================================================
+
+# ---- Test 9: Publish tool with format='text' succeeds ----
+statement ok
+SELECT mcp_publish_tool(
+    'text_tool',
+    'Returns text output',
+    'SELECT ''hello'' AS val',
+    '{}',
+    '[]',
+    'text'
+);
+
+statement ok
+SELECT mcp_server_start('memory');
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"text_tool","arguments":{}}}')
+  LIKE '%hello%';
+----
+true
+
+# Text tool output should not contain column header
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"text_tool","arguments":{}}}')
+  LIKE '%val%';
+----
+false
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# Format validation for mcp_publish_tool
+# =============================================================================
+
+# ---- Test 10: Publishing tool with invalid format returns error ----
+query I
+SELECT mcp_publish_tool(
+    'bad_tool',
+    'Should fail',
+    'SELECT 1',
+    '{}',
+    '[]',
+    'invalid_format'
+) LIKE 'ERROR:%Unsupported format%';
+----
+true

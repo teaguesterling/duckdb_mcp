@@ -2,7 +2,7 @@
 
 namespace duckdb {
 
-const vector<string> ResultFormatter::SUPPORTED_FORMATS = {"json", "jsonl", "csv", "markdown"};
+const vector<string> ResultFormatter::SUPPORTED_FORMATS = {"json", "jsonl", "csv", "markdown", "text"};
 
 bool ResultFormatter::IsFormatSupported(const string &format) {
 	for (const auto &f : SUPPORTED_FORMATS) {
@@ -33,6 +33,8 @@ string ResultFormatter::GetMimeType(const string &format) {
 		return "text/csv";
 	} else if (format == "markdown") {
 		return "text/markdown";
+	} else if (format == "text") {
+		return "text/plain";
 	}
 	return "text/plain";
 }
@@ -81,6 +83,8 @@ string ResultFormatter::Format(QueryResult &result, const string &format) {
 		return FormatAsCSV(result);
 	} else if (format == "markdown") {
 		return FormatAsMarkdown(result);
+	} else if (format == "text") {
+		return FormatAsText(result);
 	}
 	// Unsupported format - return empty string
 	// Caller should validate format before calling
@@ -195,6 +199,14 @@ string ResultFormatter::FormatAsCSV(QueryResult &result) {
 	return csv;
 }
 
+string ResultFormatter::EscapeMarkdownCell(const string &input) {
+	string result = input;
+	for (size_t pos = 0; (pos = result.find('|', pos)) != string::npos; pos += 2) {
+		result.replace(pos, 1, "\\|");
+	}
+	return result;
+}
+
 string ResultFormatter::FormatAsMarkdown(QueryResult &result) {
 	string md;
 	idx_t num_cols = result.names.size();
@@ -206,7 +218,7 @@ string ResultFormatter::FormatAsMarkdown(QueryResult &result) {
 	// Header row
 	md += "|";
 	for (idx_t col = 0; col < num_cols; col++) {
-		md += " " + result.names[col] + " |";
+		md += " " + EscapeMarkdownCell(result.names[col]) + " |";
 	}
 	md += "\n";
 
@@ -229,17 +241,34 @@ string ResultFormatter::FormatAsMarkdown(QueryResult &result) {
 			for (idx_t col = 0; col < chunk->ColumnCount(); col++) {
 				auto value = chunk->GetValue(col, i);
 				string cell = value.IsNull() ? "NULL" : value.ToString();
-				// Escape pipe characters in cell values
-				for (size_t pos = 0; (pos = cell.find('|', pos)) != string::npos; pos += 2) {
-					cell.replace(pos, 1, "\\|");
-				}
-				md += " " + cell + " |";
+				md += " " + EscapeMarkdownCell(cell) + " |";
 			}
 			md += "\n";
 		}
 	}
 
 	return md;
+}
+
+string ResultFormatter::FormatAsText(QueryResult &result) {
+	string text;
+
+	while (auto chunk = result.Fetch()) {
+		for (idx_t i = 0; i < chunk->size(); i++) {
+			for (idx_t col = 0; col < chunk->ColumnCount(); col++) {
+				if (col > 0) {
+					text += "\t";
+				}
+				auto value = chunk->GetValue(col, i);
+				if (!value.IsNull()) {
+					text += value.ToString();
+				}
+			}
+			text += "\n";
+		}
+	}
+
+	return text;
 }
 
 } // namespace duckdb
