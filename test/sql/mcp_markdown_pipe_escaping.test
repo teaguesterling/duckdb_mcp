@@ -149,6 +149,3 @@ SELECT mcp_publish_tool(
 ) LIKE 'ERROR:%Unsupported format%';
 ----
 true
-
-statement ok
-SELECT mcp_server_stop(true);

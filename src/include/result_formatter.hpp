@@ -34,7 +34,7 @@ public:
 	// Escape pipe characters in a string for use in markdown table cells/headers
 	static string EscapeMarkdownCell(const string &input);
 
-	// Format result in the specified format (json, jsonl, csv, markdown)
+	// Format result in the specified format (json, jsonl, csv, markdown, text)
 	// Returns empty string for unsupported formats
 	static string Format(QueryResult &result, const string &format);
 
