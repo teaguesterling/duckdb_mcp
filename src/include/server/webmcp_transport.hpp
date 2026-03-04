@@ -11,8 +11,8 @@ namespace duckdb {
 class MCPServer;
 
 struct WebMCPConfig {
-	bool wrap_resources = true;  // Expose resources as a "read_resource" tool
-	bool wrap_prompts = true;    // Expose prompts as a "get_prompt" tool
+	bool wrap_resources = true; // Expose resources as a "read_resource" tool
+	bool wrap_prompts = true;   // Expose prompts as a "get_prompt" tool
 };
 
 //! WebMCP transport bridges DuckDB-WASM MCP tools to the browser's
@@ -50,7 +50,9 @@ public:
 	//! Returns JSON array string
 	static string ListPageTools();
 
-	MCPServer *GetServer() const { return server; }
+	MCPServer *GetServer() const {
+		return server;
+	}
 
 private:
 	MCPServer *server;
@@ -59,8 +61,7 @@ private:
 	vector<string> registered_tool_names;
 
 	//! Register a single tool with navigator.modelContext
-	bool RegisterWebMCPTool(const string &name, const string &description,
-	                         const string &schema_json, bool read_only);
+	bool RegisterWebMCPTool(const string &name, const string &description, const string &schema_json, bool read_only);
 
 	//! Unregister a single tool from navigator.modelContext
 	void UnregisterWebMCPTool(const string &name);

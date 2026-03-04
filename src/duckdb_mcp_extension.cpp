@@ -992,13 +992,14 @@ static void MCPServerSendRequestFunction(DataChunk &args, ExpressionState &state
 }
 
 // Core implementation for publishing table as MCP resource
-static string MCPPublishTableCore(ClientContext &context, const string &table_name,
-                                  const string &resource_uri_in, const string &format_in) {
+static string MCPPublishTableCore(ClientContext &context, const string &table_name, const string &resource_uri_in,
+                                  const string &format_in) {
 	string resource_uri = resource_uri_in.empty() ? ("data://tables/" + table_name) : resource_uri_in;
 	string format = format_in.empty() ? "json" : format_in;
 
 	if (!ResultFormatter::IsFormatSupported(format)) {
-		return "ERROR: Unsupported format '" + format + "'. Supported formats: " + ResultFormatter::GetSupportedFormatsList();
+		return "ERROR: Unsupported format '" + format +
+		       "'. Supported formats: " + ResultFormatter::GetSupportedFormatsList();
 	}
 
 	auto &db_instance = DatabaseInstance::GetDatabase(context);
@@ -1054,8 +1055,7 @@ static void MCPPublishTableFunction(DataChunk &args, ExpressionState &state, Vec
 	for (idx_t i = 0; i < args.size(); i++) {
 		try {
 			string table_name = table_vector.GetValue(i).ToString();
-			string resource_uri =
-			    uri_vector.GetValue(i).IsNull() ? "" : uri_vector.GetValue(i).ToString();
+			string resource_uri = uri_vector.GetValue(i).IsNull() ? "" : uri_vector.GetValue(i).ToString();
 			string format = format_vector.GetValue(i).IsNull() ? "" : format_vector.GetValue(i).ToString();
 			string msg = MCPPublishTableCore(state.GetContext(), table_name, resource_uri, format);
 			result_data[i] = StringVector::AddString(result, suppress ? "" : msg);
@@ -1071,7 +1071,8 @@ static string MCPPublishQueryCore(ClientContext &context, const string &query, c
 	string format = format_in.empty() ? "json" : format_in;
 
 	if (!ResultFormatter::IsFormatSupported(format)) {
-		return "ERROR: Unsupported format '" + format + "'. Supported formats: " + ResultFormatter::GetSupportedFormatsList();
+		return "ERROR: Unsupported format '" + format +
+		       "'. Supported formats: " + ResultFormatter::GetSupportedFormatsList();
 	}
 
 	auto &db_instance = DatabaseInstance::GetDatabase(context);
@@ -1130,8 +1131,8 @@ static void MCPPublishQueryFunction(DataChunk &args, ExpressionState &state, Vec
 }
 
 // Core implementation for publishing static content as MCP resource
-static string MCPPublishResourceCore(const string &resource_uri, const string &content,
-                                     const string &mime_type_in, const string &description) {
+static string MCPPublishResourceCore(const string &resource_uri, const string &content, const string &mime_type_in,
+                                     const string &description) {
 	string mime_type = mime_type_in.empty() ? "text/plain" : mime_type_in;
 
 	auto &server_manager = MCPServerManager::GetInstance();
@@ -1175,8 +1176,7 @@ static void MCPPublishResourceFunction(DataChunk &args, ExpressionState &state, 
 		try {
 			string resource_uri = uri_vector.GetValue(i).ToString();
 			string content = content_vector.GetValue(i).ToString();
-			string mime_type =
-			    mime_type_vector.GetValue(i).IsNull() ? "" : mime_type_vector.GetValue(i).ToString();
+			string mime_type = mime_type_vector.GetValue(i).IsNull() ? "" : mime_type_vector.GetValue(i).ToString();
 			string description =
 			    description_vector.GetValue(i).IsNull() ? "" : description_vector.GetValue(i).ToString();
 			string msg = MCPPublishResourceCore(resource_uri, content, mime_type, description);
@@ -1196,7 +1196,8 @@ static string MCPPublishToolCore(ClientContext &context, const string &tool_name
 	string format = format_in.empty() ? "json" : format_in;
 
 	if (!ResultFormatter::IsFormatSupported(format)) {
-		return "ERROR: Unsupported format '" + format + "'. Supported formats: " + ResultFormatter::GetSupportedFormatsList();
+		return "ERROR: Unsupported format '" + format +
+		       "'. Supported formats: " + ResultFormatter::GetSupportedFormatsList();
 	}
 
 	auto &db_instance = DatabaseInstance::GetDatabase(context);
@@ -1216,7 +1217,8 @@ static string MCPPublishToolCore(ClientContext &context, const string &tool_name
 	}
 
 	ToolInputSchema input_schema = ParseToolInputSchema(properties_json, required_json);
-	auto handler = make_shared_ptr<SQLToolHandler>(tool_name, description, sql_template, input_schema, db_instance, format);
+	auto handler =
+	    make_shared_ptr<SQLToolHandler>(tool_name, description, sql_template, input_schema, db_instance, format);
 	auto server = server_manager.GetServer();
 	if (server->RegisterTool(tool_name, std::move(handler))) {
 		if (format != "json") {
@@ -1248,7 +1250,7 @@ static void MCPPublishToolFunction(DataChunk &args, ExpressionState &state, Vect
 			string properties_json = props_vector.GetValue(i).IsNull() ? "" : props_vector.GetValue(i).ToString();
 			string required_json = required_vector.GetValue(i).IsNull() ? "" : required_vector.GetValue(i).ToString();
 			string msg = MCPPublishToolCore(state.GetContext(), tool_name, description, sql_template, properties_json,
-			                               required_json, "");
+			                                required_json, "");
 			result_data[i] = StringVector::AddString(result, suppress ? "" : msg);
 		} catch (const std::exception &e) {
 			result_data[i] = StringVector::AddString(result, suppress ? "" : "ERROR: " + string(e.what()));
@@ -1278,7 +1280,7 @@ static void MCPPublishToolWithFormatFunction(DataChunk &args, ExpressionState &s
 			string required_json = required_vector.GetValue(i).IsNull() ? "" : required_vector.GetValue(i).ToString();
 			string format = format_vector.GetValue(i).IsNull() ? "" : format_vector.GetValue(i).ToString();
 			string msg = MCPPublishToolCore(state.GetContext(), tool_name, description, sql_template, properties_json,
-			                               required_json, format);
+			                                required_json, format);
 			result_data[i] = StringVector::AddString(result, suppress ? "" : msg);
 		} catch (const std::exception &e) {
 			result_data[i] = StringVector::AddString(result, suppress ? "" : "ERROR: " + string(e.what()));
@@ -1699,7 +1701,8 @@ static void MCPWebMCPSyncFunction(DataChunk &args, ExpressionState &state, Vecto
 			}
 
 			transport->SyncTools();
-			result_data[i] = StringVector::AddString(result, "SUCCESS: WebMCP tools synced with navigator.modelContext");
+			result_data[i] =
+			    StringVector::AddString(result, "SUCCESS: WebMCP tools synced with navigator.modelContext");
 
 		} catch (const std::exception &e) {
 			result_data[i] = StringVector::AddString(result, "ERROR: " + string(e.what()));
@@ -1759,15 +1762,14 @@ static void PragmaMCPServerStopForce(ClientContext &context, const FunctionParam
 
 // PRAGMA mcp_publish_tool(name, description, sql_template, properties_json, required_json)
 static void PragmaMCPPublishTool(ClientContext &context, const FunctionParameters &params) {
-	MCPPublishToolCore(context, params.values[0].ToString(), params.values[1].ToString(),
-	                   params.values[2].ToString(), params.values[3].ToString(), params.values[4].ToString(), "");
+	MCPPublishToolCore(context, params.values[0].ToString(), params.values[1].ToString(), params.values[2].ToString(),
+	                   params.values[3].ToString(), params.values[4].ToString(), "");
 }
 
 // PRAGMA mcp_publish_tool(name, description, sql_template, properties_json, required_json, format)
 static void PragmaMCPPublishToolWithFormat(ClientContext &context, const FunctionParameters &params) {
-	MCPPublishToolCore(context, params.values[0].ToString(), params.values[1].ToString(),
-	                   params.values[2].ToString(), params.values[3].ToString(), params.values[4].ToString(),
-	                   params.values[5].ToString());
+	MCPPublishToolCore(context, params.values[0].ToString(), params.values[1].ToString(), params.values[2].ToString(),
+	                   params.values[3].ToString(), params.values[4].ToString(), params.values[5].ToString());
 }
 
 // PRAGMA mcp_publish_table('table_name')
@@ -1777,8 +1779,7 @@ static void PragmaMCPPublishTableSimple(ClientContext &context, const FunctionPa
 
 // PRAGMA mcp_publish_table('table_name', 'uri', 'format')
 static void PragmaMCPPublishTableFull(ClientContext &context, const FunctionParameters &params) {
-	MCPPublishTableCore(context, params.values[0].ToString(), params.values[1].ToString(),
-	                    params.values[2].ToString());
+	MCPPublishTableCore(context, params.values[0].ToString(), params.values[1].ToString(), params.values[2].ToString());
 }
 
 // PRAGMA mcp_publish_query('query', 'uri')
@@ -1788,8 +1789,8 @@ static void PragmaMCPPublishQuerySimple(ClientContext &context, const FunctionPa
 
 // PRAGMA mcp_publish_query('query', 'uri', 'format', refresh_seconds)
 static void PragmaMCPPublishQueryFull(ClientContext &context, const FunctionParameters &params) {
-	MCPPublishQueryCore(context, params.values[0].ToString(), params.values[1].ToString(),
-	                    params.values[2].ToString(), params.values[3].GetValue<uint32_t>());
+	MCPPublishQueryCore(context, params.values[0].ToString(), params.values[1].ToString(), params.values[2].ToString(),
+	                    params.values[3].GetValue<uint32_t>());
 }
 
 // PRAGMA mcp_publish_resource('uri', 'content', 'mime_type', 'description')
@@ -2025,9 +2026,9 @@ static void LoadInternal(ExtensionLoader &loader) {
 	    PragmaFunction::PragmaCall("mcp_server_start", PragmaMCPServerStartSimple, {LogicalType::VARCHAR}));
 	pragma_start.AddFunction(PragmaFunction::PragmaCall("mcp_server_start", PragmaMCPServerStartConfig,
 	                                                    {LogicalType::VARCHAR, LogicalType::VARCHAR}));
-	pragma_start.AddFunction(
-	    PragmaFunction::PragmaCall("mcp_server_start", PragmaMCPServerStartFull,
-	                               {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::INTEGER, LogicalType::VARCHAR}));
+	pragma_start.AddFunction(PragmaFunction::PragmaCall(
+	    "mcp_server_start", PragmaMCPServerStartFull,
+	    {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::INTEGER, LogicalType::VARCHAR}));
 	loader.RegisterFunction(std::move(pragma_start));
 
 	// PRAGMA mcp_server_stop - 2 overloads (no args, or force bool)
@@ -2039,22 +2040,23 @@ static void LoadInternal(ExtensionLoader &loader) {
 
 	// PRAGMA mcp_publish_tool - 2 overloads (5 args, 6 args with format)
 	PragmaFunctionSet pragma_publish_tool("mcp_publish_tool");
-	pragma_publish_tool.AddFunction(PragmaFunction::PragmaCall(
-	    "mcp_publish_tool", PragmaMCPPublishTool,
-	    {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR}));
-	pragma_publish_tool.AddFunction(PragmaFunction::PragmaCall(
-	    "mcp_publish_tool", PragmaMCPPublishToolWithFormat,
-	    {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
-	     LogicalType::VARCHAR}));
+	pragma_publish_tool.AddFunction(
+	    PragmaFunction::PragmaCall("mcp_publish_tool", PragmaMCPPublishTool,
+	                               {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
+	                                LogicalType::VARCHAR, LogicalType::VARCHAR}));
+	pragma_publish_tool.AddFunction(
+	    PragmaFunction::PragmaCall("mcp_publish_tool", PragmaMCPPublishToolWithFormat,
+	                               {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
+	                                LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR}));
 	loader.RegisterFunction(std::move(pragma_publish_tool));
 
 	// PRAGMA mcp_publish_table - 2 overloads (1 arg, 3 args)
 	PragmaFunctionSet pragma_publish_table("mcp_publish_table");
 	pragma_publish_table.AddFunction(
 	    PragmaFunction::PragmaCall("mcp_publish_table", PragmaMCPPublishTableSimple, {LogicalType::VARCHAR}));
-	pragma_publish_table.AddFunction(PragmaFunction::PragmaCall(
-	    "mcp_publish_table", PragmaMCPPublishTableFull,
-	    {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR}));
+	pragma_publish_table.AddFunction(
+	    PragmaFunction::PragmaCall("mcp_publish_table", PragmaMCPPublishTableFull,
+	                               {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR}));
 	loader.RegisterFunction(std::move(pragma_publish_table));
 
 	// PRAGMA mcp_publish_query - 2 overloads (2 args, 4 args)
@@ -2072,9 +2074,9 @@ static void LoadInternal(ExtensionLoader &loader) {
 	    {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR}));
 
 	// PRAGMA mcp_register_prompt_template(name, description, template)
-	loader.RegisterFunction(PragmaFunction::PragmaCall(
-	    "mcp_register_prompt_template", PragmaMCPRegisterPromptTemplate,
-	    {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR}));
+	loader.RegisterFunction(
+	    PragmaFunction::PragmaCall("mcp_register_prompt_template", PragmaMCPRegisterPromptTemplate,
+	                               {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR}));
 
 	// PRAGMA mcp_config_begin / mcp_config_end — suppress scalar function output during config
 	loader.RegisterFunction(PragmaFunction::PragmaStatement("mcp_config_begin", PragmaMCPConfigBegin));
@@ -2084,8 +2086,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	// Register WebMCP-specific functions (WASM only)
 
 	// mcp_webmcp_sync() - re-sync tools with navigator.modelContext after publishing new tools/resources
-	auto webmcp_sync_func =
-	    ScalarFunction("mcp_webmcp_sync", {}, LogicalType::VARCHAR, MCPWebMCPSyncFunction);
+	auto webmcp_sync_func = ScalarFunction("mcp_webmcp_sync", {}, LogicalType::VARCHAR, MCPWebMCPSyncFunction);
 	loader.RegisterFunction(webmcp_sync_func);
 
 	// webmcp_list_page_tools() - list tools registered by other page scripts

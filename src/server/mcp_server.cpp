@@ -760,10 +760,9 @@ void MCPServer::RegisterBuiltinTools() {
 	}
 
 	if (config.enable_execute_tool) {
-		auto execute_tool =
-		    make_shared_ptr<ExecuteToolHandler>(*config.db_instance, config.execute_allow_ddl, config.execute_allow_dml,
-		                                        config.execute_allow_load, config.execute_allow_attach,
-		                                        config.execute_allow_set);
+		auto execute_tool = make_shared_ptr<ExecuteToolHandler>(*config.db_instance, config.execute_allow_ddl,
+		                                                        config.execute_allow_dml, config.execute_allow_load,
+		                                                        config.execute_allow_attach, config.execute_allow_set);
 		tool_registry.RegisterTool("execute", std::move(execute_tool));
 	}
 }
@@ -893,8 +892,8 @@ void MCPServerManager::ApplyRegistrationsTo(MCPServer *target) {
 		}
 	}
 	if (tool_failures > 0) {
-		MCP_LOG_WARN("SERVER", "%" PRIu64 " of %" PRIu64 " pending tool registration(s) failed",
-		             tool_failures, static_cast<uint64_t>(pending_tools.size()));
+		MCP_LOG_WARN("SERVER", "%" PRIu64 " of %" PRIu64 " pending tool registration(s) failed", tool_failures,
+		             static_cast<uint64_t>(pending_tools.size()));
 	}
 	pending_tools.clear();
 
@@ -906,8 +905,8 @@ void MCPServerManager::ApplyRegistrationsTo(MCPServer *target) {
 				auto provider = make_shared_ptr<TableResourceProvider>(reg.source, reg.format, *reg.db_instance);
 				target->PublishResource(reg.uri, std::move(provider));
 			} else if (reg.type == "query") {
-				auto provider =
-				    make_shared_ptr<QueryResourceProvider>(reg.source, reg.format, *reg.db_instance, reg.refresh_seconds);
+				auto provider = make_shared_ptr<QueryResourceProvider>(reg.source, reg.format, *reg.db_instance,
+				                                                       reg.refresh_seconds);
 				target->PublishResource(reg.uri, std::move(provider));
 			} else if (reg.type == "resource") {
 				auto provider = make_shared_ptr<StaticResourceProvider>(reg.source, reg.mime_type, reg.description);
@@ -919,8 +918,8 @@ void MCPServerManager::ApplyRegistrationsTo(MCPServer *target) {
 		}
 	}
 	if (resource_failures > 0) {
-		MCP_LOG_WARN("SERVER", "%" PRIu64 " of %" PRIu64 " pending resource registration(s) failed",
-		             resource_failures, static_cast<uint64_t>(pending_resources.size()));
+		MCP_LOG_WARN("SERVER", "%" PRIu64 " of %" PRIu64 " pending resource registration(s) failed", resource_failures,
+		             static_cast<uint64_t>(pending_resources.size()));
 	}
 	pending_resources.clear();
 }

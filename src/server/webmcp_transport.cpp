@@ -34,7 +34,7 @@ void SetActiveWebMCPTransport(WebMCPTransport *transport) {
 
 // Check if navigator.modelContext is available
 EM_JS(int, webmcp_check_available, (), {
-	if (typeof navigator !== 'undefined' && navigator.modelContext) {
+	if (typeof navigator != = 'undefined' && navigator.modelContext) {
 		return 1;
 	}
 	return 0;
@@ -42,15 +42,16 @@ EM_JS(int, webmcp_check_available, (), {
 
 // Register a tool with navigator.modelContext
 // The execute callback calls back into WASM via Module._webmcp_handle_tool_call
-EM_JS(int, webmcp_register_tool_js, (const char *name_ptr, const char *desc_ptr,
-                                      const char *schema_ptr, int read_only), {
-	if (!navigator.modelContext) return 0;
-	try {
-		var name = UTF8ToString(name_ptr);
-		var description = UTF8ToString(desc_ptr);
-		var schemaStr = UTF8ToString(schema_ptr);
-		var inputSchema = JSON.parse(schemaStr);
-		var isReadOnly = read_only !== 0;
+EM_JS(int, webmcp_register_tool_js, (const char *name_ptr, const char *desc_ptr, const char *schema_ptr, int read_only),
+      {
+	      if (!navigator.modelContext)
+		      return 0;
+	      try {
+		      var name = UTF8ToString(name_ptr);
+		      var description = UTF8ToString(desc_ptr);
+		      var schemaStr = UTF8ToString(schema_ptr);
+		      var inputSchema = JSON.parse(schemaStr);
+		      var isReadOnly = read_only != = 0;
 
 		navigator.modelContext.registerTool({
 			name: name,
@@ -77,18 +78,20 @@ EM_JS(int, webmcp_register_tool_js, (const char *name_ptr, const char *desc_ptr,
 				// Parse the result
 				var result = JSON.parse(resultStr);
 				return result;
-			}
-		});
-		return 1;
-	} catch (e) {
-		console.error('WebMCP registerTool failed:', e);
-		return 0;
-	}
+	      }
+      });
+return 1;
+}
+catch (e) {
+	console.error('WebMCP registerTool failed:', e);
+	return 0;
+}
 });
 
 // Unregister a tool from navigator.modelContext
 EM_JS(void, webmcp_unregister_tool_js, (const char *name_ptr), {
-	if (!navigator.modelContext) return;
+	if (!navigator.modelContext)
+		return;
 	try {
 		var name = UTF8ToString(name_ptr);
 		navigator.modelContext.unregisterTool(name);
@@ -99,7 +102,8 @@ EM_JS(void, webmcp_unregister_tool_js, (const char *name_ptr), {
 
 // Clear all tools from navigator.modelContext
 EM_JS(void, webmcp_clear_context_js, (), {
-	if (!navigator.modelContext) return;
+	if (!navigator.modelContext)
+		return;
 	try {
 		navigator.modelContext.clearContext();
 	} catch (e) {
@@ -108,9 +112,9 @@ EM_JS(void, webmcp_clear_context_js, (), {
 });
 
 // List tools registered by other page scripts (requires webmcp_client.js interceptor)
-EM_JS(const char*, webmcp_list_page_tools_js, (), {
+EM_JS(const char *, webmcp_list_page_tools_js, (), {
 	try {
-		if (typeof window !== 'undefined' && window.__duckdb_webmcp_catalog) {
+		if (typeof window != = 'undefined' && window.__duckdb_webmcp_catalog) {
 			var tools = window.__duckdb_webmcp_catalog.listTools();
 			var json = JSON.stringify(tools);
 			return stringToNewUTF8(json);
@@ -130,7 +134,7 @@ EM_JS(const char*, webmcp_list_page_tools_js, (), {
 extern "C" {
 
 EMSCRIPTEN_KEEPALIVE
-char* webmcp_handle_tool_call(const char *tool_name, const char *args_json) {
+char *webmcp_handle_tool_call(const char *tool_name, const char *args_json) {
 	using namespace duckdb;
 
 	auto *transport = GetActiveWebMCPTransport();
@@ -252,9 +256,8 @@ void WebMCPTransport::SyncTools() {
 		}
 	}
 	for (const auto &name : to_remove) {
-		registered_tool_names.erase(
-		    std::remove(registered_tool_names.begin(), registered_tool_names.end(), name),
-		    registered_tool_names.end());
+		registered_tool_names.erase(std::remove(registered_tool_names.begin(), registered_tool_names.end(), name),
+		                            registered_tool_names.end());
 	}
 
 	// Build set of already-registered names for quick lookup
@@ -314,9 +317,8 @@ void WebMCPTransport::SyncTools() {
 				// Determine read-only hint based on tool name
 				// query, describe, list_tables, database_info, read_resource = read-only
 				// export, execute = not read-only
-				bool read_only = (name == "query" || name == "describe" ||
-				                  name == "list_tables" || name == "database_info" ||
-				                  name == "read_resource" || name == "get_prompt");
+				bool read_only = (name == "query" || name == "describe" || name == "list_tables" ||
+				                  name == "database_info" || name == "read_resource" || name == "get_prompt");
 
 				if (RegisterWebMCPTool(name, description, schema_json, read_only)) {
 					registered_tool_names.push_back(name);
@@ -434,10 +436,9 @@ string WebMCPTransport::ListPageTools() {
 	return result;
 }
 
-bool WebMCPTransport::RegisterWebMCPTool(const string &name, const string &description,
-                                          const string &schema_json, bool read_only) {
-	return webmcp_register_tool_js(name.c_str(), description.c_str(),
-	                                schema_json.c_str(), read_only ? 1 : 0) == 1;
+bool WebMCPTransport::RegisterWebMCPTool(const string &name, const string &description, const string &schema_json,
+                                         bool read_only) {
+	return webmcp_register_tool_js(name.c_str(), description.c_str(), schema_json.c_str(), read_only ? 1 : 0) == 1;
 }
 
 void WebMCPTransport::UnregisterWebMCPTool(const string &name) {
@@ -453,7 +454,8 @@ void WebMCPTransport::RegisterResourceWrapper() {
 		description += "(none)";
 	} else {
 		for (size_t i = 0; i < resource_uris.size(); i++) {
-			if (i > 0) description += ", ";
+			if (i > 0)
+				description += ", ";
 			description += resource_uris[i];
 		}
 	}

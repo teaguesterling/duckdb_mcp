@@ -50,23 +50,23 @@ struct MCPServerConfig {
 	bool execute_allow_set = false;    // SET, VARIABLE_SET, PRAGMA
 
 	// CORS configuration
-	string cors_origins;                     // CORS origins: empty=disabled (default), "*"=wildcard, or comma-separated origins
+	string cors_origins; // CORS origins: empty=disabled (default), "*"=wildcard, or comma-separated origins
 
 	// Health endpoint configuration
-	bool enable_health_endpoint = true;      // Enable /health endpoint
-	bool auth_health_endpoint = false;       // Require auth for /health endpoint
+	bool enable_health_endpoint = true; // Enable /health endpoint
+	bool auth_health_endpoint = false;  // Require auth for /health endpoint
 
-	vector<string> allowed_queries;          // SQL query allowlist (empty = all allowed)
-	vector<string> denied_queries;           // SQL query denylist
-	string default_result_format = "json";   // Default format for query results ("json", "jsonl", "csv", "markdown")
-	uint32_t max_connections = 10;           // Maximum concurrent connections
-	uint32_t request_timeout_seconds = 30;   // Request timeout
-	uint32_t max_requests = 0;               // Maximum requests before shutdown (0 = unlimited)
-	bool background = false;                 // Run server in background thread (for testing)
-	bool require_auth = false;               // Authentication required
+	vector<string> allowed_queries;        // SQL query allowlist (empty = all allowed)
+	vector<string> denied_queries;         // SQL query denylist
+	string default_result_format = "json"; // Default format for query results ("json", "jsonl", "csv", "markdown")
+	uint32_t max_connections = 10;         // Maximum concurrent connections
+	uint32_t request_timeout_seconds = 30; // Request timeout
+	uint32_t max_requests = 0;             // Maximum requests before shutdown (0 = unlimited)
+	bool background = false;               // Run server in background thread (for testing)
+	bool require_auth = false;             // Authentication required
 
 	// Direct request gating (mcp_server_send_request)
-	bool allow_direct_requests = true;       // Allow SQL function to bypass HTTP auth
+	bool allow_direct_requests = true;           // Allow SQL function to bypass HTTP auth
 	bool allow_direct_requests_explicit = false; // Whether the user explicitly set this
 
 	DatabaseInstance *db_instance = nullptr; // DuckDB instance
@@ -189,7 +189,7 @@ private:
 #else
 	unique_ptr<WebMCPTransport> webmcp_transport; // For WebMCP browser transport (WASM only)
 #endif
-	unique_ptr<MCPTransport> test_transport;     // For testing with custom transports
+	unique_ptr<MCPTransport> test_transport; // For testing with custom transports
 
 	// Request handling
 #ifndef __EMSCRIPTEN__

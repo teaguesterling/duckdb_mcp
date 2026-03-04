@@ -218,13 +218,9 @@ bool StdioTransport::StartProcess() {
 
 		// Dangerous environment variable keys that must be blocked
 		// (even if user tries to set them via config.environment)
-		static const char *blocked_keys[] = {"LD_PRELOAD",
-		                                     "LD_LIBRARY_PATH",
-		                                     "LD_AUDIT",
-		                                     "DYLD_INSERT_LIBRARIES",
-		                                     "DYLD_LIBRARY_PATH",
-		                                     "DYLD_FRAMEWORK_PATH",
-		                                     nullptr};
+		static const char *blocked_keys[] = {
+		    "LD_PRELOAD",        "LD_LIBRARY_PATH",     "LD_AUDIT", "DYLD_INSERT_LIBRARIES",
+		    "DYLD_LIBRARY_PATH", "DYLD_FRAMEWORK_PATH", nullptr};
 
 		// Add user-supplied environment variables (from config), blocking dangerous ones
 		for (const auto &env_pair : config.environment) {

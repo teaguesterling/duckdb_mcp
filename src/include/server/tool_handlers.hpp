@@ -10,15 +10,12 @@ namespace duckdb {
 //! Uses conn.Prepare() to get the actual StatementType, then checks against
 //! allowed/denied type name lists (e.g., "SELECT", "INSERT", "DROP").
 //! Fails closed: unparseable queries are denied.
-bool IsQueryAllowedByType(DatabaseInstance &db, const string &query,
-                          const vector<string> &allowed_types,
+bool IsQueryAllowedByType(DatabaseInstance &db, const string &query, const vector<string> &allowed_types,
                           const vector<string> &denied_types);
 
 //! Check if a pre-parsed statement type is allowed by the allowlist/denylist.
 //! Use this overload when the StatementType is already known to avoid redundant Prepare() calls.
-bool IsQueryAllowedByType(StatementType type,
-                          const vector<string> &allowed_types,
-                          const vector<string> &denied_types);
+bool IsQueryAllowedByType(StatementType type, const vector<string> &allowed_types, const vector<string> &denied_types);
 
 //! Check if a statement type is read-only (suitable for the query/export/describe tools).
 //! Only SELECT and EXPLAIN are considered read-only.
@@ -221,8 +218,8 @@ private:
 // Execute tool handler - executes DDL/DML statements (INSERT, UPDATE, DELETE, CREATE, etc.)
 class ExecuteToolHandler : public ToolHandler {
 public:
-	ExecuteToolHandler(DatabaseInstance &db, bool allow_ddl = true, bool allow_dml = true,
-	                   bool allow_load = false, bool allow_attach = false, bool allow_set = false);
+	ExecuteToolHandler(DatabaseInstance &db, bool allow_ddl = true, bool allow_dml = true, bool allow_load = false,
+	                   bool allow_attach = false, bool allow_set = false);
 
 	CallToolResult Execute(const Value &arguments) override;
 	string GetName() const override {

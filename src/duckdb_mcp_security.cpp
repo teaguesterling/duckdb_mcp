@@ -253,24 +253,21 @@ MCPConnectionParams ParseMCPAttachParams(const AttachInfo &info) {
 			if (realpath(params.config_file_path.c_str(), resolved_requested) &&
 			    realpath(configured_file.c_str(), resolved_configured)) {
 				if (string(resolved_requested) != string(resolved_configured)) {
-					throw InvalidInputException(
-					    "from_config_file path does not match configured mcp_server_file. "
-					    "Set mcp_server_file to the desired config path first.");
+					throw InvalidInputException("from_config_file path does not match configured mcp_server_file. "
+					                            "Set mcp_server_file to the desired config path first.");
 				}
 			} else {
 				// If either path can't be resolved, compare the raw strings as a fallback
 				if (params.config_file_path != configured_file) {
-					throw InvalidInputException(
-					    "from_config_file path does not match configured mcp_server_file. "
-					    "Set mcp_server_file to the desired config path first.");
+					throw InvalidInputException("from_config_file path does not match configured mcp_server_file. "
+					                            "Set mcp_server_file to the desired config path first.");
 				}
 			}
 #else
 			// On Windows, fall back to simple string comparison
 			if (params.config_file_path != configured_file) {
-				throw InvalidInputException(
-				    "from_config_file path does not match configured mcp_server_file. "
-				    "Set mcp_server_file to the desired config path first.");
+				throw InvalidInputException("from_config_file path does not match configured mcp_server_file. "
+				                            "Set mcp_server_file to the desired config path first.");
 			}
 #endif
 
@@ -292,8 +289,8 @@ MCPConnectionParams ParseMCPAttachParams(const AttachInfo &info) {
 	// Try structured parameters with JSON parsing (new format)
 	// Note: DuckDB lowercases option names automatically
 	if (info.options.find("transport") != info.options.end() || info.options.find("command") != info.options.end() ||
-	    info.options.find("args") != info.options.end() ||
-	    info.options.find("cwd") != info.options.end() || info.options.find("env") != info.options.end()) {
+	    info.options.find("args") != info.options.end() || info.options.find("cwd") != info.options.end() ||
+	    info.options.find("env") != info.options.end()) {
 		// Resolve command: explicit COMMAND option takes priority over ATTACH path
 		if (info.options.find("command") != info.options.end()) {
 			auto cmd_value = info.options.at("command");

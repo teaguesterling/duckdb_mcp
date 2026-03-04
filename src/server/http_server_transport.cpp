@@ -145,9 +145,8 @@ void SetupRoutes(ServerType &server, const HTTPServerConfig &config,
 			// to avoid leaking internal details (stack traces, file paths, etc.)
 			(void)e; // Suppress unused variable warning; in production, log e.what() here
 			res.status = 500;
-			res.set_content(
-			    R"({"jsonrpc":"2.0","error":{"code":-32603,"message":"Internal server error"},"id":null})",
-			    "application/json");
+			res.set_content(R"({"jsonrpc":"2.0","error":{"code":-32603,"message":"Internal server error"},"id":null})",
+			                "application/json");
 		}
 	};
 

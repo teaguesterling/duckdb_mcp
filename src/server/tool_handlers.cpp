@@ -23,9 +23,7 @@ static string EscapeSQLString(const string &input) {
 // Shared Query Type Checking
 //===--------------------------------------------------------------------===//
 
-bool IsQueryAllowedByType(StatementType type,
-                          const vector<string> &allowed_types,
-                          const vector<string> &denied_types) {
+bool IsQueryAllowedByType(StatementType type, const vector<string> &allowed_types, const vector<string> &denied_types) {
 	// If no restrictions configured, allow everything
 	if (allowed_types.empty() && denied_types.empty()) {
 		return true;
@@ -53,8 +51,7 @@ bool IsQueryAllowedByType(StatementType type,
 	return true; // No allowlist restriction, and not in denylist
 }
 
-bool IsQueryAllowedByType(DatabaseInstance &db, const string &query,
-                          const vector<string> &allowed_types,
+bool IsQueryAllowedByType(DatabaseInstance &db, const string &query, const vector<string> &allowed_types,
                           const vector<string> &denied_types) {
 	// If no restrictions configured, allow everything
 	if (allowed_types.empty() && denied_types.empty()) {
@@ -215,8 +212,8 @@ CallToolResult QueryToolHandler::Execute(const Value &arguments) {
 
 		// Validate format
 		if (!ResultFormatter::IsFormatSupported(format)) {
-			return CallToolResult::Error("Unsupported format '" + format + "'. Supported formats: " +
-			                             ResultFormatter::GetSupportedFormatsList());
+			return CallToolResult::Error("Unsupported format '" + format +
+			                             "'. Supported formats: " + ResultFormatter::GetSupportedFormatsList());
 		}
 
 		// Enforce read-only: parse the statement and validate its type
@@ -343,13 +340,14 @@ Value DescribeToolHandler::DescribeTable(const string &table_name) const {
 			json += "\"type\":\"" + EscapeJsonString(chunk->GetValue(1, i).ToString()) + "\",";
 			json += "\"null\":\"" + EscapeJsonString(chunk->GetValue(2, i).ToString()) + "\",";
 			json += "\"key\":\"" + EscapeJsonString(chunk->GetValue(3, i).ToString()) + "\",";
-			json += "\"default\":" +
-			        (chunk->GetValue(4, i).IsNull() ? "null"
-			                                        : "\"" + EscapeJsonString(chunk->GetValue(4, i).ToString()) + "\"") +
-			        ",";
-			json += "\"extra\":" +
-			        (chunk->GetValue(5, i).IsNull() ? "null"
-			                                        : "\"" + EscapeJsonString(chunk->GetValue(5, i).ToString()) + "\"");
+			json +=
+			    "\"default\":" +
+			    (chunk->GetValue(4, i).IsNull() ? "null"
+			                                    : "\"" + EscapeJsonString(chunk->GetValue(4, i).ToString()) + "\"") +
+			    ",";
+			json += "\"extra\":" + (chunk->GetValue(5, i).IsNull()
+			                            ? "null"
+			                            : "\"" + EscapeJsonString(chunk->GetValue(5, i).ToString()) + "\"");
 			json += "}";
 		}
 	}
@@ -445,9 +443,9 @@ CallToolResult ExportToolHandler::Execute(const Value &arguments) {
 		if (output_path.empty()) {
 			// Inline return - all text formats supported
 			if (!ResultFormatter::IsFormatSupported(format)) {
-				return CallToolResult::Error("Unsupported format '" + format +
-				                             "' for inline return. Supported formats: " +
-				                             ResultFormatter::GetSupportedFormatsList());
+				return CallToolResult::Error(
+				    "Unsupported format '" + format +
+				    "' for inline return. Supported formats: " + ResultFormatter::GetSupportedFormatsList());
 			}
 		} else {
 			// File export - json, csv, and parquet supported
@@ -515,8 +513,7 @@ ToolInputSchema ExportToolHandler::GetInputSchema() const {
 	return schema;
 }
 
-string ExportToolHandler::ExportToFile(QueryResult &result, const string &format,
-                                       const string &output_path) const {
+string ExportToolHandler::ExportToFile(QueryResult &result, const string &format, const string &output_path) const {
 	try {
 		string safe_path = EscapeSQLString(output_path);
 
@@ -557,8 +554,8 @@ string ExportToolHandler::ExportToFile(QueryResult &result, const string &format
 		}
 
 		// COPY the temp table to file (no subquery = no double-execution)
-		string copy_query = "COPY " + temp_table + " TO '" + safe_path + "' (FORMAT " +
-		                    StringUtil::Upper(format) + (format == "csv" ? ", HEADER" : "") + ")";
+		string copy_query = "COPY " + temp_table + " TO '" + safe_path + "' (FORMAT " + StringUtil::Upper(format) +
+		                    (format == "csv" ? ", HEADER" : "") + ")";
 		auto copy_result = conn.Query(copy_query);
 		if (copy_result->HasError()) {
 			return "Export error: " + copy_result->GetError();
@@ -673,8 +670,7 @@ static string FormatArgumentValue(const string &key, const JSONArgumentParser &p
 				return std::to_string(numeric_val);
 			}
 		} catch (const std::exception &) {
-			throw InvalidInputException("Parameter '" + key + "' must be a valid " + param_type +
-			                            ", got: " + value);
+			throw InvalidInputException("Parameter '" + key + "' must be a valid " + param_type + ", got: " + value);
 		}
 	} else if (param_type == "boolean") {
 		// Validate boolean values strictly
@@ -1162,10 +1158,10 @@ Value DatabaseInfoToolHandler::GetExtensionsInfo() const {
 // ExecuteToolHandler Implementation
 //===--------------------------------------------------------------------===//
 
-ExecuteToolHandler::ExecuteToolHandler(DatabaseInstance &db, bool allow_ddl, bool allow_dml,
-                                       bool allow_load, bool allow_attach, bool allow_set)
-    : db_instance(db), allow_ddl(allow_ddl), allow_dml(allow_dml),
-      allow_load(allow_load), allow_attach(allow_attach), allow_set(allow_set) {
+ExecuteToolHandler::ExecuteToolHandler(DatabaseInstance &db, bool allow_ddl, bool allow_dml, bool allow_load,
+                                       bool allow_attach, bool allow_set)
+    : db_instance(db), allow_ddl(allow_ddl), allow_dml(allow_dml), allow_load(allow_load), allow_attach(allow_attach),
+      allow_set(allow_set) {
 }
 
 CallToolResult ExecuteToolHandler::Execute(const Value &arguments) {
