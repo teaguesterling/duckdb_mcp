@@ -33,7 +33,7 @@ CREATE SEQUENCE test_seq START 1;
 
 # Export nextval('test_seq') to a CSV file
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT nextval(''test_seq'') as val","format":"csv","output":"/tmp/mcp_test_double_exec.csv"}}}') LIKE '%Data exported%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT nextval(''test_seq'') as val","format":"csv","output":"__TEST_DIR__/mcp_test_double_exec.csv"}}}') LIKE '%Data exported%';
 ----
 true
 
@@ -61,13 +61,13 @@ true
 # =============================================================================
 
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT 100 as num, ''hello'' as txt","format":"csv","output":"/tmp/mcp_test_export_data.csv"}}}') LIKE '%Data exported%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT 100 as num, ''hello'' as txt","format":"csv","output":"__TEST_DIR__/mcp_test_export_data.csv"}}}') LIKE '%Data exported%';
 ----
 true
 
 # Verify the file content by reading it back
 query II
-SELECT * FROM read_csv('/tmp/mcp_test_export_data.csv');
+SELECT * FROM read_csv('__TEST_DIR__/mcp_test_export_data.csv');
 ----
 100	hello
 
@@ -77,13 +77,13 @@ SELECT * FROM read_csv('/tmp/mcp_test_export_data.csv');
 
 # Exporting to a non-writable path should return an error message (not generic "Failed to export")
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":40,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT 1","format":"csv","output":"/nonexistent_dir/test.csv"}}}') LIKE '%error%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":40,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT 1","format":"csv","output":"__TEST_DIR__/nonexistent_subdir/test.csv"}}}') LIKE '%error%';
 ----
 true
 
 # Verify it's NOT the old generic error message
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":41,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT 1","format":"csv","output":"/nonexistent_dir/test.csv"}}}') NOT LIKE '%Failed to export to file%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":41,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT 1","format":"csv","output":"__TEST_DIR__/nonexistent_subdir/test.csv"}}}') NOT LIKE '%Failed to export to file%';
 ----
 true
 
@@ -106,7 +106,7 @@ true
 
 # File export
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":51,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT nextval(''file_seq'') as val","format":"csv","output":"/tmp/mcp_test_seq_parity.csv"}}}') LIKE '%Data exported%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":51,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT nextval(''file_seq'') as val","format":"csv","output":"__TEST_DIR__/mcp_test_seq_parity.csv"}}}') LIKE '%Data exported%';
 ----
 true
 
