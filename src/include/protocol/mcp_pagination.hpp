@@ -58,6 +58,7 @@ struct MCPPaginationParams {
 // MCP pagination iterator for client use
 class MCPPaginationIterator {
 private:
+	shared_ptr<class MCPConnection> connection;
 	string server_name;
 	string method_name; // "resources/list", "prompts/list", "tools/list"
 	MCPPaginationParams params;
@@ -66,8 +67,9 @@ private:
 	bool is_finished;
 
 public:
-	MCPPaginationIterator(const string &server, const string &method);
-	MCPPaginationIterator(const string &server, const string &method, const string &cursor);
+	MCPPaginationIterator(shared_ptr<MCPConnection> conn, const string &server, const string &method);
+	MCPPaginationIterator(shared_ptr<MCPConnection> conn, const string &server, const string &method,
+	                       const string &cursor);
 
 	// Iterator interface
 	bool HasNext() const;

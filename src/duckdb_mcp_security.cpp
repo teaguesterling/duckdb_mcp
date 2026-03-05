@@ -1,4 +1,5 @@
 #include "duckdb_mcp_security.hpp"
+#include "mcp_instance_state.hpp"
 #ifndef __EMSCRIPTEN__
 #include "client/mcp_storage_extension.hpp"
 #endif
@@ -232,7 +233,7 @@ static string YyjsonValToString(yyjson_val *val, const char *context) {
 	}
 }
 
-MCPConnectionParams ParseMCPAttachParams(const AttachInfo &info) {
+MCPConnectionParams ParseMCPAttachParams(DatabaseInstance &db, const AttachInfo &info) {
 	MCPConnectionParams params;
 
 	// Check for config file mode first
@@ -244,7 +245,7 @@ MCPConnectionParams ParseMCPAttachParams(const AttachInfo &info) {
 
 			// Security: Validate that the config file path matches the configured mcp_server_file.
 			// This prevents attackers from using from_config_file to load arbitrary config files.
-			auto &sec = MCPSecurityConfig::GetInstance();
+			auto &sec = MCPInstanceState::Get(db).security;
 			string configured_file = sec.GetServerFile();
 #ifndef _WIN32
 			char resolved_requested[PATH_MAX];
@@ -275,7 +276,7 @@ MCPConnectionParams ParseMCPAttachParams(const AttachInfo &info) {
 #endif
 
 			// Load parameters from config file
-			auto config_params = ParseMCPConfigFile(params.config_file_path, params.server_name);
+			auto config_params = ParseMCPConfigFile(db, params.config_file_path, params.server_name);
 
 			// Override with any explicitly provided parameters
 			if (info.options.find("transport") != info.options.end()) {
@@ -411,13 +412,13 @@ MCPConnectionParams ParseMCPAttachParams(const AttachInfo &info) {
 	}
 
 	// CRITICAL: Validate security immediately after parsing (before any connection attempts)
-	auto &security = MCPSecurityConfig::GetInstance();
-	security.ValidateAttachSecurity(params.command, params.args);
+	MCPInstanceState::Get(db).security.ValidateAttachSecurity(params.command, params.args);
 
 	return params;
 }
 
-MCPConnectionParams ParseMCPConfigFile(const string &config_file_path, const string &server_name) {
+MCPConnectionParams ParseMCPConfigFile(DatabaseInstance &db, const string &config_file_path,
+                                       const string &server_name) {
 	MCPConnectionParams params;
 
 	try {
@@ -524,8 +525,7 @@ MCPConnectionParams ParseMCPConfigFile(const string &config_file_path, const str
 	}
 
 	// CRITICAL: Validate security for config file parameters
-	auto &security = MCPSecurityConfig::GetInstance();
-	security.ValidateAttachSecurity(params.command, params.args);
+	MCPInstanceState::Get(db).security.ValidateAttachSecurity(params.command, params.args);
 
 	return params;
 }

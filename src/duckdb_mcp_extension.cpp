@@ -3,6 +3,7 @@
 #include "duckdb_mcp_config.hpp"
 #include "duckdb_mcp_security.hpp"
 #include "duckdb_mcp_logging.hpp"
+#include "mcp_instance_state.hpp"
 #include "json_utils.hpp"
 #include "yyjson.hpp"
 #include <cstdlib>
@@ -49,6 +50,7 @@ static void MCPGetResourceFunction(DataChunk &args, ExpressionState &state, Vect
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	auto result_data = FlatVector::GetData<string_t>(result);
 	auto &result_validity = FlatVector::Validity(result);
+	auto &registry = MCPInstanceState::Get(state.GetContext()).connection_registry;
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		if (server_vector.GetValue(i).IsNull() || resource_vector.GetValue(i).IsNull()) {
@@ -61,7 +63,7 @@ static void MCPGetResourceFunction(DataChunk &args, ExpressionState &state, Vect
 
 		try {
 			// Get connection from registry
-			auto connection = MCPConnectionRegistry::GetInstance().GetConnection(server_name);
+			auto connection = registry.GetConnection(server_name);
 			if (!connection) {
 				throw InvalidInputException("MCP server not attached: " + server_name);
 			}
@@ -97,6 +99,7 @@ static void MCPListResourcesFunction(DataChunk &args, ExpressionState &state, Ve
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	auto result_data = FlatVector::GetData<string_t>(result);
 	auto &result_validity = FlatVector::Validity(result);
+	auto &registry = MCPInstanceState::Get(state.GetContext()).connection_registry;
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		if (server_vector.GetValue(i).IsNull()) {
@@ -108,7 +111,7 @@ static void MCPListResourcesFunction(DataChunk &args, ExpressionState &state, Ve
 
 		try {
 			// Get connection from registry
-			auto connection = MCPConnectionRegistry::GetInstance().GetConnection(server_name);
+			auto connection = registry.GetConnection(server_name);
 			if (!connection) {
 				throw InvalidInputException("MCP server not attached: " + server_name);
 			}
@@ -145,6 +148,7 @@ static void MCPCallToolFunction(DataChunk &args, ExpressionState &state, Vector 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	auto result_data = FlatVector::GetData<string_t>(result);
 	auto &result_validity = FlatVector::Validity(result);
+	auto &registry = MCPInstanceState::Get(state.GetContext()).connection_registry;
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		if (server_vector.GetValue(i).IsNull() || tool_vector.GetValue(i).IsNull()) {
@@ -158,7 +162,7 @@ static void MCPCallToolFunction(DataChunk &args, ExpressionState &state, Vector 
 
 		try {
 			// Get connection from registry
-			auto connection = MCPConnectionRegistry::GetInstance().GetConnection(server_name);
+			auto connection = registry.GetConnection(server_name);
 			if (!connection) {
 				throw InvalidInputException("MCP server not attached: " + server_name);
 			}
@@ -200,6 +204,7 @@ static void MCPListToolsFunction(DataChunk &args, ExpressionState &state, Vector
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	auto result_data = FlatVector::GetData<string_t>(result);
 	auto &result_validity = FlatVector::Validity(result);
+	auto &registry = MCPInstanceState::Get(state.GetContext()).connection_registry;
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		if (server_vector.GetValue(i).IsNull()) {
@@ -211,7 +216,7 @@ static void MCPListToolsFunction(DataChunk &args, ExpressionState &state, Vector
 
 		try {
 			// Get connection from registry
-			auto connection = MCPConnectionRegistry::GetInstance().GetConnection(server_name);
+			auto connection = registry.GetConnection(server_name);
 			if (!connection) {
 				throw InvalidInputException("MCP server not attached: " + server_name);
 			}
@@ -246,6 +251,7 @@ static void MCPListPromptsFunction(DataChunk &args, ExpressionState &state, Vect
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	auto result_data = FlatVector::GetData<string_t>(result);
 	auto &result_validity = FlatVector::Validity(result);
+	auto &registry = MCPInstanceState::Get(state.GetContext()).connection_registry;
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		if (server_vector.GetValue(i).IsNull()) {
@@ -257,7 +263,7 @@ static void MCPListPromptsFunction(DataChunk &args, ExpressionState &state, Vect
 
 		try {
 			// Get connection from registry
-			auto connection = MCPConnectionRegistry::GetInstance().GetConnection(server_name);
+			auto connection = registry.GetConnection(server_name);
 			if (!connection) {
 				throw InvalidInputException("MCP server not attached: " + server_name);
 			}
@@ -294,6 +300,7 @@ static void MCPGetPromptFunction(DataChunk &args, ExpressionState &state, Vector
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	auto result_data = FlatVector::GetData<string_t>(result);
 	auto &result_validity = FlatVector::Validity(result);
+	auto &registry = MCPInstanceState::Get(state.GetContext()).connection_registry;
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		if (server_vector.GetValue(i).IsNull() || prompt_vector.GetValue(i).IsNull()) {
@@ -307,7 +314,7 @@ static void MCPGetPromptFunction(DataChunk &args, ExpressionState &state, Vector
 
 		try {
 			// Get connection from registry
-			auto connection = MCPConnectionRegistry::GetInstance().GetConnection(server_name);
+			auto connection = registry.GetConnection(server_name);
 			if (!connection) {
 				throw InvalidInputException("MCP server not attached: " + server_name);
 			}
@@ -348,6 +355,7 @@ static void MCPReconnectServerFunction(DataChunk &args, ExpressionState &state, 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	auto result_data = FlatVector::GetData<string_t>(result);
 	auto &result_validity = FlatVector::Validity(result);
+	auto &registry = MCPInstanceState::Get(state.GetContext()).connection_registry;
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		if (server_vector.GetValue(i).IsNull()) {
@@ -359,7 +367,7 @@ static void MCPReconnectServerFunction(DataChunk &args, ExpressionState &state, 
 
 		try {
 			// Get connection from registry
-			auto connection = MCPConnectionRegistry::GetInstance().GetConnection(server_name);
+			auto connection = registry.GetConnection(server_name);
 			if (!connection) {
 				result_data[i] = StringVector::AddString(result, "ERROR: MCP server not found: " + server_name);
 				continue;
@@ -400,6 +408,7 @@ static void MCPServerHealthFunction(DataChunk &args, ExpressionState &state, Vec
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	auto result_data = FlatVector::GetData<string_t>(result);
 	auto &result_validity = FlatVector::Validity(result);
+	auto &registry = MCPInstanceState::Get(state.GetContext()).connection_registry;
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		if (server_vector.GetValue(i).IsNull()) {
@@ -411,7 +420,7 @@ static void MCPServerHealthFunction(DataChunk &args, ExpressionState &state, Vec
 
 		try {
 			// Get connection from registry
-			auto connection = MCPConnectionRegistry::GetInstance().GetConnection(server_name);
+			auto connection = registry.GetConnection(server_name);
 			if (!connection) {
 				result_data[i] = StringVector::AddString(result, "ERROR: MCP server not found: " + server_name);
 				continue;
@@ -507,13 +516,13 @@ static Value MCPServerStartCore(ClientContext &context, const string &transport,
 		auto &db_instance = DatabaseInstance::GetDatabase(context);
 
 		// Check if serving is disabled
-		auto &security = MCPSecurityConfig::GetInstance();
+		auto &security = MCPInstanceState::Get(db_instance).security;
 		if (security.IsServingDisabled()) {
 			return CreateMCPStatus(false, false, "MCP server functionality is disabled (mcp_disable_serving=true)");
 		}
 
 		// Check if server is already running
-		auto &server_manager = MCPServerManager::GetInstance();
+		auto &server_manager = MCPInstanceState::Get(db_instance).server_manager;
 		if (server_manager.IsServerRunning()) {
 			return CreateMCPStatus(false, true, "MCP server is already running. Stop it first with mcp_server_stop()",
 			                       transport, bind_address, port, true);
@@ -771,7 +780,7 @@ static Value CreateConfigModeStatus() {
 static void MCPServerStartSimpleFunction(DataChunk &args, ExpressionState &state, Vector &result) {
 	auto &transport_vector = args.data[0];
 	auto &context = state.GetContext();
-	bool suppress = MCPConfigManager::IsConfigMode(DatabaseInstance::GetDatabase(context));
+	bool suppress = MCPInstanceState::Get(DatabaseInstance::GetDatabase(context)).config.config_mode;
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		string transport = transport_vector.GetValue(i).IsNull() ? "stdio" : transport_vector.GetValue(i).ToString();
@@ -785,7 +794,7 @@ static void MCPServerStartConfigFunction(DataChunk &args, ExpressionState &state
 	auto &transport_vector = args.data[0];
 	auto &config_json_vector = args.data[1];
 	auto &context = state.GetContext();
-	bool suppress = MCPConfigManager::IsConfigMode(DatabaseInstance::GetDatabase(context));
+	bool suppress = MCPInstanceState::Get(DatabaseInstance::GetDatabase(context)).config.config_mode;
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		string transport = transport_vector.GetValue(i).IsNull() ? "stdio" : transport_vector.GetValue(i).ToString();
@@ -802,7 +811,7 @@ static void MCPServerStartFunction(DataChunk &args, ExpressionState &state, Vect
 	auto &port_vector = args.data[2];
 	auto &config_json_vector = args.data[3];
 	auto &context = state.GetContext();
-	bool suppress = MCPConfigManager::IsConfigMode(DatabaseInstance::GetDatabase(context));
+	bool suppress = MCPInstanceState::Get(DatabaseInstance::GetDatabase(context)).config.config_mode;
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		string transport = transport_vector.GetValue(i).IsNull() ? "stdio" : transport_vector.GetValue(i).ToString();
@@ -816,9 +825,9 @@ static void MCPServerStartFunction(DataChunk &args, ExpressionState &state, Vect
 }
 
 // Core implementation for stopping MCP server
-static Value MCPServerStopCore(bool force) {
+static Value MCPServerStopCore(DatabaseInstance &db, bool force) {
 	try {
-		auto &server_manager = MCPServerManager::GetInstance();
+		auto &server_manager = MCPInstanceState::Get(db).server_manager;
 
 		bool was_running = server_manager.IsServerRunning();
 		if (was_running) {
@@ -841,9 +850,10 @@ static Value MCPServerStopCore(bool force) {
 
 // Stop MCP server (no parameters - returns error if not running)
 static void MCPServerStopFunction(DataChunk &args, ExpressionState &state, Vector &result) {
-	bool suppress = MCPConfigManager::IsConfigMode(DatabaseInstance::GetDatabase(state.GetContext()));
+	auto &db = DatabaseInstance::GetDatabase(state.GetContext());
+	bool suppress = MCPInstanceState::Get(db).config.config_mode;
 	for (idx_t i = 0; i < args.size(); i++) {
-		Value status = MCPServerStopCore(false);
+		Value status = MCPServerStopCore(db, false);
 		result.SetValue(i, suppress ? CreateConfigModeStatus() : status);
 	}
 }
@@ -851,21 +861,22 @@ static void MCPServerStopFunction(DataChunk &args, ExpressionState &state, Vecto
 // Stop MCP server with force option - always succeeds, ensures clean state
 static void MCPServerStopForceFunction(DataChunk &args, ExpressionState &state, Vector &result) {
 	auto &force_vector = args.data[0];
-	bool suppress = MCPConfigManager::IsConfigMode(DatabaseInstance::GetDatabase(state.GetContext()));
+	auto &db = DatabaseInstance::GetDatabase(state.GetContext());
+	bool suppress = MCPInstanceState::Get(db).config.config_mode;
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		bool force = force_vector.GetValue(i).IsNull() ? false : force_vector.GetValue(i).GetValue<bool>();
-		Value status = MCPServerStopCore(force);
+		Value status = MCPServerStopCore(db, force);
 		result.SetValue(i, suppress ? CreateConfigModeStatus() : status);
 	}
 }
 
 // Get MCP server status
 static void MCPServerStatusFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	auto &server_manager = MCPInstanceState::Get(state.GetContext()).server_manager;
+
 	for (idx_t i = 0; i < args.size(); i++) {
 		try {
-			auto &server_manager = MCPServerManager::GetInstance();
-
 			if (!server_manager.IsServerRunning()) {
 				result.SetValue(i, CreateMCPStatus(true, false, "Server is stopped"));
 				continue;
@@ -947,11 +958,11 @@ static void MCPServerSendRequestFunction(DataChunk &args, ExpressionState &state
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	auto result_data = FlatVector::GetData<string_t>(result);
+	auto &server_manager = MCPInstanceState::Get(state.GetContext()).server_manager;
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		try {
 			// Check if a server is running
-			auto &server_manager = MCPServerManager::GetInstance();
 			if (!server_manager.IsServerRunning()) {
 				result_data[i] = StringVector::AddString(
 				    result,
@@ -1014,7 +1025,7 @@ static string MCPPublishTableCore(ClientContext &context, const string &table_na
 		return "ERROR: Table '" + table_name + "' not found";
 	}
 
-	auto &server_manager = MCPServerManager::GetInstance();
+	auto &server_manager = MCPInstanceState::Get(db_instance).server_manager;
 
 	if (!server_manager.IsServerRunning()) {
 		PendingResourceRegistration reg;
@@ -1046,7 +1057,7 @@ static void MCPPublishTableFunction(DataChunk &args, ExpressionState &state, Vec
 	auto &table_vector = args.data[0];
 	auto &uri_vector = args.data[1];
 	auto &format_vector = args.data[2];
-	bool suppress = MCPConfigManager::IsConfigMode(DatabaseInstance::GetDatabase(state.GetContext()));
+	bool suppress = MCPInstanceState::Get(state.GetContext()).config.config_mode;
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	auto result_data = FlatVector::GetData<string_t>(result);
@@ -1075,7 +1086,7 @@ static string MCPPublishQueryCore(ClientContext &context, const string &query, c
 	}
 
 	auto &db_instance = DatabaseInstance::GetDatabase(context);
-	auto &server_manager = MCPServerManager::GetInstance();
+	auto &server_manager = MCPInstanceState::Get(db_instance).server_manager;
 
 	if (!server_manager.IsServerRunning()) {
 		PendingResourceRegistration reg;
@@ -1109,7 +1120,7 @@ static void MCPPublishQueryFunction(DataChunk &args, ExpressionState &state, Vec
 	auto &uri_vector = args.data[1];
 	auto &format_vector = args.data[2];
 	auto &refresh_vector = args.data[3];
-	bool suppress = MCPConfigManager::IsConfigMode(DatabaseInstance::GetDatabase(state.GetContext()));
+	bool suppress = MCPInstanceState::Get(state.GetContext()).config.config_mode;
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	auto result_data = FlatVector::GetData<string_t>(result);
@@ -1130,11 +1141,11 @@ static void MCPPublishQueryFunction(DataChunk &args, ExpressionState &state, Vec
 }
 
 // Core implementation for publishing static content as MCP resource
-static string MCPPublishResourceCore(const string &resource_uri, const string &content,
+static string MCPPublishResourceCore(DatabaseInstance &db, const string &resource_uri, const string &content,
                                      const string &mime_type_in, const string &description) {
 	string mime_type = mime_type_in.empty() ? "text/plain" : mime_type_in;
 
-	auto &server_manager = MCPServerManager::GetInstance();
+	auto &server_manager = MCPInstanceState::Get(db).server_manager;
 
 	if (!server_manager.IsServerRunning()) {
 		PendingResourceRegistration reg;
@@ -1166,7 +1177,8 @@ static void MCPPublishResourceFunction(DataChunk &args, ExpressionState &state, 
 	auto &content_vector = args.data[1];
 	auto &mime_type_vector = args.data[2];
 	auto &description_vector = args.data[3];
-	bool suppress = MCPConfigManager::IsConfigMode(DatabaseInstance::GetDatabase(state.GetContext()));
+	auto &db = DatabaseInstance::GetDatabase(state.GetContext());
+	bool suppress = MCPInstanceState::Get(db).config.config_mode;
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	auto result_data = FlatVector::GetData<string_t>(result);
@@ -1179,7 +1191,7 @@ static void MCPPublishResourceFunction(DataChunk &args, ExpressionState &state, 
 			    mime_type_vector.GetValue(i).IsNull() ? "" : mime_type_vector.GetValue(i).ToString();
 			string description =
 			    description_vector.GetValue(i).IsNull() ? "" : description_vector.GetValue(i).ToString();
-			string msg = MCPPublishResourceCore(resource_uri, content, mime_type, description);
+			string msg = MCPPublishResourceCore(db, resource_uri, content, mime_type, description);
 			result_data[i] = StringVector::AddString(result, suppress ? "" : msg);
 		} catch (const std::exception &e) {
 			result_data[i] = StringVector::AddString(result, suppress ? "" : "ERROR: " + string(e.what()));
@@ -1200,7 +1212,7 @@ static string MCPPublishToolCore(ClientContext &context, const string &tool_name
 	}
 
 	auto &db_instance = DatabaseInstance::GetDatabase(context);
-	auto &server_manager = MCPServerManager::GetInstance();
+	auto &server_manager = MCPInstanceState::Get(db_instance).server_manager;
 
 	if (!server_manager.IsServerRunning()) {
 		PendingToolRegistration reg;
@@ -1235,7 +1247,7 @@ static void MCPPublishToolFunction(DataChunk &args, ExpressionState &state, Vect
 	auto &sql_vector = args.data[2];
 	auto &props_vector = args.data[3];
 	auto &required_vector = args.data[4];
-	bool suppress = MCPConfigManager::IsConfigMode(DatabaseInstance::GetDatabase(state.GetContext()));
+	bool suppress = MCPInstanceState::Get(state.GetContext()).config.config_mode;
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	auto result_data = FlatVector::GetData<string_t>(result);
@@ -1264,7 +1276,7 @@ static void MCPPublishToolWithFormatFunction(DataChunk &args, ExpressionState &s
 	auto &props_vector = args.data[3];
 	auto &required_vector = args.data[4];
 	auto &format_vector = args.data[5];
-	bool suppress = MCPConfigManager::IsConfigMode(DatabaseInstance::GetDatabase(state.GetContext()));
+	bool suppress = MCPInstanceState::Get(state.GetContext()).config.config_mode;
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	auto result_data = FlatVector::GetData<string_t>(result);
@@ -1347,8 +1359,7 @@ static void MCPGetDiagnosticsFunction(DataChunk &args, ExpressionState &state, V
 // Callback functions for MCP configuration settings
 #ifndef __EMSCRIPTEN__
 static void SetAllowedMCPCommands(ClientContext &context, SetScope scope, Value &parameter) {
-	auto &security = MCPSecurityConfig::GetInstance();
-	security.SetAllowedCommands(parameter.ToString());
+	MCPInstanceState::Get(context).security.SetAllowedCommands(parameter.ToString());
 }
 #endif
 
@@ -1384,26 +1395,20 @@ static void SetMCPConsoleLogging(ClientContext &context, SetScope scope, Value &
 
 #ifndef __EMSCRIPTEN__
 static void SetAllowedMCPUrls(ClientContext &context, SetScope scope, Value &parameter) {
-	auto &security = MCPSecurityConfig::GetInstance();
-	security.SetAllowedUrls(parameter.ToString());
+	MCPInstanceState::Get(context).security.SetAllowedUrls(parameter.ToString());
 }
 
 static void SetMCPServerFile(ClientContext &context, SetScope scope, Value &parameter) {
-	auto &security = MCPSecurityConfig::GetInstance();
-	security.SetServerFile(parameter.ToString());
+	MCPInstanceState::Get(context).security.SetServerFile(parameter.ToString());
 }
 
 static void SetMCPLockServers(ClientContext &context, SetScope scope, Value &parameter) {
-	auto &security = MCPSecurityConfig::GetInstance();
-	bool lock = parameter.GetValue<bool>();
-	security.LockServers(lock);
+	MCPInstanceState::Get(context).security.LockServers(parameter.GetValue<bool>());
 }
 #endif
 
 static void SetMCPDisableServing(ClientContext &context, SetScope scope, Value &parameter) {
-	auto &security = MCPSecurityConfig::GetInstance();
-	bool disable = parameter.GetValue<bool>();
-	security.SetServingDisabled(disable);
+	MCPInstanceState::Get(context).security.SetServingDisabled(parameter.GetValue<bool>());
 }
 
 #ifndef __EMSCRIPTEN__
@@ -1417,6 +1422,7 @@ static void MCPListResourcesWithCursorFunction(DataChunk &args, ExpressionState 
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	auto result_data = FlatVector::GetData<string_t>(result);
+	auto &registry = MCPInstanceState::Get(state.GetContext()).connection_registry;
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		if (server_vector.GetValue(i).IsNull()) {
@@ -1428,7 +1434,7 @@ static void MCPListResourcesWithCursorFunction(DataChunk &args, ExpressionState 
 		string cursor = cursor_vector.GetValue(i).IsNull() ? "" : cursor_vector.GetValue(i).ToString();
 
 		try {
-			auto connection = MCPConnectionRegistry::GetInstance().GetConnection(server_name);
+			auto connection = registry.GetConnection(server_name);
 			if (!connection) {
 				throw InvalidInputException("MCP server not attached: " + server_name);
 			}
@@ -1461,6 +1467,7 @@ static void MCPListToolsWithCursorFunction(DataChunk &args, ExpressionState &sta
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	auto result_data = FlatVector::GetData<string_t>(result);
+	auto &registry = MCPInstanceState::Get(state.GetContext()).connection_registry;
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		if (server_vector.GetValue(i).IsNull()) {
@@ -1472,7 +1479,7 @@ static void MCPListToolsWithCursorFunction(DataChunk &args, ExpressionState &sta
 		string cursor = cursor_vector.GetValue(i).IsNull() ? "" : cursor_vector.GetValue(i).ToString();
 
 		try {
-			auto connection = MCPConnectionRegistry::GetInstance().GetConnection(server_name);
+			auto connection = registry.GetConnection(server_name);
 			if (!connection) {
 				throw InvalidInputException("MCP server not attached: " + server_name);
 			}
@@ -1505,6 +1512,7 @@ static void MCPListPromptsWithCursorFunction(DataChunk &args, ExpressionState &s
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	auto result_data = FlatVector::GetData<string_t>(result);
+	auto &registry = MCPInstanceState::Get(state.GetContext()).connection_registry;
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		if (server_vector.GetValue(i).IsNull()) {
@@ -1516,7 +1524,7 @@ static void MCPListPromptsWithCursorFunction(DataChunk &args, ExpressionState &s
 		string cursor = cursor_vector.GetValue(i).IsNull() ? "" : cursor_vector.GetValue(i).ToString();
 
 		try {
-			auto connection = MCPConnectionRegistry::GetInstance().GetConnection(server_name);
+			auto connection = registry.GetConnection(server_name);
 			if (!connection) {
 				throw InvalidInputException("MCP server not attached: " + server_name);
 			}
@@ -1547,10 +1555,10 @@ static void MCPListPromptsWithCursorFunction(DataChunk &args, ExpressionState &s
 // MCP Template Functions
 
 // Core implementation for registering a prompt template
-static string MCPRegisterPromptTemplateCore(const string &name, const string &description,
+static string MCPRegisterPromptTemplateCore(DatabaseInstance &db, const string &name, const string &description,
                                             const string &template_content) {
 	MCPTemplate template_def(name, description, template_content);
-	auto &manager = MCPTemplateManager::GetInstance();
+	auto &manager = MCPInstanceState::Get(db).template_manager;
 	manager.RegisterTemplate(template_def);
 	return "Template registered: " + name;
 }
@@ -1559,7 +1567,8 @@ static void MCPRegisterPromptTemplateFunction(DataChunk &args, ExpressionState &
 	auto &name_vector = args.data[0];
 	auto &description_vector = args.data[1];
 	auto &template_vector = args.data[2];
-	bool suppress = MCPConfigManager::IsConfigMode(DatabaseInstance::GetDatabase(state.GetContext()));
+	auto &db = DatabaseInstance::GetDatabase(state.GetContext());
+	bool suppress = MCPInstanceState::Get(db).config.config_mode;
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	auto result_data = FlatVector::GetData<string_t>(result);
@@ -1573,7 +1582,7 @@ static void MCPRegisterPromptTemplateFunction(DataChunk &args, ExpressionState &
 		}
 
 		try {
-			string msg = MCPRegisterPromptTemplateCore(name_vector.GetValue(i).ToString(),
+			string msg = MCPRegisterPromptTemplateCore(db, name_vector.GetValue(i).ToString(),
 			                                           description_vector.GetValue(i).ToString(),
 			                                           template_vector.GetValue(i).ToString());
 			result_data[i] = StringVector::AddString(result, suppress ? "" : msg);
@@ -1589,7 +1598,7 @@ static void MCPListPromptTemplatesFunction(DataChunk &args, ExpressionState &sta
 	auto &result_validity = FlatVector::Validity(result);
 
 	try {
-		auto &manager = MCPTemplateManager::GetInstance();
+		auto &manager = MCPInstanceState::Get(state.GetContext()).template_manager;
 		auto templates = manager.ListTemplates();
 
 		// Create JSON array of templates
@@ -1633,6 +1642,7 @@ static void MCPRenderPromptTemplateFunction(DataChunk &args, ExpressionState &st
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	auto result_data = FlatVector::GetData<string_t>(result);
 	auto &result_validity = FlatVector::Validity(result);
+	auto &template_manager = MCPInstanceState::Get(state.GetContext()).template_manager;
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		if (name_vector.GetValue(i).IsNull()) {
@@ -1665,8 +1675,7 @@ static void MCPRenderPromptTemplateFunction(DataChunk &args, ExpressionState &st
 		}
 
 		try {
-			auto &manager = MCPTemplateManager::GetInstance();
-			string rendered = manager.RenderTemplate(name, template_args);
+			string rendered = template_manager.RenderTemplate(name, template_args);
 			result_data[i] = StringVector::AddString(result, rendered);
 
 		} catch (const std::exception &e) {
@@ -1682,10 +1691,10 @@ static void MCPRenderPromptTemplateFunction(DataChunk &args, ExpressionState &st
 static void MCPWebMCPSyncFunction(DataChunk &args, ExpressionState &state, Vector &result) {
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 	auto result_data = FlatVector::GetData<string_t>(result);
+	auto &server_manager = MCPInstanceState::Get(state.GetContext()).server_manager;
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		try {
-			auto &server_manager = MCPServerManager::GetInstance();
 			if (!server_manager.IsServerRunning()) {
 				result_data[i] = StringVector::AddString(result, "ERROR: No MCP server running");
 				continue;
@@ -1749,12 +1758,12 @@ static void PragmaMCPServerStartFull(ClientContext &context, const FunctionParam
 
 // PRAGMA mcp_server_stop()
 static void PragmaMCPServerStop(ClientContext &context, const FunctionParameters &params) {
-	MCPServerStopCore(false);
+	MCPServerStopCore(DatabaseInstance::GetDatabase(context), false);
 }
 
 // PRAGMA mcp_server_stop(force)
 static void PragmaMCPServerStopForce(ClientContext &context, const FunctionParameters &params) {
-	MCPServerStopCore(params.values[0].GetValue<bool>());
+	MCPServerStopCore(DatabaseInstance::GetDatabase(context), params.values[0].GetValue<bool>());
 }
 
 // PRAGMA mcp_publish_tool(name, description, sql_template, properties_json, required_json)
@@ -1794,26 +1803,28 @@ static void PragmaMCPPublishQueryFull(ClientContext &context, const FunctionPara
 
 // PRAGMA mcp_publish_resource('uri', 'content', 'mime_type', 'description')
 static void PragmaMCPPublishResource(ClientContext &context, const FunctionParameters &params) {
-	MCPPublishResourceCore(params.values[0].ToString(), params.values[1].ToString(), params.values[2].ToString(),
+	auto &db = DatabaseInstance::GetDatabase(context);
+	MCPPublishResourceCore(db, params.values[0].ToString(), params.values[1].ToString(), params.values[2].ToString(),
 	                       params.values[3].ToString());
 }
 
 // PRAGMA mcp_register_prompt_template('name', 'description', 'template')
 static void PragmaMCPRegisterPromptTemplate(ClientContext &context, const FunctionParameters &params) {
-	MCPRegisterPromptTemplateCore(params.values[0].ToString(), params.values[1].ToString(),
+	auto &db = DatabaseInstance::GetDatabase(context);
+	MCPRegisterPromptTemplateCore(db, params.values[0].ToString(), params.values[1].ToString(),
 	                              params.values[2].ToString());
 }
 
 // PRAGMA mcp_config_begin — suppress output from MCP scalar functions
 static void PragmaMCPConfigBegin(ClientContext &context, const FunctionParameters &params) {
 	auto &db = DatabaseInstance::GetDatabase(context);
-	MCPConfigManager::SetConfigMode(db, true);
+	MCPInstanceState::Get(db).config.config_mode = true;
 }
 
 // PRAGMA mcp_config_end — re-enable output from MCP scalar functions
 static void PragmaMCPConfigEnd(ClientContext &context, const FunctionParameters &params) {
 	auto &db = DatabaseInstance::GetDatabase(context);
-	MCPConfigManager::SetConfigMode(db, false);
+	MCPInstanceState::Get(db).config.config_mode = false;
 }
 
 static void LoadInternal(ExtensionLoader &loader) {
@@ -1823,7 +1834,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 #ifndef __EMSCRIPTEN__
 	// Register MCPFS file system
 	auto &fs = FileSystem::GetFileSystem(db);
-	fs.RegisterSubSystem(make_uniq<MCPFileSystem>());
+	fs.RegisterSubSystem(make_uniq<MCPFileSystem>(db));
 
 	// Register MCP storage extension for ATTACH support
 #ifdef DUCKDB_V15
@@ -1852,7 +1863,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                          Value(""), SetMCPLogFile);
 
 	// Initialize default security settings only if not already configured.
-	auto &security = MCPSecurityConfig::GetInstance();
+	auto &security = MCPInstanceState::Get(db).security;
 	if (!security.AreCommandsLocked()) {
 		security.SetAllowedUrls("");
 		security.SetServerFile("./.mcp.json");

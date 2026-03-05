@@ -79,7 +79,7 @@ true
 # SQL injection via output_path containing single quotes
 # This would have broken out of the COPY TO '...' string
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT 1","format":"csv","output":"/tmp/test''; DROP TABLE drop_target; --"}}}') NOT LIKE '%success%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT 1","format":"csv","output":"__TEST_DIR__/test''; DROP TABLE drop_target; --"}}}') NOT LIKE '%success%';
 ----
 true
 

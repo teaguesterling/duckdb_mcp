@@ -1,4 +1,5 @@
 #include "client/mcp_storage_extension.hpp"
+#include "mcp_instance_state.hpp"
 #include "protocol/mcp_connection.hpp"
 #include "protocol/mcp_transport.hpp"
 #include "mcpfs/mcp_file_system.hpp"
@@ -28,7 +29,8 @@ unique_ptr<Catalog> MCPStorageExtension::MCPStorageAttach(optional_ptr<StorageEx
                                                           const string &name, AttachInfo &info,
                                                           AttachOptions &options) {
 	// Create MCP connection from attach info
-	auto mcp_connection = CreateMCPConnection(info);
+	auto &db_instance = DatabaseInstance::GetDatabase(context);
+	auto mcp_connection = CreateMCPConnection(db_instance, info);
 
 	// Attempt to connect and initialize
 	if (!mcp_connection->Connect()) {
@@ -56,9 +58,9 @@ MCPStorageExtension::MCPStorageTransactionManager(optional_ptr<StorageExtensionI
 	return make_uniq<MCPTransactionManager>(db);
 }
 
-shared_ptr<MCPConnection> MCPStorageExtension::CreateMCPConnection(const AttachInfo &info) {
+shared_ptr<MCPConnection> MCPStorageExtension::CreateMCPConnection(DatabaseInstance &db, const AttachInfo &info) {
 	// Parse structured parameters from ATTACH statement (includes security validation)
-	auto params = ParseMCPAttachParams(info);
+	auto params = ParseMCPAttachParams(db, info);
 
 	// Validate parameters
 	if (!params.IsValid()) {
@@ -91,16 +93,16 @@ shared_ptr<MCPConnection> MCPStorageExtension::CreateMCPConnection(const AttachI
 	// Create connection
 	auto connection = make_shared_ptr<MCPConnection>(info.name, std::move(transport));
 
-	// Register connection globally so it can be accessed by MCPFS and MCP functions
-	MCPConnectionRegistry::GetInstance().RegisterConnection(info.name, connection);
+	// Register connection in per-instance registry
+	MCPInstanceState::Get(db).connection_registry.RegisterConnection(info.name, connection);
 
 	return connection;
 }
 
 void MCPStorageExtension::RegisterMCPConnection(ClientContext &context, const string &name,
                                                 shared_ptr<MCPConnection> connection) {
-	// Register with our connection registry
-	MCPConnectionRegistry::GetInstance().RegisterConnection(name, connection);
+	// Register with per-instance connection registry
+	MCPInstanceState::Get(context).connection_registry.RegisterConnection(name, connection);
 
 	// Also register with MCPFS for file access
 	auto &db = DatabaseInstance::GetDatabase(context);
@@ -111,11 +113,6 @@ void MCPStorageExtension::RegisterMCPConnection(ClientContext &context, const st
 }
 
 // MCPConnectionRegistry implementation
-
-MCPConnectionRegistry &MCPConnectionRegistry::GetInstance() {
-	static MCPConnectionRegistry instance;
-	return instance;
-}
 
 void MCPConnectionRegistry::RegisterConnection(const string &name, shared_ptr<MCPConnection> connection) {
 	lock_guard<mutex> lock(registry_mutex);
