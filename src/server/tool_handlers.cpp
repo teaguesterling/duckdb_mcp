@@ -78,6 +78,56 @@ bool IsReadOnlyStatementType(StatementType type) {
 	}
 }
 
+//! Check if a query contains dangerous function calls that could escape the sandbox.
+//! DuckDB allows powerful file I/O and network access through SELECT-level functions
+//! like read_csv(), read_parquet(), read_blob(), httpfs functions, etc.
+//! This is a defense-in-depth measure: even read-only queries can be dangerous.
+bool ContainsDangerousFunction(const string &query) {
+	// Normalize to uppercase for case-insensitive matching
+	string upper_query = StringUtil::Upper(query);
+
+	// Dangerous file-reading functions that can exfiltrate arbitrary file contents
+	static const vector<string> dangerous_patterns = {
+	    "READ_CSV",          "READ_CSV_AUTO",     "READ_JSON",         "READ_JSON_AUTO",
+	    "READ_PARQUET",      "READ_BLOB",         "READ_TEXT",         "READ_NDJSON",
+	    "READ_NDJSON_AUTO",  "READ_JSON_OBJECTS",  "READ_JSON_OBJECTS_AUTO",
+
+	    // File-writing functions that can write to the filesystem
+	    "WRITE_CSV",         "COPY",
+
+	    // Functions that can access external resources over the network
+	    "HTTP_GET",          "HTTP_POST",         "HTTPFS",
+
+	    // Functions that can execute system commands or load code
+	    "SYSTEM",            "SHELL",             "GETENV",
+
+	    // Attach/load functions that can expand capabilities
+	    "LOAD_EXTENSION",    "INSTALL_EXTENSION",
+
+	    // Glob can enumerate filesystem structure
+	    "GLOB",
+	};
+
+	for (const auto &pattern : dangerous_patterns) {
+		// Look for the function name followed by '(' (with optional whitespace)
+		// Also match as a standalone keyword (e.g., COPY)
+		auto pos = upper_query.find(pattern);
+		while (pos != string::npos) {
+			// Check that it's a word boundary (not part of a larger identifier)
+			bool word_start = (pos == 0) || !isalnum(static_cast<unsigned char>(upper_query[pos - 1]));
+			bool word_end_pos = pos + pattern.size();
+			bool word_end = (word_end_pos >= upper_query.size()) ||
+			                !isalnum(static_cast<unsigned char>(upper_query[word_end_pos]));
+			// Allow underscore as continuation (already handled by patterns containing _)
+			if (word_start && (word_end || upper_query[word_end_pos] == '(')) {
+				return true;
+			}
+			pos = upper_query.find(pattern, pos + 1);
+		}
+	}
+	return false;
+}
+
 //===--------------------------------------------------------------------===//
 // ToolInputSchema Implementation
 //===--------------------------------------------------------------------===//
@@ -208,6 +258,13 @@ CallToolResult QueryToolHandler::Execute(const Value &arguments) {
 
 		if (sql.empty()) {
 			return CallToolResult::Error("SQL query is required");
+		}
+
+		// Security: block queries containing dangerous function calls that could
+		// escape the sandbox (file reads, network access, command execution)
+		if (ContainsDangerousFunction(sql)) {
+			return CallToolResult::Error("Query contains a function that is not allowed for security reasons "
+			                             "(file I/O, network access, or system commands are blocked)");
 		}
 
 		// Validate format
@@ -357,6 +414,12 @@ Value DescribeToolHandler::DescribeTable(const string &table_name) const {
 }
 
 Value DescribeToolHandler::DescribeQuery(const string &query) const {
+	// Security: block queries containing dangerous function calls
+	if (ContainsDangerousFunction(query)) {
+		throw InvalidInputException("Query contains a function that is not allowed for security reasons "
+		                            "(file I/O, network access, or system commands are blocked)");
+	}
+
 	// Enforce read-only: parse the statement and validate its type
 	Connection conn(db_instance);
 	auto prepared = conn.Prepare(query);
@@ -439,6 +502,12 @@ CallToolResult ExportToolHandler::Execute(const Value &arguments) {
 			return CallToolResult::Error("Query is required");
 		}
 
+		// Security: block queries containing dangerous function calls
+		if (ContainsDangerousFunction(query)) {
+			return CallToolResult::Error("Query contains a function that is not allowed for security reasons "
+			                             "(file I/O, network access, or system commands are blocked)");
+		}
+
 		// Validate format based on output mode
 		if (output_path.empty()) {
 			// Inline return - all text formats supported
@@ -485,6 +554,24 @@ CallToolResult ExportToolHandler::Execute(const Value &arguments) {
 		}
 
 		if (!output_path.empty()) {
+			// Security: validate output path to prevent path traversal attacks
+			// Block absolute paths, parent directory references, and suspicious patterns
+			if (output_path[0] == '/' || output_path[0] == '\\') {
+				return CallToolResult::Error("Export path must be relative, not absolute");
+			}
+			if (StringUtil::Contains(output_path, "..")) {
+				return CallToolResult::Error("Export path must not contain '..' (parent directory traversal)");
+			}
+			if (StringUtil::Contains(output_path, "~")) {
+				return CallToolResult::Error("Export path must not contain '~' (home directory expansion)");
+			}
+			// Block paths that could target sensitive locations even when relative
+			if (StringUtil::Contains(output_path, ".ssh") || StringUtil::Contains(output_path, ".bashrc") ||
+			    StringUtil::Contains(output_path, ".profile") || StringUtil::Contains(output_path, "crontab") ||
+			    StringUtil::Contains(output_path, ".env")) {
+				return CallToolResult::Error("Export path targets a potentially sensitive location");
+			}
+
 			// File export: write the already-materialized result to file
 			string error = ExportToFile(*result, format, output_path);
 			if (error.empty()) {
@@ -597,6 +684,12 @@ CallToolResult SQLToolHandler::Execute(const Value &arguments) {
 
 		// Substitute parameters in SQL template
 		string sql = SubstituteParameters(sql_template, parser);
+
+		// Security: verify the final SQL doesn't contain dangerous function calls
+		// (could be introduced through parameter values despite type validation)
+		if (ContainsDangerousFunction(sql)) {
+			return CallToolResult::Error("Generated SQL contains a function that is not allowed for security reasons");
+		}
 
 		// Execute query
 		Connection conn(db_instance);
@@ -1181,6 +1274,12 @@ CallToolResult ExecuteToolHandler::Execute(const Value &arguments) {
 
 		if (statement.empty()) {
 			return CallToolResult::Error("Statement is required");
+		}
+
+		// Security: block statements containing dangerous function calls
+		if (ContainsDangerousFunction(statement)) {
+			return CallToolResult::Error("Statement contains a function that is not allowed for security reasons "
+			                             "(file I/O, network access, or system commands are blocked)");
 		}
 
 		Connection conn(db_instance);

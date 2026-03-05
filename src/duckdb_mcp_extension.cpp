@@ -6,6 +6,7 @@
 #include "mcp_instance_state.hpp"
 #include "json_utils.hpp"
 #include "yyjson.hpp"
+#include "duckdb/parser/keyword_helper.hpp"
 #include <cstdlib>
 
 using namespace duckdb_yyjson;
@@ -912,6 +913,14 @@ static void MCPServerTestFunction(DataChunk &args, ExpressionState &state, Vecto
 			auto &context = state.GetContext();
 			auto &db_instance = DatabaseInstance::GetDatabase(context);
 
+			// Security: respect mcp_disable_serving setting
+			if (MCPInstanceState::Get(db_instance).security.IsServingDisabled()) {
+				result_data[i] = StringVector::AddString(
+				    result,
+				    R"({"jsonrpc":"2.0","error":{"code":-32603,"message":"MCP server functionality is disabled"},"id":null})");
+				continue;
+			}
+
 			// Parse the JSON-RPC request
 			string request_json = request_vector.GetValue(i).ToString();
 			MCPMessage request = MCPMessage::FromJSON(request_json);
@@ -938,14 +947,14 @@ static void MCPServerTestFunction(DataChunk &args, ExpressionState &state, Vecto
 				result_data[i] = StringVector::AddString(result, json_response);
 			} catch (const std::exception &e) {
 				result_data[i] = StringVector::AddString(
-				    result, R"({"jsonrpc":"2.0","error":{"code":-32603,"message":"ToJSON failed: )" + string(e.what()) +
-				                R"("},"id":null})");
+				    result, R"({"jsonrpc":"2.0","error":{"code":-32603,"message":"ToJSON failed: )" +
+				                ResultFormatter::EscapeJsonString(string(e.what())) + R"("},"id":null})");
 			}
 
 		} catch (const std::exception &e) {
 			// Return a JSON-RPC error response
-			string error_response =
-			    R"({"jsonrpc":"2.0","error":{"code":-32603,"message":")" + string(e.what()) + R"("},"id":null})";
+			string error_response = R"({"jsonrpc":"2.0","error":{"code":-32603,"message":")" +
+			                        ResultFormatter::EscapeJsonString(string(e.what())) + R"("},"id":null})";
 			result_data[i] = StringVector::AddString(result, error_response);
 		}
 	}
@@ -991,12 +1000,12 @@ static void MCPServerSendRequestFunction(DataChunk &args, ExpressionState &state
 			} catch (const std::exception &e) {
 				result_data[i] = StringVector::AddString(
 				    result, R"json({"jsonrpc":"2.0","error":{"code":-32603,"message":"ToJSON failed: )json" +
-				                string(e.what()) + R"json("},"id":null})json");
+				                ResultFormatter::EscapeJsonString(string(e.what())) + R"json("},"id":null})json");
 			}
 
 		} catch (const std::exception &e) {
 			string error_response = R"json({"jsonrpc":"2.0","error":{"code":-32603,"message":")json" +
-			                        string(e.what()) + R"json("},"id":null})json";
+			                        ResultFormatter::EscapeJsonString(string(e.what())) + R"json("},"id":null})json";
 			result_data[i] = StringVector::AddString(result, error_response);
 		}
 	}
@@ -1016,9 +1025,11 @@ static string MCPPublishTableCore(ClientContext &context, const string &table_na
 	auto &db_instance = DatabaseInstance::GetDatabase(context);
 
 	// Validate table exists before publishing
+	// Quote table name as an identifier to prevent SQL injection
+	string quoted_table = KeywordHelper::WriteOptionallyQuoted(table_name);
 	try {
 		Connection conn(db_instance);
-		auto check_result = conn.Query("SELECT 1 FROM " + table_name + " LIMIT 0");
+		auto check_result = conn.Query("SELECT 1 FROM " + quoted_table + " LIMIT 0");
 		if (check_result->HasError()) {
 			return "ERROR: Table '" + table_name + "' not found";
 		}
@@ -1354,7 +1365,7 @@ static void MCPGetDiagnosticsFunction(DataChunk &args, ExpressionState &state, V
 
 	} catch (const std::exception &e) {
 		result_data[0] = StringVector::AddString(
-		    result, StringUtil::Format("{\"error\": \"Failed to get diagnostics: %s\"}", e.what()));
+		    result, "{\"error\": \"Failed to get diagnostics: " + ResultFormatter::EscapeJsonString(string(e.what())) + "\"}");
 	}
 }
 
@@ -1444,7 +1455,7 @@ static void MCPListResourcesWithCursorFunction(DataChunk &args, ExpressionState 
 			// Use tool call for pagination instead of modifying standard MCP methods
 			Value call_params =
 			    Value::STRUCT({{"name", Value("list_resources_paginated")},
-			                   {"arguments", Value(cursor.empty() ? "{}" : "{\"cursor\": \"" + cursor + "\"}")}});
+			                   {"arguments", Value(cursor.empty() ? "{}" : "{\"cursor\": \"" + ResultFormatter::EscapeJsonString(cursor) + "\"}")}});
 
 			// Send MCP tool call for pagination
 			auto response = connection->SendRequest(MCPMethods::TOOLS_CALL, call_params);
@@ -1457,7 +1468,7 @@ static void MCPListResourcesWithCursorFunction(DataChunk &args, ExpressionState 
 			result_data[i] = StringVector::AddString(result, response.result.ToString());
 
 		} catch (const std::exception &e) {
-			result_data[i] = StringVector::AddString(result, "{\"error\": \"" + string(e.what()) + "\"}");
+			result_data[i] = StringVector::AddString(result, "{\"error\": \"" + ResultFormatter::EscapeJsonString(string(e.what())) + "\"}");
 		}
 	}
 }
@@ -1489,7 +1500,7 @@ static void MCPListToolsWithCursorFunction(DataChunk &args, ExpressionState &sta
 			// Use tool call for pagination
 			Value call_params =
 			    Value::STRUCT({{"name", Value("list_tools_paginated")},
-			                   {"arguments", Value(cursor.empty() ? "{}" : "{\"cursor\": \"" + cursor + "\"}")}});
+			                   {"arguments", Value(cursor.empty() ? "{}" : "{\"cursor\": \"" + ResultFormatter::EscapeJsonString(cursor) + "\"}")}});
 
 			// Send MCP tool call for pagination
 			auto response = connection->SendRequest(MCPMethods::TOOLS_CALL, call_params);
@@ -1502,7 +1513,7 @@ static void MCPListToolsWithCursorFunction(DataChunk &args, ExpressionState &sta
 			result_data[i] = StringVector::AddString(result, response.result.ToString());
 
 		} catch (const std::exception &e) {
-			result_data[i] = StringVector::AddString(result, "{\"error\": \"" + string(e.what()) + "\"}");
+			result_data[i] = StringVector::AddString(result, "{\"error\": \"" + ResultFormatter::EscapeJsonString(string(e.what())) + "\"}");
 		}
 	}
 }
@@ -1534,7 +1545,7 @@ static void MCPListPromptsWithCursorFunction(DataChunk &args, ExpressionState &s
 			// Use tool call for pagination
 			Value call_params =
 			    Value::STRUCT({{"name", Value("list_prompts_paginated")},
-			                   {"arguments", Value(cursor.empty() ? "{}" : "{\"cursor\": \"" + cursor + "\"}")}});
+			                   {"arguments", Value(cursor.empty() ? "{}" : "{\"cursor\": \"" + ResultFormatter::EscapeJsonString(cursor) + "\"}")}});
 
 			// Send MCP tool call for pagination
 			auto response = connection->SendRequest(MCPMethods::TOOLS_CALL, call_params);
@@ -1547,7 +1558,7 @@ static void MCPListPromptsWithCursorFunction(DataChunk &args, ExpressionState &s
 			result_data[i] = StringVector::AddString(result, response.result.ToString());
 
 		} catch (const std::exception &e) {
-			result_data[i] = StringVector::AddString(result, "{\"error\": \"" + string(e.what()) + "\"}");
+			result_data[i] = StringVector::AddString(result, "{\"error\": \"" + ResultFormatter::EscapeJsonString(string(e.what())) + "\"}");
 		}
 	}
 }

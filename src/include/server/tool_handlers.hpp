@@ -21,6 +21,11 @@ bool IsQueryAllowedByType(StatementType type, const vector<string> &allowed_type
 //! Only SELECT and EXPLAIN are considered read-only.
 bool IsReadOnlyStatementType(StatementType type);
 
+//! Check if a query contains dangerous function calls that could escape the sandbox.
+//! Blocks file I/O functions (read_csv, read_parquet, etc.), network access (http_get),
+//! system commands (system, shell), and filesystem enumeration (glob).
+bool ContainsDangerousFunction(const string &query);
+
 // Result structure for tool calls
 struct CallToolResult {
 	bool success = false;
