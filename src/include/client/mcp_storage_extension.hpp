@@ -31,14 +31,14 @@ private:
 	                                                                   AttachedDatabase &db, Catalog &catalog);
 
 	// Helper methods
-	static shared_ptr<MCPConnection> CreateMCPConnection(const AttachInfo &info);
+	static shared_ptr<MCPConnection> CreateMCPConnection(DatabaseInstance &db, const AttachInfo &info);
 	static void RegisterMCPConnection(ClientContext &context, const string &name, shared_ptr<MCPConnection> connection);
 };
 
 // Simple MCP connection registry for storing MCP connections
 class MCPConnectionRegistry {
 public:
-	static MCPConnectionRegistry &GetInstance();
+	MCPConnectionRegistry() = default;
 
 	void RegisterConnection(const string &name, shared_ptr<MCPConnection> connection);
 	void UnregisterConnection(const string &name);

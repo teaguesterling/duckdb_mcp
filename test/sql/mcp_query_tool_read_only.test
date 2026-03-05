@@ -107,7 +107,7 @@ true
 
 # COPY should be BLOCKED
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"query","arguments":{"sql":"COPY readonly_test TO ''/tmp/exfil.csv''"}}}') LIKE '%read-only%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"query","arguments":{"sql":"COPY readonly_test TO ''__TEST_DIR__/exfil.csv''"}}}') LIKE '%read-only%';
 ----
 true
 

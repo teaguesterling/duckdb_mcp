@@ -1,7 +1,5 @@
 #pragma once
 
-#include <mutex>
-#include <unordered_map>
 #include "duckdb.hpp"
 #include "duckdb/parser/parsed_data/create_scalar_function_info.hpp"
 #include "duckdb/parser/parsed_data/create_table_function_info.hpp"
@@ -25,19 +23,6 @@ struct MCPConfiguration {
 	string transport = "stdio";
 	unordered_map<string, Value> custom_settings;
 	bool config_mode = false;
-};
-
-// Global configuration management
-class MCPConfigManager {
-private:
-	static unordered_map<DatabaseInstance *, unique_ptr<MCPConfiguration>> configs;
-	static mutex config_mutex;
-
-public:
-	static MCPConfiguration &GetConfig(DatabaseInstance &db);
-	static void SetConfig(DatabaseInstance &db, unique_ptr<MCPConfiguration> config);
-	static bool IsConfigMode(DatabaseInstance &db);
-	static void SetConfigMode(DatabaseInstance &db, bool mode);
 };
 
 } // namespace duckdb

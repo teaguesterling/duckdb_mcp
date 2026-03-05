@@ -37,7 +37,7 @@ public:
 // Main MCP File System implementation
 class MCPFileSystem : public FileSystem {
 public:
-	MCPFileSystem();
+	explicit MCPFileSystem(DatabaseInstance &db);
 	~MCPFileSystem() override = default;
 
 	// Core file operations
@@ -89,6 +89,8 @@ public:
 	shared_ptr<MCPConnection> GetConnection(const string &server_name);
 
 private:
+	DatabaseInstance &db_instance;
+
 	// Helper methods
 	MCPPath ValidateAndParsePath(const string &path);
 	void EnsureConnectionExists(const string &server_name);

@@ -179,10 +179,6 @@ MCPTemplate MCPTemplate::FromValue(const Value &value) {
 }
 
 // MCPTemplateManager implementation
-MCPTemplateManager &MCPTemplateManager::GetInstance() {
-	static MCPTemplateManager instance;
-	return instance;
-}
 
 void MCPTemplateManager::RegisterTemplate(const MCPTemplate &template_def) {
 	lock_guard<mutex> lock(template_mutex);

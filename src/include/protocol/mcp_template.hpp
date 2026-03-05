@@ -81,9 +81,6 @@ public:
 
 	// Clear all templates (useful for testing)
 	void Clear();
-
-	// Get singleton instance
-	static MCPTemplateManager &GetInstance();
 };
 
 } // namespace duckdb

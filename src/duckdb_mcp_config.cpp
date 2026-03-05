@@ -1,49 +1,12 @@
 // src/mcp_config.cpp
 #include "duckdb_mcp_extension.hpp"
 #include "duckdb_mcp_config.hpp"
+#include "mcp_instance_state.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/main/database.hpp"
 #include "duckdb/common/string_util.hpp"
 
 namespace duckdb {
-
-// Static member definitions
-unordered_map<DatabaseInstance *, unique_ptr<MCPConfiguration>> MCPConfigManager::configs;
-mutex MCPConfigManager::config_mutex;
-
-MCPConfiguration &MCPConfigManager::GetConfig(DatabaseInstance &db) {
-	lock_guard<mutex> lock(config_mutex);
-
-	auto it = configs.find(&db);
-	if (it == configs.end()) {
-		// Create default configuration - use make_uniq for DuckDB
-		configs[&db] = make_uniq<MCPConfiguration>();
-	}
-	return *configs[&db];
-}
-
-void MCPConfigManager::SetConfig(DatabaseInstance &db, unique_ptr<MCPConfiguration> config) {
-	lock_guard<mutex> lock(config_mutex);
-	configs[&db] = std::move(config);
-}
-
-bool MCPConfigManager::IsConfigMode(DatabaseInstance &db) {
-	lock_guard<mutex> lock(config_mutex);
-	auto it = configs.find(&db);
-	if (it == configs.end()) {
-		return false;
-	}
-	return it->second->config_mode;
-}
-
-void MCPConfigManager::SetConfigMode(DatabaseInstance &db, bool mode) {
-	lock_guard<mutex> lock(config_mutex);
-	auto it = configs.find(&db);
-	if (it == configs.end()) {
-		configs[&db] = make_uniq<MCPConfiguration>();
-	}
-	configs[&db]->config_mode = mode;
-}
 
 // Helper function to parse JSON arrays
 static vector<string> ParseJSONArray(Connection &conn, const string &json_array) {
@@ -166,8 +129,8 @@ void ConfigureMCPFunction(DataChunk &args, ExpressionState &state, Vector &resul
 
 	new_config->initialized = true;
 
-	// Store configuration
-	MCPConfigManager::SetConfig(db, std::move(new_config));
+	// Store configuration in per-instance state
+	MCPInstanceState::Get(db).config = *new_config;
 
 	// Return success message
 	result.SetVectorType(VectorType::CONSTANT_VECTOR);

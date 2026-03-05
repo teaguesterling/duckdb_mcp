@@ -2,7 +2,6 @@
 #include "protocol/mcp_message.hpp"
 #ifndef __EMSCRIPTEN__
 #include "protocol/mcp_connection.hpp"
-#include "client/mcp_storage_extension.hpp"
 #endif
 #include "duckdb_mcp_logging.hpp"
 #include "duckdb/common/exception.hpp"
@@ -115,12 +114,15 @@ MCPPaginationParams MCPPaginationParams::FromRPCParams(const Value &params) {
 #ifndef __EMSCRIPTEN__
 
 // MCPPaginationIterator implementation
-MCPPaginationIterator::MCPPaginationIterator(const string &server, const string &method)
-    : server_name(server), method_name(method), is_initialized(false), is_finished(false) {
+MCPPaginationIterator::MCPPaginationIterator(shared_ptr<MCPConnection> conn, const string &server,
+                                             const string &method)
+    : connection(std::move(conn)), server_name(server), method_name(method), is_initialized(false), is_finished(false) {
 }
 
-MCPPaginationIterator::MCPPaginationIterator(const string &server, const string &method, const string &cursor)
-    : server_name(server), method_name(method), params(cursor), is_initialized(false), is_finished(false) {
+MCPPaginationIterator::MCPPaginationIterator(shared_ptr<MCPConnection> conn, const string &server,
+                                             const string &method, const string &cursor)
+    : connection(std::move(conn)), server_name(server), method_name(method), params(cursor), is_initialized(false),
+      is_finished(false) {
 }
 
 bool MCPPaginationIterator::HasNext() const {
@@ -136,8 +138,6 @@ MCPPaginationResult MCPPaginationIterator::Next() {
 	}
 
 	try {
-		// Get connection from registry
-		auto connection = MCPConnectionRegistry::GetInstance().GetConnection(server_name);
 		if (!connection) {
 			throw InvalidInputException("MCP server not attached: " + server_name);
 		}
@@ -324,15 +324,15 @@ MCPPaginationResult MCPConnectionWithPagination::ListTools(const MCPPaginationPa
 }
 
 unique_ptr<MCPPaginationIterator> MCPConnectionWithPagination::CreateResourcesIterator() {
-	return make_uniq<MCPPaginationIterator>(connection->GetServerName(), "resources/list");
+	return make_uniq<MCPPaginationIterator>(connection, connection->GetServerName(), "resources/list");
 }
 
 unique_ptr<MCPPaginationIterator> MCPConnectionWithPagination::CreatePromptsIterator() {
-	return make_uniq<MCPPaginationIterator>(connection->GetServerName(), "prompts/list");
+	return make_uniq<MCPPaginationIterator>(connection, connection->GetServerName(), "prompts/list");
 }
 
 unique_ptr<MCPPaginationIterator> MCPConnectionWithPagination::CreateToolsIterator() {
-	return make_uniq<MCPPaginationIterator>(connection->GetServerName(), "tools/list");
+	return make_uniq<MCPPaginationIterator>(connection, connection->GetServerName(), "tools/list");
 }
 
 #endif // !__EMSCRIPTEN__
