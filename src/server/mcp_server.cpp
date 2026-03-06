@@ -753,8 +753,8 @@ void MCPServer::RegisterBuiltinTools() {
 	}
 
 	if (config.enable_export_tool) {
-		auto export_tool =
-		    make_shared_ptr<ExportToolHandler>(*config.db_instance, config.allowed_queries, config.denied_queries);
+		auto export_tool = make_shared_ptr<ExportToolHandler>(*config.db_instance, config.allowed_queries,
+		                                                      config.denied_queries, config.export_allow_file_output);
 		tool_registry.RegisterTool("export", std::move(export_tool));
 	}
 

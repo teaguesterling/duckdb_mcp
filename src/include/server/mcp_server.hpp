@@ -36,6 +36,7 @@ struct MCPServerConfig {
 	bool enable_query_tool = true;         // Execute SQL queries (SELECT)
 	bool enable_describe_tool = true;      // Describe tables/queries
 	bool enable_export_tool = true;        // Export query results
+	bool export_allow_file_output = false; // Allow writing to filesystem (disabled by default for safety)
 	bool enable_list_tables_tool = true;   // List tables and views
 	bool enable_database_info_tool = true; // Database overview info
 	bool enable_execute_tool = false;      // Execute DDL/DML (disabled by default for safety)

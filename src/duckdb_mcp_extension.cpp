@@ -563,6 +563,10 @@ static Value MCPServerStartCore(ClientContext &context, const string &transport,
 				if (val && yyjson_is_bool(val)) {
 					server_config.enable_export_tool = yyjson_get_bool(val);
 				}
+				val = yyjson_obj_get(root, "export_allow_file_output");
+				if (val && yyjson_is_bool(val)) {
+					server_config.export_allow_file_output = yyjson_get_bool(val);
+				}
 				val = yyjson_obj_get(root, "enable_list_tables_tool");
 				if (val && yyjson_is_bool(val)) {
 					server_config.enable_list_tables_tool = yyjson_get_bool(val);
