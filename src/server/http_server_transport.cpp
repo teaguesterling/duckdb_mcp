@@ -197,11 +197,19 @@ bool HTTPServerTransport::Start(RequestHandler handler) {
 	stop_requested = false; // Reset stop flag for potential restart
 	running = true;
 
+	{
+		std::lock_guard<std::mutex> lock(startup_mutex);
+		startup_complete = false;
+	}
+
 	// Start server in background thread
 	server_thread = make_uniq<std::thread>(&HTTPServerTransport::ServerLoop, this);
 
-	// Wait briefly for server to start and get actual port
-	std::this_thread::sleep_for(std::chrono::milliseconds(100));
+	// Wait for ServerLoop to signal bind success/failure
+	{
+		std::unique_lock<std::mutex> lock(startup_mutex);
+		startup_cv.wait(lock, [this] { return startup_complete; });
+	}
 
 	return running.load();
 }
@@ -253,11 +261,19 @@ string HTTPServerTransport::GetConnectionInfo() const {
 }
 
 void HTTPServerTransport::ServerLoop() {
+	// Helper to signal startup complete (success or failure)
+	auto signal_startup = [this]() {
+		std::lock_guard<std::mutex> lock(startup_mutex);
+		startup_complete = true;
+		startup_cv.notify_one();
+	};
+
 #ifdef CPPHTTPLIB_OPENSSL_SUPPORT
 	if (config.use_ssl) {
 		// HTTPS server with SSL
 		if (config.cert_path.empty() || config.key_path.empty()) {
 			running = false;
+			signal_startup();
 			return;
 		}
 
@@ -265,6 +281,7 @@ void HTTPServerTransport::ServerLoop() {
 
 		if (!server.is_valid()) {
 			running = false;
+			signal_startup();
 			return;
 		}
 
@@ -274,6 +291,7 @@ void HTTPServerTransport::ServerLoop() {
 		int port = config.port;
 		if (!server.bind_to_port(config.host.c_str(), port)) {
 			running = false;
+			signal_startup();
 			return;
 		}
 
@@ -291,9 +309,11 @@ void HTTPServerTransport::ServerLoop() {
 			std::lock_guard<std::mutex> lock(server_mutex);
 			server_ptr = nullptr;
 			running = false;
+			signal_startup();
 			return;
 		}
 
+		signal_startup();
 		server.listen_after_bind();
 
 		// Clear pointer after server stops
@@ -315,6 +335,7 @@ void HTTPServerTransport::ServerLoop() {
 	int port = config.port;
 	if (!server.bind_to_port(config.host.c_str(), port)) {
 		running = false;
+		signal_startup();
 		return;
 	}
 
@@ -331,8 +352,12 @@ void HTTPServerTransport::ServerLoop() {
 		std::lock_guard<std::mutex> lock(server_mutex);
 		server_ptr = nullptr;
 		running = false;
+		signal_startup();
 		return;
 	}
+
+	// Signal that bind succeeded and server is ready
+	signal_startup();
 
 	// Run the server (this blocks until server.stop() is called)
 	server.listen_after_bind();
