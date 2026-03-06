@@ -34,6 +34,23 @@ SELECT mcp_server_start('stdio', 'localhost', 0, '{
     - You need write operations
     - You've considered the implications
 
+### Fine-Grained Execute Permissions
+
+If you need the execute tool, restrict it to only the statement types you need:
+
+```sql
+SELECT mcp_server_start('stdio', 'localhost', 0, '{
+    "enable_execute_tool": true,
+    "execute_allow_ddl": true,
+    "execute_allow_dml": true,
+    "execute_allow_load": false,
+    "execute_allow_attach": false,
+    "execute_allow_set": false
+}');
+```
+
+`execute_allow_load`, `execute_allow_attach`, and `execute_allow_set` default to **false** even when the execute tool is enabled — they can load arbitrary shared libraries, attach external databases, or change security settings.
+
 ### Use Read-Only Databases
 
 For purely analytical use cases, open the database in read-only mode:
@@ -113,24 +130,58 @@ SELECT mcp_publish_tool(
 );
 ```
 
+### Configure CORS
+
+CORS is **disabled by default**. If you need browser-based clients, configure specific origins:
+
+```sql
+SELECT mcp_server_start('http', 'localhost', 8080, '{
+    "cors_origins": "https://app.example.com,https://admin.example.com"
+}');
+```
+
+!!! warning
+    Avoid `"cors_origins": "*"` in production. Wildcard CORS combined with bearer token auth allows any webpage to make cross-origin requests to your server.
+
+### Secure the Health Endpoint
+
+The `/health` endpoint is enabled by default and unauthenticated. In security-sensitive environments, either require auth or disable it:
+
+```sql
+SELECT mcp_server_start('http', 'localhost', 8080, '{
+    "auth_token": "secret",
+    "auth_health_endpoint": true
+}');
+```
+
+Or disable entirely:
+
+```sql
+SELECT mcp_server_start('http', 'localhost', 8080, '{
+    "enable_health_endpoint": false
+}');
+```
+
+### HTTP Authentication
+
+For HTTP transport, always configure an auth token in production:
+
+```sql
+SELECT mcp_server_start('http', 'localhost', 8080, '{
+    "auth_token": "your-secret-token",
+    "require_auth": true
+}');
+```
+
+When `require_auth` is `true`, the `mcp_server_send_request()` SQL function is **automatically disabled** to prevent auth bypass via direct SQL access.
+
 ## Client Security
 
 When DuckDB acts as an MCP client, connecting to external servers.
 
-### Development Mode (Permissive)
+### Command Allowlist
 
-By default, the extension runs in permissive mode - any command can be executed:
-
-```sql
--- Permissive: runs any command
-ATTACH 'python3' AS server (TYPE mcp, ARGS '["server.py"]');
-```
-
-This is convenient for development but risky in production.
-
-### Production Mode (Strict)
-
-Enable strict mode by configuring an allowlist:
+By default, no commands are allowed until you explicitly configure an allowlist. Once `allowed_mcp_commands` is set, only exact matches are permitted:
 
 ```sql
 -- Enable strict validation
@@ -240,13 +291,13 @@ The `stdio` transport is most secure for local use:
 - Communication through process pipes
 - Easy to run in sandboxed environments
 
-### TCP/WebSocket Considerations
+### HTTP/HTTPS Considerations
 
-If using TCP or WebSocket:
+If using HTTP or HTTPS transport:
 
 ```sql
 -- Bind to localhost only
-SELECT mcp_server_start('tcp', '127.0.0.1', 8080, '{}');
+SELECT mcp_server_start('http', '127.0.0.1', 8080, '{}');
 
 -- NOT: '0.0.0.0' which exposes to all interfaces
 ```
@@ -314,10 +365,13 @@ High error rates may indicate:
 ### For MCP Servers
 
 - [ ] Disable `execute` tool unless required
+- [ ] If using execute, restrict with `execute_allow_load/attach/set = false`
 - [ ] Use read-only database when possible
 - [ ] Create specific tools rather than exposing `query`
 - [ ] Limit result sizes in all tools
 - [ ] Validate inputs at SQL level
+- [ ] Configure `auth_token` and `require_auth` for HTTP transport
+- [ ] Set specific `cors_origins` (not `"*"`) for HTTP transport
 - [ ] Bind to localhost, not `0.0.0.0`
 - [ ] Use containers for isolation
 - [ ] Monitor server statistics

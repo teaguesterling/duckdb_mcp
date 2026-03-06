@@ -11,7 +11,7 @@ A [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) extension for
 - **HTTP Transport**: Run as an HTTP server with authentication for web-based clients
 - **Act as MCP Client**: Connect to external MCP servers and query their resources using SQL
 - **Custom Tools**: Publish parameterized SQL queries as tools that AI assistants can discover and call
-- **Multiple Formats**: Output results as JSON, Markdown (token-efficient), or CSV
+- **Multiple Formats**: Output results as JSON, JSONL, Markdown (token-efficient), CSV, or plain text
 
 ## Quick Start
 

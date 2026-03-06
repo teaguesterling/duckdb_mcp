@@ -4,6 +4,71 @@ All notable changes to the DuckDB MCP Extension.
 
 ---
 
+## v2.0.0
+
+### Security (15 bugs fixed from security audit)
+
+- Fixed SQL injection in `DescribeTable`, `DescribeQuery`, `ListTables`, `ExportToolHandler`, and `SQLToolHandler` parameter substitution
+- Fixed arbitrary file write via `ExportToolHandler` (path escaping + query allowlist enforcement)
+- Fixed broken `ValidateAuthentication` stub (was always returning true)
+- Fixed LD_PRELOAD injection: replaced `execvp` with `execve` + sanitized environment, blocked dangerous env vars
+- Fixed command allowlist basename shortcut allowing PATH hijacking (removed entirely, exact match only)
+- Fixed permissive mode default: `SetAllowedCommands` now locks on any call (deny-all by default)
+- Fixed arbitrary config file read via `from_config_file` (validated against configured `mcp_server_file`)
+- Fixed pipe FD leaks to child process (`O_CLOEXEC`)
+- Fixed zombie processes from non-blocking `waitpid` (SIGTERM -> wait -> SIGKILL escalation)
+- Fixed timing attack on HTTP auth token (constant-time comparison)
+- Fixed unescaped data in JSON construction (`EscapeJsonString` helper)
+- Fixed exception messages reflected to HTTP clients (generic error message)
+
+### Security - Controllable Behaviors (6 items hardened)
+
+- Query allowlist/denylist now uses statement type classification, not substring matching
+- Execute tool DDL permissions split into fine-grained categories (`allow_ddl`, `allow_dml`, `allow_load`, `allow_attach`, `allow_set`)
+- CORS defaults to disabled; configurable via `cors_origins` (empty/wildcard/comma-separated)
+- URL prefix matching now enforces component boundary (prevents subdomain confusion)
+- `/health` endpoint configurable: `enable_health_endpoint`, `auth_health_endpoint`
+- `mcp_server_send_request` auto-disabled when `require_auth=true` (prevents auth bypass)
+
+### Architecture
+
+- **Per-instance state (`MCPInstanceState`)**: Replaced global singletons with per-`DatabaseInstance` state via `ObjectCache`. Multiple DuckDB instances no longer share server/config/connection state. (closes #38)
+- **Thread-safe server access**: `MCPServerManager` now provides locked accessor methods (`PublishResource`, `RegisterTool`, `AllowsDirectRequests`, `GetServerStats`) eliminating TOCTOU races from raw `GetServer()` pointer access
+- **Atomic `process_pid`**: `StdioTransport` `process_pid` changed to `std::atomic<int>` to fix data race between `IsProcessRunning` and `StopProcess`
+
+### New Features
+
+- **Text output format**: New `text` format for query results (plain text, tab-separated)
+- **JSONL output format**: New `jsonl` format (one JSON object per line)
+- **Markdown pipe escaping**: Pipe characters in cell values properly escaped in markdown output (closes #54)
+- **Configurable CORS**: `cors_origins` server config option
+- **Configurable health endpoint**: `enable_health_endpoint` and `auth_health_endpoint` options
+- **Direct request gating**: `allow_direct_requests` and `allow_direct_requests_explicit` config options
+
+### Bug Fixes
+
+- Fixed double query execution in `ExportToolHandler` (#51)
+- Fixed constant-time token comparison still leaking token length (#50, #39)
+- Fixed JSON output format not escaping double quotes (#52)
+- Fixed non-string JSON values silently dropped in config parsing (#47)
+- Fixed CORS disabled test to include Origin header (#42)
+- Fixed format fallback failure (#43)
+- Fixed CSV output to use RFC 4180 quoting (#29)
+- Fixed use-after-free in registry pointer access (#24)
+- Fixed partial write handling in `WriteToProcess` (pipe I/O)
+- Fixed double connection registration in `MCPStorageAttach`
+- Server capability parsing from initialize response (#44)
+- Deduplicated HTTP server setup (`StartHTTPServer` helper, #40)
+- Error leak fixes, client stubs, registration failure surfacing (#28)
+
+### Breaking Changes
+
+- Per-instance state means global state is no longer shared across database instances
+- Command allowlist behavior changed: empty allowlist now means "deny all" (was "allow all")
+- Basename shortcuts removed from command allowlist (exact match only)
+
+---
+
 ## v1.5.2
 
 ### New Features

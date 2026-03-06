@@ -129,7 +129,7 @@ SELECT mcp_publish_tool(
 
 ## Requirements
 
-- DuckDB 1.0.0 or later
+- DuckDB 1.5.0 or later
 - C++17 compatible compiler (for building from source)
 - Python 3.8+ (for running example MCP servers)
 

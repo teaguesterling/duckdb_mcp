@@ -26,9 +26,9 @@ SELECT mcp_server_start('transport', 'host', port, 'config_json');
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `transport` | VARCHAR | Transport type: `stdio`, `memory`, `tcp`, `websocket` |
-| `host` | VARCHAR | Host to bind (used for tcp/websocket) |
-| `port` | INTEGER | Port number (used for tcp/websocket, 0 for stdio) |
+| `transport` | VARCHAR | Transport type: `stdio`, `memory`, `http`, `https` |
+| `host` | VARCHAR | Host to bind (used for http/https) |
+| `port` | INTEGER | Port number (used for http/https, 0 for stdio) |
 | `config` | VARCHAR | JSON configuration object (see [Configuration](configuration.md)) |
 
 **Transport Types:**

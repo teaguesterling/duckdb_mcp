@@ -10,7 +10,7 @@
 
 The audit identified **21 distinct findings**: 15 true bugs and 6 controllable behaviors that should be gated by security settings. The most critical issues are SQL injection in server-side tool handlers, arbitrary file write via the export tool, broken authentication validation, and environment variable injection in child process spawning.
 
-**All 15 bugs have been fixed.** The 6 controllable behaviors remain as future work requiring design decisions.
+**All 21 findings have been resolved** — 15 true bugs and 6 controllable behaviors.
 
 ---
 
@@ -239,75 +239,75 @@ Raw exception messages (containing file paths, SQL fragments, internal state) ar
 
 ---
 
-## Findings: Controllable Behaviors
+## Findings: Controllable Behaviors — ALL FIXED
 
-These are inherently dangerous capabilities that should be gated behind explicit security settings. **These remain as future work.**
+These are inherently dangerous capabilities that are now gated behind explicit security settings.
 
-### CTRL-01: Query Allowlist/Denylist Is Substring-Based — Trivially Bypassable (High)
+### CTRL-01: Query Allowlist/Denylist Is Substring-Based — Trivially Bypassable (High) — FIXED
 
 **File:** `src/server/tool_handlers.cpp:177-198`
 
-The `IsQueryAllowed()` check uses `string::find()` (substring matching). SQL comments (`sel/**/ect`), alternative syntax, or allowlist false-positives (`INSERT ... SELECT` matching `SELECT`) bypass the filter.
+The `IsQueryAllowed()` check used `string::find()` (substring matching). SQL comments (`sel/**/ect`), alternative syntax, or allowlist false-positives (`INSERT ... SELECT` matching `SELECT`) bypassed the filter.
 
-**Recommendation:** Use DuckDB's prepared statement type parsing to enforce read-only at the statement level, not string matching. Or enforce read-only at the connection level.
+**Fix applied:** Now uses exact statement type matching via `PreparedStatement::GetStatementType()` instead of `string::find()`. This enforces query restrictions at the parsed statement level rather than relying on string patterns.
 
 ---
 
-### CTRL-02: `ExecuteToolHandler` DDL Includes `LOAD`/`ATTACH`/`SET` (High)
+### CTRL-02: `ExecuteToolHandler` DDL Includes `LOAD`/`ATTACH`/`SET` (High) — FIXED
 
 **File:** `src/server/tool_handlers.cpp:1081-1101`
 
-When `allow_ddl = true`, `LOAD` (loads arbitrary shared libraries), `ATTACH` (attaches external databases), `SET` (changes security settings), and `UPDATE_EXTENSIONS` are all permitted. These are far more dangerous than `CREATE TABLE`.
+When `allow_ddl = true`, `LOAD` (loads arbitrary shared libraries), `ATTACH` (attaches external databases), `SET` (changes security settings), and `UPDATE_EXTENSIONS` were all permitted. These are far more dangerous than `CREATE TABLE`.
 
-**Recommendation:** Split DDL permissions into fine-grained categories. `LOAD`, `ATTACH`, `SET`, and `UPDATE_EXTENSIONS` should be separately controlled and default to disabled.
+**Fix applied:** Split into separate boolean flags: `execute_allow_ddl`, `execute_allow_dml`, `execute_allow_load`, `execute_allow_attach`, and `execute_allow_set`. Each dangerous statement category is independently controlled and defaults to disabled.
 
 ---
 
-### CTRL-03: CORS Wildcard Always Hardcoded On (High)
+### CTRL-03: CORS Wildcard Always Hardcoded On (High) — FIXED
 
 **Files:** `src/server/mcp_server.cpp:134`, `src/server/http_server_transport.cpp:54`
 
-`Access-Control-Allow-Origin: *` is always set. Combined with bearer token auth, any webpage can make cross-origin requests to the MCP server.
+`Access-Control-Allow-Origin: *` was always set. Combined with bearer token auth, any webpage could make cross-origin requests to the MCP server.
 
-**Recommendation:** Make CORS configurable. Default to disabled or specific origins.
+**Fix applied:** `cors_origins` now defaults to empty (CORS disabled). Supports `"*"` for wildcard or comma-separated origin list for fine-grained control.
 
 ---
 
-### CTRL-04: URL Prefix Matching Allows Subdomain/Path Confusion (Medium)
+### CTRL-04: URL Prefix Matching Allows Subdomain/Path Confusion (Medium) — FIXED
 
 **File:** `src/duckdb_mcp_security.cpp:106-112`
 
-`StringUtil::StartsWith(url, allowed)` means `https://api.example.com` allows `https://api.example.com.evil.com`.
+`StringUtil::StartsWith(url, allowed)` meant `https://api.example.com` allowed `https://api.example.com.evil.com`.
 
-**Recommendation:** Parse URLs properly. Match scheme+host+port exactly, then check path prefix with boundary enforcement.
+**Fix applied:** Component boundary enforcement now requires `/`, `?`, `#`, or `:` after the prefix match, preventing subdomain and path confusion attacks.
 
 ---
 
-### CTRL-05: `/health` Endpoint Unauthenticated — Fingerprints Server (Medium)
+### CTRL-05: `/health` Endpoint Unauthenticated — Fingerprints Server (Medium) — FIXED
 
 **File:** `src/server/http_server_transport.cpp:75-78`
 
-The health endpoint always returns `{"status":"ok"}` regardless of auth configuration, confirming to scanners that a DuckDB MCP server exists.
+The health endpoint always returned `{"status":"ok"}` regardless of auth configuration, confirming to scanners that a DuckDB MCP server exists.
 
-**Recommendation:** Either apply auth to health, or make it configurable.
+**Fix applied:** Now configurable via `enable_health_endpoint` (controls whether the endpoint exists) and `auth_health_endpoint` (controls whether auth is required to access it).
 
 ---
 
-### CTRL-06: `mcp_server_send_request` Bypasses HTTP Auth (Medium)
+### CTRL-06: `mcp_server_send_request` Bypasses HTTP Auth (Medium) — FIXED
 
 **File:** `src/duckdb_mcp_extension.cpp:833-872`
 
-This SQL function sends arbitrary MCP requests directly to the server, bypassing the HTTP auth layer. Intended for testing but registered in production.
+This SQL function sent arbitrary MCP requests directly to the server, bypassing the HTTP auth layer. Intended for testing but registered in production.
 
-**Recommendation:** Gate behind a testing/debug flag, or apply the same auth checks.
+**Fix applied:** Automatically disabled when `require_auth=true`. Can be explicitly re-enabled via `allow_direct_requests` for testing scenarios.
 
 ---
 
 ## Architectural Recommendations
 
-1. **Enforce read-only at the connection level.** Multiple tools (`describe`, `export`, `list_tables`) construct SQL from user input without going through the query allowlist. A structural fix is to open read-only connections for server-side handlers.
+1. ~~**Enforce read-only at the connection level.**~~ **Addressed.** Read-only enforcement is now handled at the tool level via `IsReadOnlyStatementType()`, which validates parsed statement types before execution. Multiple tools (`describe`, `export`, `list_tables`) that construct SQL from user input are now gated by statement type checks rather than relying solely on connection-level restrictions.
 
-2. **Use parameterized queries everywhere.** Every tool handler that constructs SQL from user input should use prepared statements or proper escaping. String concatenation of user input into SQL is the single largest vulnerability class in this codebase.
+2. ~~**Use parameterized queries everywhere.**~~ **Addressed.** `SubstituteParameters()` now uses type-aware escaping to safely interpolate user-supplied values into SQL. String, integer, number, and boolean types are each validated and escaped according to their declared type, replacing the previous raw string concatenation pattern.
 
 3. ~~**Switch to `execve` with explicit environment.**~~ **Done.** The `execvp` + inherited environment model has been replaced with `execve` + sanitized environment.
 
@@ -324,13 +324,13 @@ This SQL function sends arbitrary MCP requests directly to the server, bypassing
 4. ~~BUG-01/02/03: SQL injection in tool handlers (describe, export)~~
 5. ~~BUG-06: Broken `ValidateAuthentication` stub~~
 
-**Short-term (High) — BUGS FIXED, CTRL items remain:**
+**Short-term (High) — ALL FIXED:**
 6. ~~BUG-04/05: SQL injection in list_tables and SQL tool parameters~~
 7. ~~BUG-10: Arbitrary config file read~~
-8. CTRL-01: Replace substring-based query filtering
-9. CTRL-02: Split DDL permissions
+8. ~~CTRL-01: Replace substring-based query filtering~~
+9. ~~CTRL-02: Split DDL permissions~~
 
-**Medium-term — BUGS FIXED, CTRL items remain:**
+**Medium-term — ALL FIXED:**
 10. ~~BUG-11/12: FD leaks and zombie processes~~
 11. ~~BUG-13/14/15: Timing attack, JSON escaping, error reflection~~
-12. CTRL-03/04/05/06: CORS, URL matching, health endpoint, test functions
+12. ~~CTRL-03/04/05/06: CORS, URL matching, health endpoint, test functions~~
