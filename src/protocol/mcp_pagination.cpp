@@ -144,7 +144,6 @@ MCPPaginationResult MCPPaginationIterator::Next() {
 		}
 
 		// Send request with current parameters
-		auto request = MCPPagination::CreatePaginatedRequest(method_name, params, Value::BIGINT(1));
 		auto response = connection->SendRequest(method_name, params.ToRPCParams());
 
 		if (response.IsError()) {
@@ -294,7 +293,6 @@ bool IsValidCursor(const string &cursor) {
 
 // MCPConnectionWithPagination implementation
 MCPPaginationResult MCPConnectionWithPagination::ListResources(const MCPPaginationParams &params) {
-	auto request = MCPPagination::CreatePaginatedRequest("resources/list", params, Value::BIGINT(1));
 	auto response = connection->SendRequest("resources/list", params.ToRPCParams());
 
 	if (response.IsError()) {
@@ -305,7 +303,6 @@ MCPPaginationResult MCPConnectionWithPagination::ListResources(const MCPPaginati
 }
 
 MCPPaginationResult MCPConnectionWithPagination::ListPrompts(const MCPPaginationParams &params) {
-	auto request = MCPPagination::CreatePaginatedRequest("prompts/list", params, Value::BIGINT(2));
 	auto response = connection->SendRequest("prompts/list", params.ToRPCParams());
 
 	if (response.IsError()) {
@@ -316,7 +313,6 @@ MCPPaginationResult MCPConnectionWithPagination::ListPrompts(const MCPPagination
 }
 
 MCPPaginationResult MCPConnectionWithPagination::ListTools(const MCPPaginationParams &params) {
-	auto request = MCPPagination::CreatePaginatedRequest("tools/list", params, Value::BIGINT(3));
 	auto response = connection->SendRequest("tools/list", params.ToRPCParams());
 
 	if (response.IsError()) {

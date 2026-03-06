@@ -76,15 +76,22 @@ pair<string, string> MCPPathParser::SplitServerAndProtocol(const string &remaind
 }
 
 string MCPPathParser::NormalizePath(const string &path) {
-	// Basic path normalization - remove double slashes, etc.
-	string normalized = path;
+	// Preserve the scheme prefix (e.g. "mcp://") then normalize the rest
+	string prefix;
+	string rest = path;
 
-	// Replace multiple consecutive slashes with single slash
-	while (normalized.find("//") != string::npos) {
-		StringUtil::Replace(normalized, "//", "/");
+	auto scheme_end = path.find("://");
+	if (scheme_end != string::npos) {
+		prefix = path.substr(0, scheme_end + 3); // includes "://"
+		rest = path.substr(scheme_end + 3);
 	}
 
-	return normalized;
+	// Replace multiple consecutive slashes with single slash in the path portion
+	while (rest.find("//") != string::npos) {
+		StringUtil::Replace(rest, "//", "/");
+	}
+
+	return prefix + rest;
 }
 
 } // namespace duckdb

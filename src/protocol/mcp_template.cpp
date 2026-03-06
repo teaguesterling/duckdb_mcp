@@ -80,20 +80,23 @@ string MCPTemplate::Render(const unordered_map<string, string> &args) const {
 		// We'll use a basic approach: replace {arg_name} with actual values
 		string result = template_content;
 
-		// Use regex to find and replace template variables
+		// Single-pass replacement of template variables to avoid infinite loops
+		// when replacement values themselves contain {var} patterns.
 		std::regex template_regex(R"(\{([a-zA-Z_][a-zA-Z0-9_]*)\})");
+
+		string temp_result;
+		string::const_iterator search_start = result.cbegin();
 		std::smatch match;
 
-		// Keep replacing until no more matches
-		string temp_result = result;
-		while (std::regex_search(temp_result, match, template_regex)) {
-			string var_name = match[1].str();
-			string replacement = "";
+		while (std::regex_search(search_start, result.cend(), match, template_regex)) {
+			// Append text before the match
+			temp_result.append(search_start, search_start + match.position());
 
-			// Find the argument value
+			string var_name = match[1].str();
+
 			auto arg_it = args.find(var_name);
 			if (arg_it != args.end()) {
-				replacement = arg_it->second;
+				temp_result.append(arg_it->second);
 			} else {
 				// Check if it's a required argument
 				bool is_required = false;
@@ -107,16 +110,13 @@ string MCPTemplate::Render(const unordered_map<string, string> &args) const {
 				if (is_required) {
 					throw InvalidInputException("Missing required template variable: " + var_name);
 				}
-				// For optional arguments, leave empty or keep original
-				replacement = "";
+				// For optional arguments, replace with empty string
 			}
 
-			// Replace the first occurrence
-			size_t pos = temp_result.find(match[0].str());
-			if (pos != string::npos) {
-				temp_result.replace(pos, match[0].length(), replacement);
-			}
+			search_start += match.position() + match.length();
 		}
+		// Append remaining text after last match
+		temp_result.append(search_start, result.cend());
 
 		MCP_LOG_DEBUG("TEMPLATE", "Rendered template '%s' successfully", name.c_str());
 		return temp_result;
