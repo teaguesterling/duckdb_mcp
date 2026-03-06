@@ -57,13 +57,14 @@ public:
 
 private:
 	StdioConfig config;
-	bool connected;
+	std::atomic<bool> connected;
 	int process_pid;
 	mutable std::atomic<bool> process_reaped {false}; // Set when waitpid reaps child; prevents kill on stale PID
 	int stdin_fd;
 	int stdout_fd;
 	int stderr_fd;
 	mutex io_mutex;
+	string read_buffer; // Carries over data read past the first \n
 
 	// Process management
 	bool StartProcess();

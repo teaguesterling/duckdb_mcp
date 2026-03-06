@@ -65,6 +65,8 @@ bool StdioTransport::IsConnected() const {
 }
 
 void StdioTransport::Send(const MCPMessage &message) {
+	lock_guard<mutex> lock(io_mutex);
+
 	if (!IsConnected()) {
 		MCP_LOG_ERROR("TRANSPORT", "Attempted to send message when not connected to %s", config.command_path);
 		throw IOException("Transport not connected");
@@ -83,6 +85,8 @@ void StdioTransport::Send(const MCPMessage &message) {
 }
 
 MCPMessage StdioTransport::Receive() {
+	lock_guard<mutex> lock(io_mutex);
+
 	if (!IsConnected()) {
 		MCP_LOG_ERROR("TRANSPORT", "Attempted to receive message when not connected to %s", config.command_path);
 		throw IOException("Transport not connected");
@@ -102,8 +106,25 @@ MCPMessage StdioTransport::Receive() {
 }
 
 MCPMessage StdioTransport::SendAndReceive(const MCPMessage &message) {
-	Send(message);
-	return Receive();
+	// Hold lock for the entire request-response cycle to prevent interleaving
+	lock_guard<mutex> lock(io_mutex);
+
+	if (!IsConnected()) {
+		throw IOException("Transport not connected");
+	}
+
+	try {
+		string json = message.ToJSON();
+		MCP_LOG_PROTOCOL(true, config.command_path, json);
+		WriteToProcess(json + "\n");
+
+		string response = ReadFromProcess();
+		MCP_LOG_PROTOCOL(false, config.command_path, response);
+		return MCPMessage::FromJSON(response);
+	} catch (const std::exception &e) {
+		MCP_LOG_ERROR("TRANSPORT", "SendAndReceive failed for %s: %s", config.command_path, e.what());
+		throw;
+	}
 }
 
 bool StdioTransport::Ping() {
@@ -413,36 +434,45 @@ string StdioTransport::ReadFromProcess() {
 		throw IOException("Process stdout not available");
 	}
 
-	char buffer[4096];
+	// Start with any leftover data from a previous read
 	string result;
+	result.swap(read_buffer);
 
 	while (true) {
-		if (!WaitForData()) {
+		// Check if we already have a complete line from buffered data
+		auto nl_pos = result.find('\n');
+		if (nl_pos != string::npos) {
+			// Save everything after the newline for the next call
+			if (nl_pos + 1 < result.size()) {
+				read_buffer = result.substr(nl_pos + 1);
+			}
+			result.resize(nl_pos);
+			StringUtil::RTrim(result);
+			return result;
+		}
+
+		if (!WaitForData(config.timeout_seconds * 1000)) {
 			if (result.empty()) {
 				throw IOException("Timeout waiting for process response");
 			}
 			throw IOException("Timeout waiting for complete response from process (partial data received)");
 		}
 
+		char buffer[4096];
 		ssize_t bytes_read = read(stdout_fd, buffer, sizeof(buffer) - 1);
 
 		if (bytes_read > 0) {
 			buffer[bytes_read] = '\0';
 			result += buffer;
-
-			// Check if we have a complete line
-			if (result.find('\n') != string::npos) {
-				break;
-			}
-			// No complete line yet — loop to wait for more data
+			// Loop back to check for newline
 		} else if (bytes_read == 0) {
-			// EOF
+			// EOF — return whatever we have
 			break;
 		} else {
 			if (errno != EAGAIN && errno != EWOULDBLOCK) {
 				throw IOException("Error reading from process stdout");
 			}
-			// EAGAIN without complete line — loop back to WaitForData()
+			// EAGAIN — loop back to WaitForData()
 		}
 	}
 

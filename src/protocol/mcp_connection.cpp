@@ -2,6 +2,7 @@
 #include "duckdb/common/exception.hpp"
 #include "duckdb_mcp_logging.hpp"
 #include "json_utils.hpp"
+#include "result_formatter.hpp"
 #include <ctime>
 #include <thread>
 #include <chrono>
@@ -108,9 +109,11 @@ vector<MCPResource> MCPConnection::ListResources(const string &cursor) {
 		throw InvalidInputException("Connection not initialized");
 	}
 
-	Value params = Value::STRUCT({});
+	Value params;
 	if (!cursor.empty()) {
-		// Would add cursor to params
+		params = Value("{\"cursor\": \"" + ResultFormatter::EscapeJsonString(cursor) + "\"}");
+	} else {
+		params = Value::STRUCT({});
 	}
 
 	auto response = SendRequest(MCPMethods::RESOURCES_LIST, params);
@@ -298,10 +301,19 @@ Value MCPConnection::GenerateRequestId() {
 }
 
 bool MCPConnection::SendInitialize() {
-	// Use empty struct since we'll manually construct JSON in ToJSON()
+	// Send directly via transport to avoid re-entering SendRequestWithRetry,
+	// which would cause recursive initialization and exponential retry blowup.
 	Value params = Value::STRUCT({});
+	auto request_id = GenerateRequestId();
+	auto request = MCPMessage::CreateRequest(MCPMethods::INITIALIZE, params, request_id);
 
-	auto response = SendRequest(MCPMethods::INITIALIZE, params);
+	MCPMessage response;
+	try {
+		response = transport->SendAndReceive(request);
+	} catch (const std::exception &e) {
+		SetError("Initialize request failed: " + string(e.what()));
+		return false;
+	}
 
 	if (response.IsError()) {
 		return false;

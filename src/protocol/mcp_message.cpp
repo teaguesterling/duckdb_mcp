@@ -120,10 +120,12 @@ string MCPMessage::ToJSON() const {
 									// Copy the parsed JSON value
 									yyjson_mut_val *arg_copy = yyjson_val_mut_copy(doc, arg_val);
 									JSONUtils::AddObject(doc, params_obj, "arguments", arg_copy);
-									JSONUtils::FreeDocument(arg_doc);
 								} else {
 									// Add empty object as default
 									JSONUtils::AddObject(doc, params_obj, "arguments", JSONUtils::CreateObject(doc));
+								}
+								if (arg_doc) {
+									JSONUtils::FreeDocument(arg_doc);
 								}
 							}
 						}

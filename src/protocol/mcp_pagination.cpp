@@ -76,7 +76,8 @@ Value MCPPaginationParams::ToRPCParams() const {
 
 	// Convert to JSON string
 	const char *json_str = yyjson_mut_write(doc, 0, nullptr);
-	Value result = Value(json_str);
+	Value result = Value(json_str ? json_str : "{}");
+	free((void *)json_str);
 	yyjson_mut_doc_free(doc);
 
 	return result;
@@ -253,8 +254,10 @@ MCPPaginationResult ParsePaginationResponse(const MCPMessage &response, const st
 				// Convert each item to DuckDB Value
 				size_t len;
 				char *item_json = yyjson_val_write(item, 0, &len);
-				result.items.push_back(Value(item_json));
-				free(item_json);
+				if (item_json) {
+					result.items.push_back(Value(string(item_json, len)));
+					free(item_json);
+				}
 			}
 		}
 

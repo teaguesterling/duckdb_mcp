@@ -126,7 +126,9 @@ string MCPLogger::GetTimestamp() {
 	auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
 
 	std::ostringstream oss;
-	oss << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S");
+	struct tm tm_result;
+	localtime_r(&time_t, &tm_result);
+	oss << std::put_time(&tm_result, "%Y-%m-%d %H:%M:%S");
 	oss << "." << std::setfill('0') << std::setw(3) << ms.count();
 	return oss.str();
 }
