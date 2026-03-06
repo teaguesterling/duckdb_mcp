@@ -839,6 +839,43 @@ MCPMessage MCPServerManager::SendRequest(const MCPMessage &request) {
 	return server->ProcessRequest(request);
 }
 
+bool MCPServerManager::PublishResource(const string &uri, shared_ptr<ResourceProvider> provider) {
+	lock_guard<mutex> lock(manager_mutex);
+	if (!server || !server->IsRunning()) {
+		return false;
+	}
+	return server->PublishResource(uri, std::move(provider));
+}
+
+bool MCPServerManager::RegisterTool(const string &name, shared_ptr<ToolHandler> handler) {
+	lock_guard<mutex> lock(manager_mutex);
+	if (!server || !server->IsRunning()) {
+		return false;
+	}
+	return server->RegisterTool(name, std::move(handler));
+}
+
+bool MCPServerManager::AllowsDirectRequests() const {
+	lock_guard<mutex> lock(manager_mutex);
+	if (!server || !server->IsRunning()) {
+		return false;
+	}
+	return server->AllowsDirectRequests();
+}
+
+MCPServerManager::ServerStats MCPServerManager::GetServerStats() const {
+	lock_guard<mutex> lock(manager_mutex);
+	ServerStats stats;
+	if (server && server->IsRunning()) {
+		stats.running = true;
+		stats.status = server->GetStatus();
+		stats.requests_received = server->GetRequestsReceived();
+		stats.responses_sent = server->GetResponsesSent();
+		stats.errors_returned = server->GetErrorsReturned();
+	}
+	return stats;
+}
+
 void MCPServerManager::QueueToolRegistration(PendingToolRegistration registration) {
 	lock_guard<mutex> lock(manager_mutex);
 	pending_tools.push_back(std::move(registration));

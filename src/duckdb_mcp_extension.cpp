@@ -877,20 +877,15 @@ static void MCPServerStatusFunction(DataChunk &args, ExpressionState &state, Vec
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		try {
-			if (!server_manager.IsServerRunning()) {
+			auto stats = server_manager.GetServerStats();
+			if (!stats.running) {
 				result.SetValue(i, CreateMCPStatus(true, false, "Server is stopped"));
 				continue;
 			}
 
-			auto server = server_manager.GetServer();
-			if (server) {
-				// Server is running - get detailed status with statistics
-				result.SetValue(i, CreateMCPStatus(true, true, server->GetStatus(), "", "", 0, true,
-				                                   server->GetRequestsReceived(), server->GetResponsesSent(),
-				                                   server->GetErrorsReturned()));
-			} else {
-				result.SetValue(i, CreateMCPStatus(false, false, "Server manager inconsistency"));
-			}
+			result.SetValue(i, CreateMCPStatus(true, true, stats.status, "", "", 0, true,
+			                                   stats.requests_received, stats.responses_sent,
+			                                   stats.errors_returned));
 
 		} catch (const std::exception &e) {
 			result.SetValue(i, CreateMCPStatus(false, false, string(e.what())));
@@ -971,8 +966,7 @@ static void MCPServerSendRequestFunction(DataChunk &args, ExpressionState &state
 			}
 
 			// Check if direct requests are allowed (auto-disabled when require_auth=true)
-			auto *server = server_manager.GetServer();
-			if (server && !server->AllowsDirectRequests()) {
+			if (!server_manager.AllowsDirectRequests()) {
 				result_data[i] = StringVector::AddString(
 				    result,
 				    R"json({"jsonrpc":"2.0","error":{"code":-32001,"message":"Direct requests are disabled. When require_auth is enabled, mcp_server_send_request is auto-disabled to prevent auth bypass. Set allow_direct_requests=true to override."},"id":null})json");
@@ -1044,8 +1038,7 @@ static string MCPPublishTableCore(ClientContext &context, const string &table_na
 	}
 
 	auto provider = make_shared_ptr<TableResourceProvider>(table_name, format, db_instance);
-	auto server = server_manager.GetServer();
-	if (server->PublishResource(resource_uri, std::move(provider))) {
+	if (server_manager.PublishResource(resource_uri, std::move(provider))) {
 		return "SUCCESS: Published table '" + table_name + "' as resource '" + resource_uri + "' in " + format +
 		       " format";
 	} else {
@@ -1105,8 +1098,7 @@ static string MCPPublishQueryCore(ClientContext &context, const string &query, c
 	}
 
 	auto provider = make_shared_ptr<QueryResourceProvider>(query, format, db_instance, refresh_seconds);
-	auto server = server_manager.GetServer();
-	if (server->PublishResource(resource_uri, std::move(provider))) {
+	if (server_manager.PublishResource(resource_uri, std::move(provider))) {
 		string refresh_info =
 		    refresh_seconds > 0 ? " (refresh every " + std::to_string(refresh_seconds) + "s)" : " (no refresh)";
 		return "SUCCESS: Published query as resource '" + resource_uri + "' in " + format + " format" + refresh_info;
@@ -1163,8 +1155,7 @@ static string MCPPublishResourceCore(DatabaseInstance &db, const string &resourc
 	}
 
 	auto provider = make_shared_ptr<StaticResourceProvider>(content, mime_type, description);
-	auto server = server_manager.GetServer();
-	if (server->PublishResource(resource_uri, std::move(provider))) {
+	if (server_manager.PublishResource(resource_uri, std::move(provider))) {
 		return "SUCCESS: Published resource '" + resource_uri + "' (" + mime_type + ")";
 	} else {
 		return "ERROR: Failed to publish resource";
@@ -1231,8 +1222,7 @@ static string MCPPublishToolCore(ClientContext &context, const string &tool_name
 	ToolInputSchema input_schema = ParseToolInputSchema(properties_json, required_json);
 	auto handler =
 	    make_shared_ptr<SQLToolHandler>(tool_name, description, sql_template, input_schema, db_instance, format);
-	auto server = server_manager.GetServer();
-	if (server->RegisterTool(tool_name, std::move(handler))) {
+	if (server_manager.RegisterTool(tool_name, std::move(handler))) {
 		if (format != "json") {
 			return "SUCCESS: Published tool '" + tool_name + "' with " + format + " output format";
 		}

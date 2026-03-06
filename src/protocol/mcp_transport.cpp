@@ -18,7 +18,8 @@
 namespace duckdb {
 
 StdioTransport::StdioTransport(const StdioConfig &config)
-    : config(config), connected(false), process_pid(-1), stdin_fd(-1), stdout_fd(-1), stderr_fd(-1) {
+    : config(config), connected(false), process_pid(-1), process_reaped(false), stdin_fd(-1), stdout_fd(-1),
+      stderr_fd(-1) {
 }
 
 StdioTransport::~StdioTransport() {
@@ -121,7 +122,7 @@ bool StdioTransport::Ping() {
 }
 
 string StdioTransport::GetConnectionInfo() const {
-	return "stdio://" + config.command_path + " (pid: " + std::to_string(process_pid) + ")";
+	return "stdio://" + config.command_path + " (pid: " + std::to_string(process_pid.load()) + ")";
 }
 
 bool StdioTransport::StartProcess() {
@@ -165,9 +166,10 @@ bool StdioTransport::StartProcess() {
 		return false;
 	}
 
-	process_pid = fork();
+	pid_t child_pid = fork();
+	process_pid.store(child_pid);
 
-	if (process_pid == -1) {
+	if (child_pid == -1) {
 		// Fork failed
 		close(stdin_pipe[0]);
 		close(stdin_pipe[1]);
@@ -178,7 +180,7 @@ bool StdioTransport::StartProcess() {
 		return false;
 	}
 
-	if (process_pid == 0) {
+	if (child_pid == 0) {
 		// Child process
 
 		// Redirect stdin, stdout, stderr
@@ -326,7 +328,8 @@ void StdioTransport::StopProcess() {
 #ifdef _WIN32
 	// Windows process termination not implemented yet
 #else
-	if (process_pid > 0) {
+	int pid = process_pid.load();
+	if (pid > 0) {
 		// Close file descriptors
 		if (stdin_fd >= 0) {
 			close(stdin_fd);
@@ -341,25 +344,25 @@ void StdioTransport::StopProcess() {
 			stderr_fd = -1;
 		}
 
-		if (!process_reaped) {
+		if (!process_reaped.load()) {
 			// Send SIGTERM for graceful shutdown
-			kill(process_pid, SIGTERM);
+			kill(pid, SIGTERM);
 
 			// Wait briefly for process to exit gracefully
 			usleep(100000); // 100ms
 
 			int status;
-			int wait_result = waitpid(process_pid, &status, WNOHANG);
+			int wait_result = waitpid(pid, &status, WNOHANG);
 			if (wait_result == 0) {
 				// Process still running after SIGTERM - force kill
-				kill(process_pid, SIGKILL);
+				kill(pid, SIGKILL);
 				// Blocking wait to reap the zombie
-				waitpid(process_pid, &status, 0);
+				waitpid(pid, &status, 0);
 			}
 		}
 
-		process_pid = -1;
-		process_reaped = false;
+		process_pid.store(-1);
+		process_reaped.store(false);
 	}
 #endif
 }
@@ -368,12 +371,13 @@ bool StdioTransport::IsProcessRunning() const {
 #ifdef _WIN32
 	return false; // Windows process checking not implemented yet
 #else
-	if (process_pid <= 0 || process_reaped) {
+	int pid = process_pid.load();
+	if (pid <= 0 || process_reaped.load()) {
 		return false;
 	}
 
 	int status;
-	int result = waitpid(process_pid, &status, WNOHANG);
+	int result = waitpid(pid, &status, WNOHANG);
 
 	if (result > 0) {
 		// Child exited — mark as reaped to prevent kill() on stale PID
@@ -398,9 +402,18 @@ void StdioTransport::WriteToProcess(const string &data) {
 		throw IOException("Process stdin not available");
 	}
 
-	ssize_t written = write(stdin_fd, data.c_str(), data.length());
-	if (written != static_cast<ssize_t>(data.length())) {
-		throw IOException("Failed to write to process stdin");
+	const char *buf = data.c_str();
+	size_t remaining = data.length();
+	while (remaining > 0) {
+		ssize_t written = write(stdin_fd, buf, remaining);
+		if (written < 0) {
+			if (errno == EINTR) {
+				continue;
+			}
+			throw IOException("Failed to write to process stdin");
+		}
+		buf += written;
+		remaining -= static_cast<size_t>(written);
 	}
 #endif
 }
