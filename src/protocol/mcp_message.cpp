@@ -232,8 +232,8 @@ MCPMessage MCPMessage::FromJSON(const string &json) {
 			}
 
 		} else if (error_val) {
-			// Error response
-			msg.type = MCPMessageType::ERROR;
+			// Error response — use RESPONSE type with has_error flag, matching CreateError()
+			msg.type = MCPMessageType::RESPONSE;
 			msg.has_error = true;
 			msg.error.code = JSONUtils::GetInt(error_val, "code", -1);
 			msg.error.message = JSONUtils::GetString(error_val, "message");
@@ -308,8 +308,6 @@ bool MCPMessage::IsValid() const {
 		return !method.empty();
 	case MCPMessageType::RESPONSE:
 		return !id.IsNull() && (has_error || !result.IsNull());
-	case MCPMessageType::ERROR:
-		return has_error && !id.IsNull();
 	default:
 		return false;
 	}
