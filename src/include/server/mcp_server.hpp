@@ -233,6 +233,8 @@ struct PendingToolRegistration {
 	string required_json;
 	string format;
 	DatabaseInstance *db_instance;
+	bool multi_statement = false;
+	string bindings_json; // only for execution tools
 };
 
 // Pending registration for resources (before server starts)

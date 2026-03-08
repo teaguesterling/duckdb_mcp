@@ -582,6 +582,61 @@ SQLToolHandler::SQLToolHandler(const string &name, const string &description, co
       db_instance(db), result_format(result_format) {
 }
 
+case_insensitive_map_t<BoundParameterData> SQLToolHandler::BuildNamedParameters(const JSONArgumentParser &parser) const {
+	case_insensitive_map_t<BoundParameterData> named_params;
+
+	// Build typed values for all schema properties
+	for (const auto &prop : input_schema.properties) {
+		const string &param_name = prop.first;
+		string param_type = prop.second.ToString();
+
+		if (!parser.HasField(param_name) || parser.IsNull(param_name)) {
+			// Omitted or explicit null → SQL NULL
+			named_params[param_name] = BoundParameterData(Value());
+			continue;
+		}
+
+		string str_val = parser.GetValueAsString(param_name);
+
+		if (param_type == "integer") {
+			try {
+				size_t pos = 0;
+				long long int_val = std::stoll(str_val, &pos);
+				if (pos != str_val.size()) {
+					throw std::invalid_argument("trailing characters");
+				}
+				named_params[param_name] = BoundParameterData(Value::BIGINT(int_val));
+			} catch (const std::exception &) {
+				throw InvalidInputException("Parameter '" + param_name + "' must be a valid integer, got: " + str_val);
+			}
+		} else if (param_type == "number") {
+			try {
+				size_t pos = 0;
+				double num_val = std::stod(str_val, &pos);
+				if (pos != str_val.size()) {
+					throw std::invalid_argument("trailing characters");
+				}
+				named_params[param_name] = BoundParameterData(Value::DOUBLE(num_val));
+			} catch (const std::exception &) {
+				throw InvalidInputException("Parameter '" + param_name + "' must be a valid number, got: " + str_val);
+			}
+		} else if (param_type == "boolean") {
+			if (str_val == "true") {
+				named_params[param_name] = BoundParameterData(Value::BOOLEAN(true));
+			} else if (str_val == "false") {
+				named_params[param_name] = BoundParameterData(Value::BOOLEAN(false));
+			} else {
+				throw InvalidInputException("Parameter '" + param_name + "' must be 'true' or 'false', got: " + str_val);
+			}
+		} else {
+			// Default to string (VARCHAR)
+			named_params[param_name] = BoundParameterData(Value(str_val));
+		}
+	}
+
+	return named_params;
+}
+
 CallToolResult SQLToolHandler::Execute(const Value &arguments) {
 	try {
 		// Parse JSON arguments (accepts both VARCHAR JSON and STRUCT)
@@ -595,11 +650,23 @@ CallToolResult SQLToolHandler::Execute(const Value &arguments) {
 			return CallToolResult::Error("Invalid input: missing required fields");
 		}
 
-		// Substitute parameters in SQL template
-		string sql = SubstituteParameters(sql_template, parser);
-
-		// Execute query
+		// Try prepared statement binding first
 		Connection conn(db_instance);
+		auto prepared = conn.Prepare(sql_template);
+
+		if (!prepared->HasError()) {
+			// Template is preparable — use parameterized execution
+			auto named_params = BuildNamedParameters(parser);
+			auto result = prepared->Execute(named_params);
+			if (result->HasError()) {
+				return CallToolResult::Error("SQL error: " + result->GetError());
+			}
+			string formatted_result = ResultFormatter::Format(*result, result_format);
+			return CallToolResult::Success(Value(formatted_result));
+		}
+
+		// Fallback: string interpolation (for macros and other non-preparable templates)
+		string sql = SubstituteParameters(sql_template, parser);
 		auto result = conn.Query(sql);
 
 		if (result->HasError()) {
@@ -745,6 +812,190 @@ string SQLToolHandler::SubstituteParameters(const string &template_sql, const JS
 	}
 
 	return result;
+}
+
+//===--------------------------------------------------------------------===//
+// ExecutionSQLToolHandler Implementation
+//===--------------------------------------------------------------------===//
+
+// Parse bindings JSON into per-statement binding specs
+static vector<unordered_map<string, string>> ParseBindingsJson(const string &bindings_json, bool &per_statement) {
+	vector<unordered_map<string, string>> specs;
+
+	if (bindings_json.empty() || bindings_json == "{}") {
+		per_statement = false;
+		specs.push_back({}); // empty global spec
+		return specs;
+	}
+
+	yyjson_doc *doc = JSONUtils::Parse(bindings_json);
+	yyjson_val *root = yyjson_doc_get_root(doc);
+
+	if (root && yyjson_is_obj(root)) {
+		// Object form: all params bind to every statement
+		per_statement = false;
+		unordered_map<string, string> spec;
+		yyjson_obj_iter iter = yyjson_obj_iter_with(root);
+		yyjson_val *key;
+		while ((key = yyjson_obj_iter_next(&iter))) {
+			yyjson_val *val = yyjson_obj_iter_get_val(key);
+			if (yyjson_is_str(key) && yyjson_is_str(val)) {
+				spec[yyjson_get_str(key)] = yyjson_get_str(val);
+			}
+		}
+		specs.push_back(std::move(spec));
+	} else if (root && yyjson_is_arr(root)) {
+		// Array form: per-statement bindings
+		per_statement = true;
+		size_t idx, max;
+		yyjson_val *arr_val;
+		yyjson_arr_foreach(root, idx, max, arr_val) {
+			unordered_map<string, string> spec;
+			if (yyjson_is_obj(arr_val)) {
+				yyjson_obj_iter iter = yyjson_obj_iter_with(arr_val);
+				yyjson_val *key;
+				while ((key = yyjson_obj_iter_next(&iter))) {
+					yyjson_val *val = yyjson_obj_iter_get_val(key);
+					if (yyjson_is_str(key) && yyjson_is_str(val)) {
+						spec[yyjson_get_str(key)] = yyjson_get_str(val);
+					}
+				}
+			}
+			specs.push_back(std::move(spec));
+		}
+	}
+
+	JSONUtils::FreeDocument(doc);
+	return specs;
+}
+
+ExecutionSQLToolHandler::ExecutionSQLToolHandler(const string &name, const string &description,
+                                                 const string &sql_template, const ToolInputSchema &input_schema,
+                                                 DatabaseInstance &db, const string &bindings_json,
+                                                 const string &result_format)
+    : tool_name(name), tool_description(description), sql_template(sql_template), input_schema(input_schema),
+      db_instance(db), result_format(result_format) {
+	statement_binding_specs = ParseBindingsJson(bindings_json, per_statement_bindings);
+}
+
+case_insensitive_map_t<BoundParameterData> ExecutionSQLToolHandler::BuildNamedParameters(
+    const JSONArgumentParser &parser, const unordered_map<string, string> &binding_spec) const {
+	case_insensitive_map_t<BoundParameterData> named_params;
+
+	for (const auto &entry : binding_spec) {
+		const string &param_name = entry.first;
+		const string &param_type = entry.second;
+
+		if (!parser.HasField(param_name) || parser.IsNull(param_name)) {
+			named_params[param_name] = BoundParameterData(Value());
+			continue;
+		}
+
+		string str_val = parser.GetValueAsString(param_name);
+
+		if (param_type == "integer") {
+			try {
+				size_t pos = 0;
+				long long int_val = std::stoll(str_val, &pos);
+				if (pos != str_val.size()) {
+					throw std::invalid_argument("trailing characters");
+				}
+				named_params[param_name] = BoundParameterData(Value::BIGINT(int_val));
+			} catch (const std::exception &) {
+				throw InvalidInputException("Parameter '" + param_name + "' must be a valid integer, got: " + str_val);
+			}
+		} else if (param_type == "number") {
+			try {
+				size_t pos = 0;
+				double num_val = std::stod(str_val, &pos);
+				if (pos != str_val.size()) {
+					throw std::invalid_argument("trailing characters");
+				}
+				named_params[param_name] = BoundParameterData(Value::DOUBLE(num_val));
+			} catch (const std::exception &) {
+				throw InvalidInputException("Parameter '" + param_name + "' must be a valid number, got: " + str_val);
+			}
+		} else if (param_type == "boolean") {
+			if (str_val == "true") {
+				named_params[param_name] = BoundParameterData(Value::BOOLEAN(true));
+			} else if (str_val == "false") {
+				named_params[param_name] = BoundParameterData(Value::BOOLEAN(false));
+			} else {
+				throw InvalidInputException("Parameter '" + param_name + "' must be 'true' or 'false', got: " + str_val);
+			}
+		} else {
+			named_params[param_name] = BoundParameterData(Value(str_val));
+		}
+	}
+
+	return named_params;
+}
+
+CallToolResult ExecutionSQLToolHandler::Execute(const Value &arguments) {
+	try {
+		// Parse JSON arguments
+		JSONArgumentParser parser;
+		if (!parser.Parse(arguments)) {
+			return CallToolResult::Error("Invalid input: failed to parse arguments");
+		}
+
+		// Validate required fields from schema
+		if (!parser.ValidateRequired(input_schema.required_fields)) {
+			return CallToolResult::Error("Invalid input: missing required fields");
+		}
+
+		// Extract individual statements
+		Connection conn(db_instance);
+		auto statements = conn.ExtractStatements(sql_template);
+
+		if (statements.empty()) {
+			return CallToolResult::Error("No statements found in SQL template");
+		}
+
+		// Validate per-statement bindings array length
+		if (per_statement_bindings && statement_binding_specs.size() != statements.size()) {
+			return CallToolResult::Error(
+			    "Binding spec array length (" + std::to_string(statement_binding_specs.size()) +
+			    ") does not match statement count (" + std::to_string(statements.size()) + ")");
+		}
+
+		// Execute each statement using original SQL slices to preserve $param tokens
+		unique_ptr<QueryResult> last_result;
+		for (idx_t i = 0; i < statements.size(); i++) {
+			string stmt_sql = sql_template.substr(statements[i]->stmt_location, statements[i]->stmt_length);
+
+			// Determine binding spec for this statement
+			const auto &binding_spec =
+			    per_statement_bindings ? statement_binding_specs[i] : statement_binding_specs[0];
+
+			auto prepared = conn.Prepare(stmt_sql);
+			if (prepared->HasError()) {
+				return CallToolResult::Error("SQL error in statement " + std::to_string(i + 1) + ": " +
+				                             prepared->GetError());
+			}
+
+			auto named_params = BuildNamedParameters(parser, binding_spec);
+			auto result = prepared->Execute(named_params);
+
+			if (result->HasError()) {
+				return CallToolResult::Error("SQL error in statement " + std::to_string(i + 1) + ": " +
+				                             result->GetError());
+			}
+
+			last_result = std::move(result);
+		}
+
+		// Format the result of the last statement
+		if (!last_result) {
+			return CallToolResult::Error("No result from execution");
+		}
+
+		string formatted_result = ResultFormatter::Format(*last_result, result_format);
+		return CallToolResult::Success(Value(formatted_result));
+
+	} catch (const std::exception &e) {
+		return CallToolResult::Error("Tool execution error: " + string(e.what()));
+	}
 }
 
 //===--------------------------------------------------------------------===//

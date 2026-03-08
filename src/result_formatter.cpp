@@ -91,6 +91,30 @@ string ResultFormatter::Format(QueryResult &result, const string &format) {
 	return "";
 }
 
+// Type-aware JSON value serialization: numbers and booleans are unquoted
+static void AppendJsonValue(string &out, const Value &value, const LogicalType &type) {
+	if (value.IsNull()) {
+		out += "null";
+		return;
+	}
+	if (type.IsNumeric()) {
+		string s = value.ToString();
+		// JSON does not support NaN/Infinity — substitute null
+		if (s == "nan" || s == "-nan" || s == "inf" || s == "-inf" ||
+		    s == "NaN" || s == "Infinity" || s == "-Infinity") {
+			out += "null";
+		} else {
+			out += s;
+		}
+		return;
+	}
+	if (type.id() == LogicalTypeId::BOOLEAN) {
+		out += value.GetValue<bool>() ? "true" : "false";
+		return;
+	}
+	out += "\"" + ResultFormatter::EscapeJsonString(value.ToString()) + "\"";
+}
+
 string ResultFormatter::FormatAsJSON(QueryResult &result) {
 	string json = "[";
 	bool first_row = true;
@@ -107,13 +131,7 @@ string ResultFormatter::FormatAsJSON(QueryResult &result) {
 				if (col > 0)
 					json += ",";
 				json += "\"" + EscapeJsonString(result.names[col]) + "\":";
-
-				auto value = chunk->GetValue(col, i);
-				if (value.IsNull()) {
-					json += "null";
-				} else {
-					json += "\"" + EscapeJsonString(value.ToString()) + "\"";
-				}
+				AppendJsonValue(json, chunk->GetValue(col, i), result.types[col]);
 			}
 			json += "}";
 		}
@@ -132,13 +150,7 @@ string ResultFormatter::FormatAsJSONL(QueryResult &result) {
 				if (col > 0)
 					jsonl += ",";
 				jsonl += "\"" + EscapeJsonString(result.names[col]) + "\":";
-
-				auto value = chunk->GetValue(col, i);
-				if (value.IsNull()) {
-					jsonl += "null";
-				} else {
-					jsonl += "\"" + EscapeJsonString(value.ToString()) + "\"";
-				}
+				AppendJsonValue(jsonl, chunk->GetValue(col, i), result.types[col]);
 			}
 			jsonl += "}\n";
 		}

@@ -103,7 +103,7 @@ static void MCPListResourcesFunction(DataChunk &args, ExpressionState &state, Ve
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		if (server_vector.GetValue(i).IsNull()) {
-			result_data[i] = StringVector::AddString(result, "TRACE: server_name is null");
+			result_validity.SetInvalid(i);
 			continue;
 		}
 
@@ -208,7 +208,7 @@ static void MCPListToolsFunction(DataChunk &args, ExpressionState &state, Vector
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		if (server_vector.GetValue(i).IsNull()) {
-			result_data[i] = StringVector::AddString(result, "TRACE: server_name is null");
+			result_validity.SetInvalid(i);
 			continue;
 		}
 
@@ -255,7 +255,7 @@ static void MCPListPromptsFunction(DataChunk &args, ExpressionState &state, Vect
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		if (server_vector.GetValue(i).IsNull()) {
-			result_data[i] = StringVector::AddString(result, "TRACE: server_name is null");
+			result_validity.SetInvalid(i);
 			continue;
 		}
 
@@ -1290,6 +1290,114 @@ static void MCPPublishToolWithFormatFunction(DataChunk &args, ExpressionState &s
 	}
 }
 
+// Core implementation for publishing an execution tool (multi-statement)
+static string MCPPublishExecutionToolCore(ClientContext &context, const string &tool_name, const string &description,
+                                          const string &sql_template, const string &properties_json_in,
+                                          const string &required_json_in, const string &bindings_json_in,
+                                          const string &format_in) {
+	string properties_json = properties_json_in.empty() ? "{}" : properties_json_in;
+	string required_json = required_json_in.empty() ? "[]" : required_json_in;
+	string bindings_json = bindings_json_in.empty() ? "{}" : bindings_json_in;
+	string format = format_in.empty() ? "json" : format_in;
+
+	if (!ResultFormatter::IsFormatSupported(format)) {
+		return "ERROR: Unsupported format '" + format +
+		       "'. Supported formats: " + ResultFormatter::GetSupportedFormatsList();
+	}
+
+	auto &db_instance = DatabaseInstance::GetDatabase(context);
+	auto &server_manager = MCPInstanceState::Get(db_instance).server_manager;
+
+	if (!server_manager.IsServerRunning()) {
+		PendingToolRegistration reg;
+		reg.name = tool_name;
+		reg.description = description;
+		reg.sql_template = sql_template;
+		reg.properties_json = properties_json;
+		reg.required_json = required_json;
+		reg.format = format;
+		reg.db_instance = &db_instance;
+		reg.multi_statement = true;
+		reg.bindings_json = bindings_json;
+		server_manager.QueueToolRegistration(std::move(reg));
+		return "QUEUED: Execution tool '" + tool_name + "' will be registered when server starts";
+	}
+
+	ToolInputSchema input_schema = ParseToolInputSchema(properties_json, required_json);
+	auto handler = make_shared_ptr<ExecutionSQLToolHandler>(tool_name, description, sql_template, input_schema,
+	                                                        db_instance, bindings_json, format);
+	if (server_manager.RegisterTool(tool_name, std::move(handler))) {
+		if (format != "json") {
+			return "SUCCESS: Published execution tool '" + tool_name + "' with " + format + " output format";
+		}
+		return "SUCCESS: Published execution tool '" + tool_name + "'";
+	} else {
+		return "ERROR: Failed to publish execution tool";
+	}
+}
+
+// Publish execution tool with 6 parameters (format defaults to json)
+static void MCPPublishExecutionToolFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	auto &name_vector = args.data[0];
+	auto &desc_vector = args.data[1];
+	auto &sql_vector = args.data[2];
+	auto &props_vector = args.data[3];
+	auto &required_vector = args.data[4];
+	auto &bindings_vector = args.data[5];
+	bool suppress = MCPInstanceState::Get(state.GetContext()).config.config_mode;
+
+	result.SetVectorType(VectorType::FLAT_VECTOR);
+	auto result_data = FlatVector::GetData<string_t>(result);
+
+	for (idx_t i = 0; i < args.size(); i++) {
+		try {
+			string tool_name = name_vector.GetValue(i).ToString();
+			string description = desc_vector.GetValue(i).ToString();
+			string sql_template = sql_vector.GetValue(i).ToString();
+			string properties_json = props_vector.GetValue(i).IsNull() ? "" : props_vector.GetValue(i).ToString();
+			string required_json = required_vector.GetValue(i).IsNull() ? "" : required_vector.GetValue(i).ToString();
+			string bindings_json = bindings_vector.GetValue(i).IsNull() ? "" : bindings_vector.GetValue(i).ToString();
+			string msg = MCPPublishExecutionToolCore(state.GetContext(), tool_name, description, sql_template,
+			                                         properties_json, required_json, bindings_json, "");
+			result_data[i] = StringVector::AddString(result, suppress ? "" : msg);
+		} catch (const std::exception &e) {
+			result_data[i] = StringVector::AddString(result, suppress ? "" : "ERROR: " + string(e.what()));
+		}
+	}
+}
+
+// Publish execution tool with 7 parameters (includes format option)
+static void MCPPublishExecutionToolWithFormatFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	auto &name_vector = args.data[0];
+	auto &desc_vector = args.data[1];
+	auto &sql_vector = args.data[2];
+	auto &props_vector = args.data[3];
+	auto &required_vector = args.data[4];
+	auto &bindings_vector = args.data[5];
+	auto &format_vector = args.data[6];
+	bool suppress = MCPInstanceState::Get(state.GetContext()).config.config_mode;
+
+	result.SetVectorType(VectorType::FLAT_VECTOR);
+	auto result_data = FlatVector::GetData<string_t>(result);
+
+	for (idx_t i = 0; i < args.size(); i++) {
+		try {
+			string tool_name = name_vector.GetValue(i).ToString();
+			string description = desc_vector.GetValue(i).ToString();
+			string sql_template = sql_vector.GetValue(i).ToString();
+			string properties_json = props_vector.GetValue(i).IsNull() ? "" : props_vector.GetValue(i).ToString();
+			string required_json = required_vector.GetValue(i).IsNull() ? "" : required_vector.GetValue(i).ToString();
+			string bindings_json = bindings_vector.GetValue(i).IsNull() ? "" : bindings_vector.GetValue(i).ToString();
+			string format = format_vector.GetValue(i).IsNull() ? "" : format_vector.GetValue(i).ToString();
+			string msg = MCPPublishExecutionToolCore(state.GetContext(), tool_name, description, sql_template,
+			                                         properties_json, required_json, bindings_json, format);
+			result_data[i] = StringVector::AddString(result, suppress ? "" : msg);
+		} catch (const std::exception &e) {
+			result_data[i] = StringVector::AddString(result, suppress ? "" : "ERROR: " + string(e.what()));
+		}
+	}
+}
+
 // MCP diagnostics function
 static void MCPGetDiagnosticsFunction(DataChunk &args, ExpressionState &state, Vector &result) {
 	result.SetVectorType(VectorType::FLAT_VECTOR);
@@ -1771,6 +1879,20 @@ static void PragmaMCPPublishToolWithFormat(ClientContext &context, const Functio
 	                   params.values[3].ToString(), params.values[4].ToString(), params.values[5].ToString());
 }
 
+// PRAGMA mcp_publish_execution_tool(name, description, sql_template, properties_json, required_json, bindings_json)
+static void PragmaMCPPublishExecutionTool(ClientContext &context, const FunctionParameters &params) {
+	MCPPublishExecutionToolCore(context, params.values[0].ToString(), params.values[1].ToString(),
+	                            params.values[2].ToString(), params.values[3].ToString(), params.values[4].ToString(),
+	                            params.values[5].ToString(), "");
+}
+
+// PRAGMA mcp_publish_execution_tool(name, description, sql_template, properties_json, required_json, bindings_json, format)
+static void PragmaMCPPublishExecutionToolWithFormat(ClientContext &context, const FunctionParameters &params) {
+	MCPPublishExecutionToolCore(context, params.values[0].ToString(), params.values[1].ToString(),
+	                            params.values[2].ToString(), params.values[3].ToString(), params.values[4].ToString(),
+	                            params.values[5].ToString(), params.values[6].ToString());
+}
+
 // PRAGMA mcp_publish_table('table_name')
 static void PragmaMCPPublishTableSimple(ClientContext &context, const FunctionParameters &params) {
 	MCPPublishTableCore(context, params.values[0].ToString(), "", "");
@@ -1998,6 +2120,25 @@ static void LoadInternal(ExtensionLoader &loader) {
 	publish_tool_format_func.null_handling = FunctionNullHandling::SPECIAL_HANDLING;
 	loader.RegisterFunction(publish_tool_format_func);
 
+	// Register execution tool publishing functions
+	// mcp_publish_execution_tool(name, description, sql_template, properties_json, required_json, bindings_json)
+	auto publish_exec_tool_func =
+	    ScalarFunction("mcp_publish_execution_tool",
+	                   {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
+	                    LogicalType::VARCHAR, LogicalType::VARCHAR},
+	                   LogicalType::VARCHAR, MCPPublishExecutionToolFunction);
+	publish_exec_tool_func.null_handling = FunctionNullHandling::SPECIAL_HANDLING;
+	loader.RegisterFunction(publish_exec_tool_func);
+
+	// mcp_publish_execution_tool(name, description, sql_template, properties_json, required_json, bindings_json, format)
+	auto publish_exec_tool_format_func =
+	    ScalarFunction("mcp_publish_execution_tool",
+	                   {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
+	                    LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
+	                   LogicalType::VARCHAR, MCPPublishExecutionToolWithFormatFunction);
+	publish_exec_tool_format_func.null_handling = FunctionNullHandling::SPECIAL_HANDLING;
+	loader.RegisterFunction(publish_exec_tool_format_func);
+
 	// Register MCP template functions
 	auto register_prompt_template_func = ScalarFunction(
 	    "mcp_register_prompt_template", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
@@ -2050,6 +2191,18 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                               {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
 	                                LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR}));
 	loader.RegisterFunction(std::move(pragma_publish_tool));
+
+	// PRAGMA mcp_publish_execution_tool - 2 overloads (6 args, 7 args with format)
+	PragmaFunctionSet pragma_publish_exec_tool("mcp_publish_execution_tool");
+	pragma_publish_exec_tool.AddFunction(
+	    PragmaFunction::PragmaCall("mcp_publish_execution_tool", PragmaMCPPublishExecutionTool,
+	                               {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
+	                                LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR}));
+	pragma_publish_exec_tool.AddFunction(
+	    PragmaFunction::PragmaCall("mcp_publish_execution_tool", PragmaMCPPublishExecutionToolWithFormat,
+	                               {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
+	                                LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR}));
+	loader.RegisterFunction(std::move(pragma_publish_exec_tool));
 
 	// PRAGMA mcp_publish_table - 2 overloads (1 arg, 3 args)
 	PragmaFunctionSet pragma_publish_table("mcp_publish_table");

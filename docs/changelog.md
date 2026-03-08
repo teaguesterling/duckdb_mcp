@@ -38,6 +38,10 @@ All notable changes to the DuckDB MCP Extension.
 
 ### New Features
 
+- **Prepared statement binding for `mcp_publish_tool`**: Tool parameters are now bound using DuckDB's prepared statement API with proper type conversion (`string` → VARCHAR, `integer` → BIGINT, `number` → DOUBLE, `boolean` → BOOLEAN). Falls back to string interpolation for non-preparable templates (e.g., macros). Safer and more efficient than string interpolation alone.
+- **Multi-statement execution tools (`mcp_publish_execution_tool`)**: New function for publishing tools that execute multiple semicolon-separated SQL statements. Supports global or per-statement parameter binding specs. Returns the result of the last statement.
+- **Type-aware JSON serialization**: JSON and JSONL output formats now emit numbers unquoted and booleans as `true`/`false` instead of quoting all values as strings. Produces spec-compliant JSON that clients can parse without type coercion. NaN and Infinity values are serialized as `null`.
+- **Prompts capability**: Server now advertises `prompts` capability with `listChanged: true`. `prompts/list` and `prompts/get` MCP methods are fully implemented, backed by the template manager.
 - **Text output format**: New `text` format for query results (plain text, tab-separated)
 - **JSONL output format**: New `jsonl` format (one JSON object per line)
 - **Markdown pipe escaping**: Pipe characters in cell values properly escaped in markdown output (closes #54)
@@ -63,6 +67,7 @@ All notable changes to the DuckDB MCP Extension.
 
 ### Breaking Changes
 
+- **Type-aware JSON output**: JSON and JSONL formats now emit numeric values unquoted (`{"id":1}` instead of `{"id":"1"}`) and booleans as `true`/`false`. Clients that rely on string comparison of JSON output or expect all values to be strings will need updating.
 - Per-instance state means global state is no longer shared across database instances
 - Command allowlist behavior changed: empty allowlist now means "deny all" (was "allow all")
 - Basename shortcuts removed from command allowlist (exact match only)

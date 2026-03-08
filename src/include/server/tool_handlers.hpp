@@ -2,6 +2,7 @@
 
 #include "duckdb.hpp"
 #include "duckdb/main/database.hpp"
+#include "duckdb/planner/expression/bound_parameter_data.hpp"
 #include "json_utils.hpp"
 
 namespace duckdb {
@@ -169,6 +170,42 @@ private:
 	string result_format;
 
 	string SubstituteParameters(const string &template_sql, const JSONArgumentParser &parser) const;
+	case_insensitive_map_t<BoundParameterData> BuildNamedParameters(const JSONArgumentParser &parser) const;
+};
+
+// Execution SQL tool handler - executes multi-statement SQL templates with prepared binding
+class ExecutionSQLToolHandler : public ToolHandler {
+public:
+	ExecutionSQLToolHandler(const string &name, const string &description, const string &sql_template,
+	                        const ToolInputSchema &input_schema, DatabaseInstance &db, const string &bindings_json,
+	                        const string &result_format = "json");
+
+	CallToolResult Execute(const Value &arguments) override;
+	string GetName() const override {
+		return tool_name;
+	}
+	string GetDescription() const override {
+		return tool_description;
+	}
+	ToolInputSchema GetInputSchema() const override {
+		return input_schema;
+	}
+
+private:
+	string tool_name;
+	string tool_description;
+	string sql_template;
+	ToolInputSchema input_schema;
+	DatabaseInstance &db_instance;
+	string result_format;
+
+	// Parsed at construction time from bindings_json
+	bool per_statement_bindings; // true = array form, false = object form
+	vector<unordered_map<string, string>> statement_binding_specs;
+	// Each inner map: param_name -> json_schema_type
+
+	case_insensitive_map_t<BoundParameterData> BuildNamedParameters(
+	    const JSONArgumentParser &parser, const unordered_map<string, string> &binding_spec) const;
 };
 
 // List tables tool handler - lists all tables (and optionally views) in the database
