@@ -959,10 +959,10 @@ CallToolResult ExecutionSQLToolHandler::Execute(const Value &arguments) {
 			    ") does not match statement count (" + std::to_string(statements.size()) + ")");
 		}
 
-		// Execute each statement using original SQL slices to preserve $param tokens
+		// Execute each statement — use statement->query which preserves original SQL including $param tokens
 		unique_ptr<QueryResult> last_result;
 		for (idx_t i = 0; i < statements.size(); i++) {
-			string stmt_sql = sql_template.substr(statements[i]->stmt_location, statements[i]->stmt_length);
+			string stmt_sql = statements[i]->query;
 
 			// Determine binding spec for this statement
 			const auto &binding_spec =
@@ -975,7 +975,16 @@ CallToolResult ExecutionSQLToolHandler::Execute(const Value &arguments) {
 			}
 
 			auto named_params = BuildNamedParameters(parser, binding_spec);
-			auto result = prepared->Execute(named_params);
+
+			// Filter to only params this statement expects (object binding may include extras)
+			case_insensitive_map_t<BoundParameterData> filtered_params;
+			for (auto &entry : named_params) {
+				if (prepared->named_param_map.count(entry.first)) {
+					filtered_params[entry.first] = std::move(entry.second);
+				}
+			}
+
+			auto result = prepared->Execute(filtered_params);
 
 			if (result->HasError()) {
 				return CallToolResult::Error("SQL error in statement " + std::to_string(i + 1) + ": " +

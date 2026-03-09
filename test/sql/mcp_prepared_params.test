@@ -1,0 +1,221 @@
+# name: test/sql/mcp_prepared_params.test
+# description: Tests for prepared statement parameter binding in mcp_publish_tool
+# group: [sql]
+
+# Verifies that mcp_publish_tool uses prepared statements with typed binding,
+# and falls back to string interpolation for non-preparable templates (macros).
+
+require duckdb_mcp
+
+statement ok
+LOAD duckdb_mcp;
+
+# =============================================================================
+# SETUP
+# =============================================================================
+
+statement ok
+SELECT mcp_server_stop(true);
+
+statement ok
+CREATE TABLE prep_test AS SELECT * FROM (VALUES
+    (1, 'alice', true, 10.5),
+    (2, 'bob', false, 20.75),
+    (3, 'carol', true, 30.0)
+) t(id, name, active, score);
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# =============================================================================
+# PREP-01: String parameter binding
+# =============================================================================
+
+query I
+SELECT mcp_publish_tool(
+    'find_by_name',
+    'Find rows by name',
+    'SELECT * FROM prep_test WHERE name = $name',
+    '{"name": {"type": "string", "description": "Name to find"}}',
+    '["name"]'
+) LIKE 'SUCCESS%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"find_by_name","arguments":{"name":"alice"}}}') LIKE '%alice%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"find_by_name","arguments":{"name":"alice"}}}') NOT LIKE '%bob%';
+----
+true
+
+# =============================================================================
+# PREP-02: Integer parameter binding
+# =============================================================================
+
+query I
+SELECT mcp_publish_tool(
+    'find_by_id',
+    'Find row by integer ID',
+    'SELECT * FROM prep_test WHERE id = $id',
+    '{"id": {"type": "integer", "description": "Row ID"}}',
+    '["id"]'
+) LIKE 'SUCCESS%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"find_by_id","arguments":{"id":2}}}') LIKE '%bob%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"find_by_id","arguments":{"id":2}}}') NOT LIKE '%alice%';
+----
+true
+
+# =============================================================================
+# PREP-03: Boolean parameter binding
+# =============================================================================
+
+query I
+SELECT mcp_publish_tool(
+    'find_active',
+    'Find rows by active flag',
+    'SELECT * FROM prep_test WHERE active = $active',
+    '{"active": {"type": "boolean", "description": "Active flag"}}',
+    '["active"]'
+) LIKE 'SUCCESS%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"find_active","arguments":{"active":true}}}') LIKE '%alice%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"find_active","arguments":{"active":true}}}') NOT LIKE '%bob%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"find_active","arguments":{"active":false}}}') LIKE '%bob%';
+----
+true
+
+# =============================================================================
+# PREP-04: Number (double) parameter binding
+# =============================================================================
+
+query I
+SELECT mcp_publish_tool(
+    'find_above_score',
+    'Find rows with score above threshold',
+    'SELECT * FROM prep_test WHERE score > $threshold',
+    '{"threshold": {"type": "number", "description": "Score threshold"}}',
+    '["threshold"]'
+) LIKE 'SUCCESS%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"find_above_score","arguments":{"threshold":15.0}}}') LIKE '%bob%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":31,"method":"tools/call","params":{"name":"find_above_score","arguments":{"threshold":15.0}}}') NOT LIKE '%alice%';
+----
+true
+
+# =============================================================================
+# PREP-05: NULL parameter binding (optional param omitted)
+# =============================================================================
+
+query I
+SELECT mcp_publish_tool(
+    'find_optional_id',
+    'Find by ID or return all if ID is null',
+    'SELECT * FROM prep_test WHERE ($id IS NULL OR id = $id)',
+    '{"id": {"type": "integer", "description": "Optional ID"}}',
+    '[]'
+) LIKE 'SUCCESS%';
+----
+true
+
+# Omitted optional param → NULL → returns all rows
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":40,"method":"tools/call","params":{"name":"find_optional_id","arguments":{}}}') LIKE '%alice%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":41,"method":"tools/call","params":{"name":"find_optional_id","arguments":{}}}') LIKE '%bob%';
+----
+true
+
+# Explicit null → same as omitted
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"find_optional_id","arguments":{"id":null}}}') LIKE '%carol%';
+----
+true
+
+# Provided → filters to single row
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":43,"method":"tools/call","params":{"name":"find_optional_id","arguments":{"id":1}}}') LIKE '%alice%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":44,"method":"tools/call","params":{"name":"find_optional_id","arguments":{"id":1}}}') NOT LIKE '%bob%';
+----
+true
+
+# =============================================================================
+# PREP-06: Macro fallback — prepared statement will fail, falls back to interpolation
+# =============================================================================
+
+statement ok
+CREATE MACRO greet(n) AS 'Hello, ' || n;
+
+query I
+SELECT mcp_publish_tool(
+    'greet_tool',
+    'Greet someone using a macro',
+    'SELECT greet($name) as greeting',
+    '{"name": {"type": "string", "description": "Name to greet"}}',
+    '["name"]'
+) LIKE 'SUCCESS%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":50,"method":"tools/call","params":{"name":"greet_tool","arguments":{"name":"world"}}}') LIKE '%Hello, world%';
+----
+true
+
+# =============================================================================
+# PREP-07: Execute error propagation — bad value for typed param returns error
+# =============================================================================
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":60,"method":"tools/call","params":{"name":"find_by_id","arguments":{"id":"not_a_number"}}}') LIKE '%error%';
+----
+true
+
+# =============================================================================
+# CLEANUP
+# =============================================================================
+
+statement ok
+SELECT mcp_server_stop(true);
+
+statement ok
+DROP TABLE prep_test;
+
+statement ok
+DROP MACRO greet;
