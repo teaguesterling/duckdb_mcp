@@ -466,8 +466,8 @@ INSERT INTO format_test3 VALUES (1, 'Alice'), (2, 'Bob');
 SELECT mcp_server_start('memory', 'localhost', 0, '{}');
 SELECT mcp_server_send_request('{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"query\",\"arguments\":{\"sql\":\"SELECT * FROM format_test3\",\"format\":\"jsonl\"}}}');
 ")
-# JSONL should have JSON objects (one per line) - quotes are escaped in the JSON-RPC response
-if echo "$RESULT" | grep -q '\\\"id\\\":\\\"1\\\"' && echo "$RESULT" | grep -q '\\\"name\\\":\\\"Alice\\\"'; then
+# JSONL should have JSON objects (one per line) - type-aware: integers unquoted, strings quoted
+if echo "$RESULT" | grep -q '\\\"id\\\":1' && echo "$RESULT" | grep -q '\\\"name\\\":\\\"Alice\\\"'; then
     pass "JSONL output format works"
 else
     fail "JSONL format" "JSON lines" "$RESULT"
