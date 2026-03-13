@@ -1,0 +1,217 @@
+# name: test/sql/mcp_execution_tool.test
+# description: Tests for mcp_publish_execution_tool (multi-statement tools)
+# group: [sql]
+
+# Verifies multi-statement execution with object (global) and array (per-statement)
+# binding specs, SET+SELECT patterns, and error propagation.
+
+require duckdb_mcp
+
+statement ok
+LOAD duckdb_mcp;
+
+# =============================================================================
+# SETUP
+# =============================================================================
+
+statement ok
+SELECT mcp_server_stop(true);
+
+statement ok
+CREATE TABLE exec_test AS SELECT * FROM (VALUES
+    (1, 'widget', 'tools', 9.99),
+    (2, 'gadget', 'electronics', 24.99),
+    (3, 'gizmo', 'tools', 14.99)
+) t(id, name, category, price);
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# =============================================================================
+# EXEC-01: Object binding (global) — all params bind to every statement
+# =============================================================================
+
+query I
+SELECT mcp_publish_execution_tool(
+    'create_and_query',
+    'Create temp table filtered by category, then query it',
+    'CREATE TEMP TABLE tmp_cat AS SELECT * FROM exec_test WHERE category = $cat; SELECT * FROM tmp_cat ORDER BY price;',
+    '{"cat": {"type": "string", "description": "Category filter"}}',
+    '["cat"]',
+    '{"cat": "string"}'
+) LIKE 'SUCCESS%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"create_and_query","arguments":{"cat":"tools"}}}') LIKE '%widget%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"create_and_query","arguments":{"cat":"tools"}}}') LIKE '%gizmo%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"create_and_query","arguments":{"cat":"tools"}}}') NOT LIKE '%gadget%';
+----
+true
+
+# Clean up temp table for next test
+statement ok
+DROP TABLE IF EXISTS tmp_cat;
+
+# =============================================================================
+# EXEC-02: Array binding (per-statement) — different bindings per statement
+# =============================================================================
+
+# First statement filters by category (binds $cat), second filters by price (binds $min_price)
+query I
+SELECT mcp_publish_execution_tool(
+    'two_step_filter',
+    'Filter by category into temp, then filter by price',
+    'CREATE TEMP TABLE tmp_step AS SELECT * FROM exec_test WHERE category = $cat; SELECT * FROM tmp_step WHERE price > $min_price ORDER BY price;',
+    '{"cat": {"type": "string", "description": "Category"}, "min_price": {"type": "number", "description": "Min price"}}',
+    '["cat", "min_price"]',
+    '[{"cat": "string"}, {"min_price": "number"}]'
+) LIKE 'SUCCESS%';
+----
+true
+
+# cat=tools, min_price=10 — should return gizmo (14.99) but not widget (9.99)
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"two_step_filter","arguments":{"cat":"tools","min_price":10}}}') LIKE '%gizmo%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"two_step_filter","arguments":{"cat":"tools","min_price":10}}}') NOT LIKE '%widget%';
+----
+true
+
+# Should not contain electronics items
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"two_step_filter","arguments":{"cat":"tools","min_price":10}}}') NOT LIKE '%gadget%';
+----
+true
+
+# Clean up temp table
+statement ok
+DROP TABLE IF EXISTS tmp_step;
+
+# =============================================================================
+# EXEC-03: Empty bindings — no params needed
+# =============================================================================
+
+query I
+SELECT mcp_publish_execution_tool(
+    'count_all',
+    'Count rows in exec_test',
+    'SELECT COUNT(*) as total FROM exec_test;',
+    '{}',
+    '[]',
+    '{}'
+) LIKE 'SUCCESS%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"count_all","arguments":{}}}') LIKE '%3%';
+----
+true
+
+# =============================================================================
+# EXEC-04: Custom format (markdown)
+# =============================================================================
+
+query I
+SELECT mcp_publish_execution_tool(
+    'list_markdown',
+    'List exec_test in markdown',
+    'SELECT name, price FROM exec_test ORDER BY name;',
+    '{}',
+    '[]',
+    '{}',
+    'markdown'
+) LIKE 'SUCCESS%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"list_markdown","arguments":{}}}') LIKE '%| name |%';
+----
+true
+
+# =============================================================================
+# EXEC-05: Error propagation — SQL error in second statement
+# =============================================================================
+
+query I
+SELECT mcp_publish_execution_tool(
+    'error_in_second',
+    'First statement OK, second has error',
+    'SELECT 1; SELECT * FROM nonexistent_table_xyz;',
+    '{}',
+    '[]',
+    '[{}, {}]'
+) LIKE 'SUCCESS%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":40,"method":"tools/call","params":{"name":"error_in_second","arguments":{}}}') LIKE '%error%';
+----
+true
+
+# =============================================================================
+# EXEC-06: Binding spec array length mismatch → error
+# =============================================================================
+
+query I
+SELECT mcp_publish_execution_tool(
+    'binding_mismatch',
+    'Binding array has wrong length',
+    'SELECT 1; SELECT 2;',
+    '{}',
+    '[]',
+    '[{}]'
+) LIKE 'SUCCESS%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":50,"method":"tools/call","params":{"name":"binding_mismatch","arguments":{}}}') LIKE '%does not match%';
+----
+true
+
+# =============================================================================
+# EXEC-07: Returns result of LAST statement only
+# =============================================================================
+
+query I
+SELECT mcp_publish_execution_tool(
+    'last_result',
+    'Return only last statement result',
+    'SELECT ''first'' as step; SELECT ''second'' as step;',
+    '{}',
+    '[]',
+    '[{}, {}]'
+) LIKE 'SUCCESS%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":60,"method":"tools/call","params":{"name":"last_result","arguments":{}}}') LIKE '%second%';
+----
+true
+
+# =============================================================================
+# CLEANUP
+# =============================================================================
+
+statement ok
+SELECT mcp_server_stop(true);
+
+statement ok
+DROP TABLE exec_test;

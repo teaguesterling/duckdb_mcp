@@ -234,6 +234,8 @@ struct PendingToolRegistration {
 	string required_json;
 	string format;
 	DatabaseInstance *db_instance;
+	bool multi_statement = false;
+	string bindings_json; // only for execution tools
 };
 
 // Pending registration for resources (before server starts)
@@ -257,12 +259,24 @@ public:
 	bool StartServer(const MCPServerConfig &config);
 	void StopServer();
 	bool IsServerRunning() const;
-	MCPServer *GetServer() const {
-		return server.get();
-	}
 
 	// Send request to running server (for testing with memory transport)
 	MCPMessage SendRequest(const MCPMessage &request);
+
+	// Thread-safe locked accessors — use these instead of raw GetServer()
+	bool PublishResource(const string &uri, shared_ptr<ResourceProvider> provider);
+	bool RegisterTool(const string &name, shared_ptr<ToolHandler> handler);
+	bool AllowsDirectRequests() const;
+
+	// Thread-safe status query (returns empty struct values when server not running)
+	struct ServerStats {
+		bool running = false;
+		string status;
+		uint64_t requests_received = 0;
+		uint64_t responses_sent = 0;
+		uint64_t errors_returned = 0;
+	};
+	ServerStats GetServerStats() const;
 
 	// Queue registrations for when server starts
 	void QueueToolRegistration(PendingToolRegistration registration);

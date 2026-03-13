@@ -1,0 +1,182 @@
+# name: test/sql/mcp_typed_json.test
+# description: Tests for type-aware JSON serialization
+# group: [sql]
+
+# Verifies that JSON/JSONL output emits numbers unquoted, booleans as true/false,
+# nulls as null, and strings quoted. Also tests NaN/Infinity → null.
+#
+# Note: tool call results are nested inside a JSON-RPC text field, so inner JSON
+# keys/values are backslash-escaped. LIKE patterns use \" for inner JSON quotes.
+
+require duckdb_mcp
+
+statement ok
+LOAD duckdb_mcp;
+
+# =============================================================================
+# SETUP
+# =============================================================================
+
+statement ok
+SELECT mcp_server_stop(true);
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# =============================================================================
+# JSON-01: Integer values are unquoted
+# =============================================================================
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 42 as val","format":"json"}}}') LIKE '%\"val\":42%';
+----
+true
+
+# Verify NOT quoted as string
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 42 as val","format":"json"}}}') NOT LIKE '%\"val\":\"42\"%';
+----
+true
+
+# =============================================================================
+# JSON-02: Negative integers
+# =============================================================================
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT -7 as val","format":"json"}}}') LIKE '%\"val\":-7%';
+----
+true
+
+# =============================================================================
+# JSON-03: Float values are unquoted
+# =============================================================================
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 3.14::DOUBLE as val","format":"json"}}}') LIKE '%\"val\":3.14%';
+----
+true
+
+# =============================================================================
+# JSON-04: Boolean values are true/false (not quoted)
+# =============================================================================
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT true as val","format":"json"}}}') LIKE '%\"val\":true%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT false as val","format":"json"}}}') LIKE '%\"val\":false%';
+----
+true
+
+# Not quoted as strings
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT true as val","format":"json"}}}') NOT LIKE '%\"val\":\"true\"%';
+----
+true
+
+# =============================================================================
+# JSON-05: String values remain quoted
+# =============================================================================
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT ''hello'' as val","format":"json"}}}') LIKE '%\"val\":\"hello\"%';
+----
+true
+
+# =============================================================================
+# JSON-06: NULL values are null (not quoted)
+# =============================================================================
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":40,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT NULL::INTEGER as val","format":"json"}}}') LIKE '%\"val\":null%';
+----
+true
+
+# =============================================================================
+# JSON-07: Mixed types in same row
+# =============================================================================
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":50,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 1 as id, ''alice'' as name, true as active, 10.5 as score","format":"json"}}}') LIKE '%\"id\":1%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":51,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 1 as id, ''alice'' as name, true as active, 10.5 as score","format":"json"}}}') LIKE '%\"name\":\"alice\"%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":52,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 1 as id, ''alice'' as name, true as active, 10.5 as score","format":"json"}}}') LIKE '%\"active\":true%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":53,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 1 as id, ''alice'' as name, true as active, 10.5 as score","format":"json"}}}') LIKE '%\"score\":10.5%';
+----
+true
+
+# =============================================================================
+# JSON-08: NaN → null
+# =============================================================================
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":60,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT ''NaN''::DOUBLE as val","format":"json"}}}') LIKE '%\"val\":null%';
+----
+true
+
+# =============================================================================
+# JSON-09: Infinity → null
+# =============================================================================
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":70,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT ''Infinity''::DOUBLE as val","format":"json"}}}') LIKE '%\"val\":null%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":71,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT ''-Infinity''::DOUBLE as val","format":"json"}}}') LIKE '%\"val\":null%';
+----
+true
+
+# =============================================================================
+# JSON-10: JSONL format has same type-aware behavior
+# =============================================================================
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":80,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 99 as num, ''text'' as str, false as flag","format":"jsonl"}}}') LIKE '%\"num\":99%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":81,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 99 as num, ''text'' as str, false as flag","format":"jsonl"}}}') LIKE '%\"flag\":false%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":82,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 99 as num, ''text'' as str, false as flag","format":"jsonl"}}}') LIKE '%\"str\":\"text\"%';
+----
+true
+
+# =============================================================================
+# JSON-11: Zero and large integers
+# =============================================================================
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":90,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 0 as val","format":"json"}}}') LIKE '%\"val\":0%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":91,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 9999999999 as val","format":"json"}}}') LIKE '%\"val\":9999999999%';
+----
+true
+
+# =============================================================================
+# CLEANUP
+# =============================================================================
+
+statement ok
+SELECT mcp_server_stop(true);

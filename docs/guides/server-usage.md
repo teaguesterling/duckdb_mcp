@@ -9,7 +9,7 @@ When running as an MCP server, DuckDB:
 - Exposes built-in tools for querying and exploring the database
 - Allows publishing tables and queries as resources
 - Supports custom SQL-based tools
-- Communicates via the MCP protocol over stdio, TCP, or WebSocket
+- Communicates via the MCP protocol over stdio, HTTP, or HTTPS
 
 ## Starting the Server
 

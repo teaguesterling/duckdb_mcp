@@ -27,6 +27,51 @@ Control which tools are exposed to MCP clients:
 | `enable_export_tool` | boolean | `true` | Enable data export |
 | `enable_execute_tool` | boolean | `false` | Enable DDL/DML execution |
 
+### Execute Tool Granular Control
+
+When `enable_execute_tool` is `true`, you can control which statement types are allowed:
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `execute_allow_ddl` | boolean | `true` | Allow CREATE, DROP, ALTER, VACUUM, ANALYZE |
+| `execute_allow_dml` | boolean | `true` | Allow INSERT, UPDATE, DELETE, MERGE |
+| `execute_allow_load` | boolean | `false` | Allow LOAD, UPDATE_EXTENSIONS |
+| `execute_allow_attach` | boolean | `false` | Allow ATTACH, DETACH, COPY_DATABASE |
+| `execute_allow_set` | boolean | `false` | Allow SET, VARIABLE_SET, PRAGMA |
+
+!!! danger
+    `execute_allow_load`, `execute_allow_attach`, and `execute_allow_set` default to **false** because they can load arbitrary code, attach external databases, or change security settings.
+
+### Authentication Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `auth_token` | string | `""` | Bearer token for HTTP authentication |
+| `require_auth` | boolean | `false` | Require authentication for all requests |
+
+### CORS Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `cors_origins` | string | `""` | CORS origins: empty = disabled, `"*"` = wildcard, or comma-separated origins |
+
+### Health Endpoint Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `enable_health_endpoint` | boolean | `true` | Enable the `/health` endpoint |
+| `auth_health_endpoint` | boolean | `false` | Require authentication for `/health` |
+
+### Direct Request Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `allow_direct_requests` | boolean | `true` | Allow `mcp_server_send_request()` SQL function |
+| `allow_direct_requests_explicit` | boolean | `false` | Whether user explicitly set this value |
+
+!!! note
+    When `require_auth` is `true` and `allow_direct_requests_explicit` is `false`, direct requests are **automatically disabled** to prevent auth bypass via SQL.
+
 **Example: Read-only server with minimal tools**
 
 ```sql
@@ -49,8 +94,10 @@ SELECT mcp_server_start('stdio', 'localhost', 0, '{
 **Supported formats:**
 
 - `json` - JSON array of objects (best for programmatic processing)
+- `jsonl` - One JSON object per line (streaming-friendly)
 - `markdown` - Markdown table (most token-efficient for AI)
-- `csv` - Comma-separated values
+- `csv` - Comma-separated values (RFC 4180)
+- `text` - Plain text, tab-separated
 
 ### Runtime Options
 

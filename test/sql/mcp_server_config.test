@@ -80,9 +80,9 @@ SELECT mcp_server_stop();
 statement ok
 SELECT mcp_server_start('memory', '{"default_result_format": "jsonl"}');
 
-# Query without format param should return JSONL (one JSON object per line, no array wrapper)
+# Query without format param should return JSONL (one JSON object per line, type-aware: numbers unquoted)
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":25,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM config_test"}}}') LIKE '%\"id\":\"1\"%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":25,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM config_test"}}}') LIKE '%\"id\":1%';
 ----
 true
 

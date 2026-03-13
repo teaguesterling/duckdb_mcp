@@ -90,10 +90,8 @@ shared_ptr<MCPConnection> MCPStorageExtension::CreateMCPConnection(DatabaseInsta
 	// Create transport
 	auto transport = make_uniq<StdioTransport>(transport_config);
 
-	// Create connection
-	// Note: Do NOT register here — the caller (RegisterMCPConnection) handles registration
+	// Create connection (registration happens in RegisterMCPConnection)
 	auto connection = make_shared_ptr<MCPConnection>(info.name, std::move(transport));
-
 	return connection;
 }
 

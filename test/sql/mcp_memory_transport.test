@@ -64,9 +64,9 @@ SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":6,"method":"initialize","p
 ----
 true
 
-# capabilities must NOT contain prompts (server doesn't advertise it)
+# capabilities must contain prompts (server advertises it)
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":7,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}') NOT LIKE '%"prompts"%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":7,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}') LIKE '%"prompts":{%';
 ----
 true
 
@@ -416,9 +416,9 @@ SELECT mcp_server_start('memory');
 
 # -- Query tool: JSONL format should now work (one JSON object per line) --
 
-# JSONL output should contain JSON object with column name and value (escaped in JSON-RPC response)
+# JSONL output should contain JSON object with column name and value (type-aware: numbers unquoted)
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":120,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 42 as num, ''hello'' as msg","format":"jsonl"}}}') LIKE '%\"num\":\"42\"%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":120,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 42 as num, ''hello'' as msg","format":"jsonl"}}}') LIKE '%\"num\":42%';
 ----
 true
 
@@ -466,7 +466,7 @@ true
 # -- Export tool: JSONL inline should now work --
 
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":130,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT 1 as id, ''test'' as val","format":"jsonl"}}}') LIKE '%\"id\":\"1\"%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":130,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT 1 as id, ''test'' as val","format":"jsonl"}}}') LIKE '%\"id\":1%';
 ----
 true
 

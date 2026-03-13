@@ -16,6 +16,7 @@
 #include <cinttypes>
 #include "duckdb_mcp_security.hpp"
 #include "mcp_instance_state.hpp"
+#include "protocol/mcp_template.hpp"
 #include "json_utils.hpp"
 #include <ctime>
 
@@ -463,6 +464,18 @@ MCPMessage MCPServer::HandleRequest(const MCPMessage &request) {
 			return HandleToolsCall(request);
 		} else if (request.method == MCPMethods::SHUTDOWN) {
 			return HandleShutdown(request);
+		} else if (request.method == MCPMethods::PROMPTS_LIST) {
+			if (config.db_instance) {
+				auto &template_manager = MCPInstanceState::Get(*config.db_instance).template_manager;
+				return template_manager.HandlePromptsList(request);
+			}
+			return CreateErrorResponse(request.id, MCPErrorCodes::INTERNAL_ERROR, "No database instance");
+		} else if (request.method == MCPMethods::PROMPTS_GET) {
+			if (config.db_instance) {
+				auto &template_manager = MCPInstanceState::Get(*config.db_instance).template_manager;
+				return template_manager.HandlePromptsGet(request);
+			}
+			return CreateErrorResponse(request.id, MCPErrorCodes::INTERNAL_ERROR, "No database instance");
 		} else {
 			return CreateErrorResponse(request.id, MCPErrorCodes::METHOD_NOT_FOUND,
 			                           "Method not found: " + request.method);
@@ -516,9 +529,12 @@ MCPMessage MCPServer::HandleInitialize(const MCPMessage &request) {
 	    {"listChanged", Value::BOOLEAN(true)} // We can notify when tool list changes
 	});
 
+	Value prompts_cap = Value::STRUCT({
+	    {"listChanged", Value::BOOLEAN(true)} // We can notify when prompt list changes
+	});
+
 	Value capabilities = Value::STRUCT({
-	    {"resources", resources_cap}, {"tools", tools_cap}
-	    // prompts and sampling not included = not supported
+	    {"resources", resources_cap}, {"tools", tools_cap}, {"prompts", prompts_cap}
 	});
 
 	Value server_info = Value::STRUCT({{"name", Value("DuckDB MCP Server")}, {"version", Value(DUCKDB_MCP_VERSION)}});
@@ -839,6 +855,43 @@ MCPMessage MCPServerManager::SendRequest(const MCPMessage &request) {
 	return server->ProcessRequest(request);
 }
 
+bool MCPServerManager::PublishResource(const string &uri, shared_ptr<ResourceProvider> provider) {
+	lock_guard<mutex> lock(manager_mutex);
+	if (!server || !server->IsRunning()) {
+		return false;
+	}
+	return server->PublishResource(uri, std::move(provider));
+}
+
+bool MCPServerManager::RegisterTool(const string &name, shared_ptr<ToolHandler> handler) {
+	lock_guard<mutex> lock(manager_mutex);
+	if (!server || !server->IsRunning()) {
+		return false;
+	}
+	return server->RegisterTool(name, std::move(handler));
+}
+
+bool MCPServerManager::AllowsDirectRequests() const {
+	lock_guard<mutex> lock(manager_mutex);
+	if (!server || !server->IsRunning()) {
+		return false;
+	}
+	return server->AllowsDirectRequests();
+}
+
+MCPServerManager::ServerStats MCPServerManager::GetServerStats() const {
+	lock_guard<mutex> lock(manager_mutex);
+	ServerStats stats;
+	if (server && server->IsRunning()) {
+		stats.running = true;
+		stats.status = server->GetStatus();
+		stats.requests_received = server->GetRequestsReceived();
+		stats.responses_sent = server->GetResponsesSent();
+		stats.errors_returned = server->GetErrorsReturned();
+	}
+	return stats;
+}
+
 void MCPServerManager::QueueToolRegistration(PendingToolRegistration registration) {
 	lock_guard<mutex> lock(manager_mutex);
 	pending_tools.push_back(std::move(registration));
@@ -881,8 +934,15 @@ void MCPServerManager::ApplyRegistrationsTo(MCPServer *target) {
 	for (auto &reg : pending_tools) {
 		try {
 			ToolInputSchema input_schema = ParseToolInputSchema(reg.properties_json, reg.required_json);
-			auto handler = make_shared_ptr<SQLToolHandler>(reg.name, reg.description, reg.sql_template, input_schema,
-			                                               *reg.db_instance, reg.format);
+			shared_ptr<ToolHandler> handler;
+			if (reg.multi_statement) {
+				handler = make_shared_ptr<ExecutionSQLToolHandler>(reg.name, reg.description, reg.sql_template,
+				                                                   input_schema, *reg.db_instance, reg.bindings_json,
+				                                                   reg.format);
+			} else {
+				handler = make_shared_ptr<SQLToolHandler>(reg.name, reg.description, reg.sql_template, input_schema,
+				                                          *reg.db_instance, reg.format);
+			}
 			target->RegisterTool(reg.name, std::move(handler));
 		} catch (const std::exception &e) {
 			tool_failures++;

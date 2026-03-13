@@ -26,9 +26,9 @@ SELECT mcp_server_start('transport', 'host', port, 'config_json');
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `transport` | VARCHAR | Transport type: `stdio`, `memory`, `tcp`, `websocket` |
-| `host` | VARCHAR | Host to bind (used for tcp/websocket) |
-| `port` | INTEGER | Port number (used for tcp/websocket, 0 for stdio) |
+| `transport` | VARCHAR | Transport type: `stdio`, `memory`, `http`, `https` |
+| `host` | VARCHAR | Host to bind (used for http/https) |
+| `port` | INTEGER | Port number (used for http/https, 0 for stdio) |
 | `config` | VARCHAR | JSON configuration object (see [Configuration](configuration.md)) |
 
 **Transport Types:**
@@ -273,9 +273,11 @@ SELECT mcp_publish_tool('name', 'description', 'sql_template', 'properties', 're
 !!! warning "All parameters are VARCHAR"
     Pass JSON as **string literals**, not `json_object(...)` or `JSON` type expressions. Using `json_object()` produces a `JSON` type which won't match the function signature.
 
-**Parameter Substitution:**
+**Parameter Binding:**
 
-Parameters in the SQL template use `$name` syntax. Optional parameters (not listed in `required`) are substituted as SQL `NULL` when omitted or passed as JSON `null`:
+When the SQL template can be prepared as a parameterized statement, parameters are bound using DuckDB's prepared statement API with proper type conversion based on the JSON Schema types (`string` → VARCHAR, `integer` → BIGINT, `number` → DOUBLE, `boolean` → BOOLEAN). This is safer and more efficient than string interpolation.
+
+If the template cannot be prepared (e.g., it uses macros or other non-preparable constructs), the system automatically falls back to string interpolation with `$name` syntax. Optional parameters (not listed in `required`) are substituted as SQL `NULL` when omitted or passed as JSON `null`:
 
 ```sql
 'SELECT * FROM products
@@ -326,6 +328,75 @@ SELECT mcp_publish_tool(
 
 !!! tip "Publish Before Server Starts"
     You can call `mcp_publish_tool` before starting the server. The registration will be queued and automatically applied when the server starts. This is useful for setting up tools in initialization scripts.
+
+---
+
+### mcp_publish_execution_tool
+
+Publish a multi-statement SQL tool. Unlike `mcp_publish_tool` (which executes a single statement), this supports multiple semicolon-separated SQL statements with per-statement parameter bindings. The result of the last statement is returned.
+
+```sql
+-- As PRAGMA (no output)
+PRAGMA mcp_publish_execution_tool('name', 'description', 'sql_template', 'properties', 'required', 'bindings');
+PRAGMA mcp_publish_execution_tool('name', 'description', 'sql_template', 'properties', 'required', 'bindings', 'format');
+
+-- As SELECT (returns status string)
+SELECT mcp_publish_execution_tool('name', 'description', 'sql_template', 'properties', 'required', 'bindings');
+SELECT mcp_publish_execution_tool('name', 'description', 'sql_template', 'properties', 'required', 'bindings', 'format');
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `name` | VARCHAR | Tool name (used by clients) |
+| `description` | VARCHAR | Human-readable description |
+| `sql_template` | VARCHAR | Multiple SQL statements separated by `;` |
+| `properties` | VARCHAR | JSON Schema for parameters |
+| `required` | VARCHAR | JSON array of required parameter names |
+| `bindings` | VARCHAR | Binding spec: JSON object (global) or array (per-statement) |
+| `format` | VARCHAR | Output format (default: `json`) |
+
+**Binding Specs:**
+
+The `bindings` parameter controls how tool arguments map to prepared statement parameters. Two forms are supported:
+
+- **Object form** — all parameters bind to every statement:
+  ```json
+  {"id": "integer", "name": "string"}
+  ```
+
+- **Array form** — per-statement bindings (array length must match statement count):
+  ```json
+  [{}, {"id": "integer", "name": "string"}]
+  ```
+
+**Examples:**
+
+```sql
+-- SET a variable, then query using it
+SELECT mcp_publish_execution_tool(
+    'filtered_report',
+    'Run a report with a configurable threshold',
+    'SET VARIABLE my_threshold = $threshold; SELECT * FROM sales WHERE amount > getvariable(''my_threshold'');',
+    '{"threshold": {"type": "integer", "description": "Minimum amount"}}',
+    '["threshold"]',
+    '[{}, {"threshold": "integer"}]'
+);
+
+-- Multi-step with global bindings
+SELECT mcp_publish_execution_tool(
+    'create_and_query',
+    'Create a temp table and query it',
+    'CREATE TEMP TABLE tmp AS SELECT * FROM products WHERE category = $cat; SELECT * FROM tmp ORDER BY price;',
+    '{"cat": {"type": "string", "description": "Product category"}}',
+    '["cat"]',
+    '{"cat": "string"}'
+);
+```
+
+!!! tip "Publish Before Server Starts"
+    You can call `mcp_publish_execution_tool` before starting the server. The registration will be queued and automatically applied when the server starts.
 
 ---
 
