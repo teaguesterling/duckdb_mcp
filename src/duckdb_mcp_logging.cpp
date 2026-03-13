@@ -127,7 +127,11 @@ string MCPLogger::GetTimestamp() {
 
 	std::ostringstream oss;
 	struct tm tm_result;
+#ifdef _WIN32
+	localtime_s(&tm_result, &time_t);
+#else
 	localtime_r(&time_t, &tm_result);
+#endif
 	oss << std::put_time(&tm_result, "%Y-%m-%d %H:%M:%S");
 	oss << "." << std::setfill('0') << std::setw(3) << ms.count();
 	return oss.str();

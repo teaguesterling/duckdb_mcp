@@ -35,7 +35,7 @@ void SetActiveWebMCPTransport(WebMCPTransport *transport) {
 
 // Check if navigator.modelContext is available
 EM_JS(int, webmcp_check_available, (), {
-	if (typeof navigator != = 'undefined' && navigator.modelContext) {
+	if (typeof navigator !== 'undefined' && navigator.modelContext) {
 		return 1;
 	}
 	return 0;
@@ -52,7 +52,7 @@ EM_JS(int, webmcp_register_tool_js, (const char *name_ptr, const char *desc_ptr,
 		      var description = UTF8ToString(desc_ptr);
 		      var schemaStr = UTF8ToString(schema_ptr);
 		      var inputSchema = JSON.parse(schemaStr);
-		      var isReadOnly = read_only != = 0;
+		      var isReadOnly = read_only !== 0;
 
 		navigator.modelContext.registerTool({
 			name: name,
@@ -115,7 +115,7 @@ EM_JS(void, webmcp_clear_context_js, (), {
 // List tools registered by other page scripts (requires webmcp_client.js interceptor)
 EM_JS(const char *, webmcp_list_page_tools_js, (), {
 	try {
-		if (typeof window != = 'undefined' && window.__duckdb_webmcp_catalog) {
+		if (typeof window !== 'undefined' && window.__duckdb_webmcp_catalog) {
 			var tools = window.__duckdb_webmcp_catalog.listTools();
 			var json = JSON.stringify(tools);
 			return stringToNewUTF8(json);
