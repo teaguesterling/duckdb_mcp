@@ -20,6 +20,10 @@ public:
 	virtual bool IsConnected() const = 0;
 
 	// Message passing
+	// WARNING: Send() and Receive() each acquire io_mutex independently.
+	// Do NOT use Send() followed by Receive() for request-response pairs —
+	// another thread could interleave between the two calls.
+	// Use SendAndReceive() instead, which holds the lock for the full round-trip.
 	virtual void Send(const MCPMessage &message) = 0;
 	virtual MCPMessage Receive() = 0;
 	virtual MCPMessage SendAndReceive(const MCPMessage &message) = 0;
@@ -64,6 +68,7 @@ private:
 	int stdout_fd;
 	int stderr_fd;
 	mutex io_mutex;
+	string read_buffer; // Carries over data read past the first \n
 
 	// Process management
 	bool StartProcess();

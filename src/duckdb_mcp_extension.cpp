@@ -26,6 +26,7 @@ using namespace duckdb_yyjson;
 #include "server/memory_transport.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/string_util.hpp"
+#include "duckdb/parser/keyword_helper.hpp"
 #include "duckdb/common/enums/set_scope.hpp"
 #include "duckdb/function/scalar_function.hpp"
 #include "duckdb/function/pragma_function.hpp"
@@ -538,6 +539,7 @@ static Value MCPServerStartCore(ClientContext &context, const string &transport,
 		// Parse config_json for additional settings
 		if (!config_json.empty() && config_json != "{}") {
 			yyjson_doc *doc = JSONUtils::Parse(config_json);
+			DocGuard doc_guard {doc};
 			yyjson_val *root = yyjson_doc_get_root(doc);
 			if (root && yyjson_is_obj(root)) {
 				// Parse max_requests
@@ -555,6 +557,10 @@ static Value MCPServerStartCore(ClientContext &context, const string &transport,
 				val = yyjson_obj_get(root, "enable_export_tool");
 				if (val && yyjson_is_bool(val)) {
 					server_config.enable_export_tool = yyjson_get_bool(val);
+				}
+				val = yyjson_obj_get(root, "export_allow_file_output");
+				if (val && yyjson_is_bool(val)) {
+					server_config.export_allow_file_output = yyjson_get_bool(val);
 				}
 				val = yyjson_obj_get(root, "enable_list_tables_tool");
 				if (val && yyjson_is_bool(val)) {
@@ -655,7 +661,6 @@ static Value MCPServerStartCore(ClientContext &context, const string &transport,
 				// Parse default result format
 				server_config.default_result_format = JSONUtils::GetString(root, "default_result_format", "json");
 			}
-			JSONUtils::FreeDocument(doc);
 		}
 
 		// Handle different transport types
@@ -1012,7 +1017,8 @@ static string MCPPublishTableCore(ClientContext &context, const string &table_na
 	// Validate table exists before publishing
 	try {
 		Connection conn(db_instance);
-		auto check_result = conn.Query("SELECT 1 FROM " + table_name + " LIMIT 0");
+		string quoted_table = KeywordHelper::WriteOptionallyQuoted(table_name);
+		auto check_result = conn.Query("SELECT 1 FROM " + quoted_table + " LIMIT 0");
 		if (check_result->HasError()) {
 			return "ERROR: Table '" + table_name + "' not found";
 		}
@@ -1540,9 +1546,11 @@ static void MCPListResourcesWithCursorFunction(DataChunk &args, ExpressionState 
 			}
 
 			// Use tool call for pagination instead of modifying standard MCP methods
-			Value call_params =
-			    Value::STRUCT({{"name", Value("list_resources_paginated")},
-			                   {"arguments", Value(cursor.empty() ? "{}" : "{\"cursor\": \"" + cursor + "\"}")}});
+			Value call_params = Value::STRUCT(
+			    {{"name", Value("list_resources_paginated")},
+			     {"arguments",
+			      Value(cursor.empty() ? "{}"
+			                           : "{\"cursor\": \"" + ResultFormatter::EscapeJsonString(cursor) + "\"}")}});
 
 			// Send MCP tool call for pagination
 			auto response = connection->SendRequest(MCPMethods::TOOLS_CALL, call_params);
@@ -1585,9 +1593,11 @@ static void MCPListToolsWithCursorFunction(DataChunk &args, ExpressionState &sta
 			}
 
 			// Use tool call for pagination
-			Value call_params =
-			    Value::STRUCT({{"name", Value("list_tools_paginated")},
-			                   {"arguments", Value(cursor.empty() ? "{}" : "{\"cursor\": \"" + cursor + "\"}")}});
+			Value call_params = Value::STRUCT(
+			    {{"name", Value("list_tools_paginated")},
+			     {"arguments",
+			      Value(cursor.empty() ? "{}"
+			                           : "{\"cursor\": \"" + ResultFormatter::EscapeJsonString(cursor) + "\"}")}});
 
 			// Send MCP tool call for pagination
 			auto response = connection->SendRequest(MCPMethods::TOOLS_CALL, call_params);
@@ -1630,9 +1640,11 @@ static void MCPListPromptsWithCursorFunction(DataChunk &args, ExpressionState &s
 			}
 
 			// Use tool call for pagination
-			Value call_params =
-			    Value::STRUCT({{"name", Value("list_prompts_paginated")},
-			                   {"arguments", Value(cursor.empty() ? "{}" : "{\"cursor\": \"" + cursor + "\"}")}});
+			Value call_params = Value::STRUCT(
+			    {{"name", Value("list_prompts_paginated")},
+			     {"arguments",
+			      Value(cursor.empty() ? "{}"
+			                           : "{\"cursor\": \"" + ResultFormatter::EscapeJsonString(cursor) + "\"}")}});
 
 			// Send MCP tool call for pagination
 			auto response = connection->SendRequest(MCPMethods::TOOLS_CALL, call_params);
@@ -1726,7 +1738,8 @@ static void MCPListPromptTemplatesFunction(DataChunk &args, ExpressionState &sta
 		}
 
 		const char *json = yyjson_mut_write(doc, 0, nullptr);
-		result_data[0] = StringVector::AddString(result, json);
+		result_data[0] = StringVector::AddString(result, json ? json : "[]");
+		free((void *)json);
 
 		yyjson_mut_doc_free(doc);
 

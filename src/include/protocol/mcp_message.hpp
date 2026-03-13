@@ -5,7 +5,9 @@
 namespace duckdb {
 
 // MCP JSON-RPC 2.0 message types
-enum class MCPMessageType { REQUEST, RESPONSE, NOTIFICATION, ERROR };
+// JSON-RPC 2.0 has three message kinds: request, response, and notification.
+// Error responses are responses with has_error=true (not a separate type).
+enum class MCPMessageType { REQUEST, RESPONSE, NOTIFICATION };
 
 // MCP message structure
 struct MCPMessage {
@@ -60,7 +62,7 @@ struct MCPMessage {
 		return type == MCPMessageType::NOTIFICATION;
 	}
 	bool IsError() const {
-		return type == MCPMessageType::ERROR || has_error;
+		return has_error;
 	}
 };
 

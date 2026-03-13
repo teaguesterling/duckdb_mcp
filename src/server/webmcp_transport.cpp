@@ -5,6 +5,7 @@
 #include "server/tool_handlers.hpp"
 #include "server/resource_providers.hpp"
 #include "protocol/mcp_message.hpp"
+#include "result_formatter.hpp"
 #include "json_utils.hpp"
 #include "yyjson.hpp"
 #include "duckdb/common/exception.hpp"
@@ -152,7 +153,7 @@ char *webmcp_handle_tool_call(const char *tool_name, const char *args_json) {
 		memcpy(c_result, result.c_str(), result.size() + 1);
 		return c_result;
 	} catch (const std::exception &e) {
-		string error = "{\"error\": \"" + string(e.what()) + "\"}";
+		string error = "{\"error\": \"" + ResultFormatter::EscapeJsonString(string(e.what())) + "\"}";
 		char *c_result = (char *)malloc(error.size() + 1);
 		memcpy(c_result, error.c_str(), error.size() + 1);
 		return c_result;
@@ -291,6 +292,8 @@ void WebMCPTransport::SyncTools() {
 		yyjson_val *result_obj = yyjson_obj_get(root, "result");
 		yyjson_val *tools_arr = result_obj ? yyjson_obj_get(result_obj, "tools") : nullptr;
 
+		DocGuard doc_guard {doc};
+
 		if (tools_arr && yyjson_is_arr(tools_arr)) {
 			size_t idx, max;
 			yyjson_val *tool_val;
@@ -326,8 +329,6 @@ void WebMCPTransport::SyncTools() {
 				break;
 			}
 		}
-
-		JSONUtils::FreeDocument(doc);
 	}
 
 	// Register wrapper tools

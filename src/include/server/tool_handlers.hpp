@@ -123,22 +123,20 @@ private:
 class ExportToolHandler : public ToolHandler {
 public:
 	ExportToolHandler(DatabaseInstance &db, const vector<string> &allowed_queries = {},
-	                  const vector<string> &denied_queries = {});
+	                  const vector<string> &denied_queries = {}, bool allow_file_output = false);
 
 	CallToolResult Execute(const Value &arguments) override;
 	string GetName() const override {
 		return "export";
 	}
-	string GetDescription() const override {
-		return "Export query results. Inline return supports: json, jsonl, csv, markdown. "
-		       "File export (with 'output' path) additionally supports: parquet.";
-	}
+	string GetDescription() const override;
 	ToolInputSchema GetInputSchema() const override;
 
 private:
 	DatabaseInstance &db_instance;
 	vector<string> allowed_queries;
 	vector<string> denied_queries;
+	bool allow_file_output;
 
 	string ExportToFile(QueryResult &result, const string &format, const string &output_path) const;
 	string FormatData(QueryResult &result, const string &format) const;

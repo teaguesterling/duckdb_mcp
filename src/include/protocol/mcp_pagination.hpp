@@ -69,7 +69,7 @@ private:
 public:
 	MCPPaginationIterator(shared_ptr<MCPConnection> conn, const string &server, const string &method);
 	MCPPaginationIterator(shared_ptr<MCPConnection> conn, const string &server, const string &method,
-	                       const string &cursor);
+	                      const string &cursor);
 
 	// Iterator interface
 	bool HasNext() const;
@@ -91,9 +91,6 @@ public:
 namespace MCPPagination {
 // Parse pagination response from MCP server
 MCPPaginationResult ParsePaginationResponse(const MCPMessage &response, const string &items_field);
-
-// Create paginated request message
-MCPMessage CreatePaginatedRequest(const string &method, const MCPPaginationParams &params, const Value &id);
 
 // Validate cursor format (basic validation)
 bool IsValidCursor(const string &cursor);

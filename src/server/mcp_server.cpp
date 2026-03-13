@@ -583,9 +583,9 @@ MCPMessage MCPServer::HandleResourcesRead(const MCPMessage &request) {
 		// Params stored as JSON string - parse it
 		string params_str = request.params.ToString();
 		yyjson_doc *doc = JSONUtils::Parse(params_str);
+		DocGuard guard {doc};
 		yyjson_val *root = yyjson_doc_get_root(doc);
 		uri = JSONUtils::GetString(root, "uri");
-		JSONUtils::FreeDocument(doc);
 	} else if (request.params.type().id() == LogicalTypeId::STRUCT) {
 		// Params as STRUCT
 		auto &struct_values = StructValue::GetChildren(request.params);
@@ -681,6 +681,7 @@ MCPMessage MCPServer::HandleToolsCall(const MCPMessage &request) {
 		// Params stored as JSON string - parse it
 		string params_str = request.params.ToString();
 		yyjson_doc *doc = JSONUtils::Parse(params_str);
+		DocGuard guard {doc};
 		yyjson_val *root = yyjson_doc_get_root(doc);
 
 		tool_name = JSONUtils::GetString(root, "name");
@@ -693,7 +694,6 @@ MCPMessage MCPServer::HandleToolsCall(const MCPMessage &request) {
 				free(args_json);
 			}
 		}
-		JSONUtils::FreeDocument(doc);
 	} else if (request.params.type().id() == LogicalTypeId::STRUCT) {
 		// Params as STRUCT
 		auto &struct_values = StructValue::GetChildren(request.params);
@@ -759,8 +759,8 @@ void MCPServer::RegisterBuiltinTools() {
 	}
 
 	if (config.enable_export_tool) {
-		auto export_tool =
-		    make_shared_ptr<ExportToolHandler>(*config.db_instance, config.allowed_queries, config.denied_queries);
+		auto export_tool = make_shared_ptr<ExportToolHandler>(*config.db_instance, config.allowed_queries,
+		                                                      config.denied_queries, config.export_allow_file_output);
 		tool_registry.RegisterTool("export", std::move(export_tool));
 	}
 

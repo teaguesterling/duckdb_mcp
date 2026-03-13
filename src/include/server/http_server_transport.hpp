@@ -5,6 +5,7 @@
 #include <thread>
 #include <functional>
 #include <mutex>
+#include <condition_variable>
 
 namespace duckdb {
 
@@ -67,6 +68,11 @@ private:
 	//! Opaque pointer to httplib server (can't include httplib.hpp in header)
 	void *server_ptr;
 	std::mutex server_mutex;
+
+	//! Startup synchronization — ServerLoop signals after bind attempt
+	std::mutex startup_mutex;
+	std::condition_variable startup_cv;
+	bool startup_complete = false;
 
 	//! Internal server loop
 	void ServerLoop();

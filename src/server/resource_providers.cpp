@@ -1,5 +1,6 @@
 #include "server/resource_providers.hpp"
 #include "duckdb/common/exception.hpp"
+#include "duckdb/parser/keyword_helper.hpp"
 #include "json_utils.hpp"
 #include "result_formatter.hpp"
 #include <ctime>
@@ -16,7 +17,7 @@ TableResourceProvider::TableResourceProvider(const string &table_name, const str
 
 ReadResourceResult TableResourceProvider::Read() {
 	try {
-		string query = "SELECT * FROM " + table_name;
+		string query = "SELECT * FROM " + KeywordHelper::WriteOptionallyQuoted(table_name);
 		Connection conn(db_instance);
 		auto result = conn.Query(query);
 

@@ -413,8 +413,9 @@ Value DescribeToolHandler::DescribeQuery(const string &query) const {
 //===--------------------------------------------------------------------===//
 
 ExportToolHandler::ExportToolHandler(DatabaseInstance &db, const vector<string> &allowed_queries,
-                                     const vector<string> &denied_queries)
-    : db_instance(db), allowed_queries(allowed_queries), denied_queries(denied_queries) {
+                                     const vector<string> &denied_queries, bool allow_file_output)
+    : db_instance(db), allowed_queries(allowed_queries), denied_queries(denied_queries),
+      allow_file_output(allow_file_output) {
 }
 
 CallToolResult ExportToolHandler::Execute(const Value &arguments) {
@@ -437,6 +438,12 @@ CallToolResult ExportToolHandler::Execute(const Value &arguments) {
 
 		if (query.empty()) {
 			return CallToolResult::Error("Query is required");
+		}
+
+		// Reject file output unless explicitly allowed
+		if (!output_path.empty() && !allow_file_output) {
+			return CallToolResult::Error(
+			    "File output is disabled. Set 'export_allow_file_output': true in server config to enable it.");
 		}
 
 		// Validate format based on output mode
@@ -503,12 +510,22 @@ CallToolResult ExportToolHandler::Execute(const Value &arguments) {
 	}
 }
 
+string ExportToolHandler::GetDescription() const {
+	if (allow_file_output) {
+		return "Export query results. Inline return supports: json, jsonl, csv, markdown. "
+		       "File export (with 'output' path) additionally supports: parquet.";
+	}
+	return "Export query results in various formats: json, jsonl, csv, markdown.";
+}
+
 ToolInputSchema ExportToolHandler::GetInputSchema() const {
 	ToolInputSchema schema;
 	schema.type = "object";
 	schema.properties["query"] = Value("string");
 	schema.properties["format"] = Value("string");
-	schema.properties["output"] = Value("string");
+	if (allow_file_output) {
+		schema.properties["output"] = Value("string");
+	}
 	schema.required_fields = {"query"};
 	return schema;
 }
