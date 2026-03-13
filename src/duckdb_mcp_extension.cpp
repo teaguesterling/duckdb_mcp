@@ -539,12 +539,7 @@ static Value MCPServerStartCore(ClientContext &context, const string &transport,
 		// Parse config_json for additional settings
 		if (!config_json.empty() && config_json != "{}") {
 			yyjson_doc *doc = JSONUtils::Parse(config_json);
-			struct DocGuard {
-				yyjson_doc *d;
-				~DocGuard() {
-					JSONUtils::FreeDocument(d);
-				}
-			} doc_guard {doc};
+			DocGuard doc_guard {doc};
 			yyjson_val *root = yyjson_doc_get_root(doc);
 			if (root && yyjson_is_obj(root)) {
 				// Parse max_requests

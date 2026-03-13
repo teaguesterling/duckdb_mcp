@@ -139,4 +139,12 @@ private:
 	string json_buffer;
 };
 
+//! RAII guard for yyjson_doc lifetime — ensures FreeDocument is called on scope exit
+struct DocGuard {
+	yyjson_doc *d;
+	~DocGuard() {
+		JSONUtils::FreeDocument(d);
+	}
+};
+
 } // namespace duckdb

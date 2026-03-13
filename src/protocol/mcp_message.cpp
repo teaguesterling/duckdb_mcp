@@ -130,8 +130,29 @@ string MCPMessage::ToJSON() const {
 							}
 						}
 					}
+				} else if (params.type().id() == LogicalTypeId::VARCHAR) {
+					// Parse VARCHAR JSON params (e.g., resources/list with cursor, pagination params)
+					string params_str = params.ToString();
+					if (!params_str.empty() && params_str != "{}") {
+						yyjson_doc *params_doc = nullptr;
+						try {
+							params_doc = JSONUtils::Parse(params_str);
+							yyjson_val *params_root = yyjson_doc_get_root(params_doc);
+							if (params_root) {
+								params_obj = yyjson_val_mut_copy(doc, params_root);
+							}
+							JSONUtils::FreeDocument(params_doc);
+						} catch (...) {
+							if (params_doc) {
+								JSONUtils::FreeDocument(params_doc);
+							}
+						}
+					}
+					if (!params_obj) {
+						params_obj = JSONUtils::CreateObject(doc);
+					}
 				} else {
-					// Default empty params object
+					// Default empty params object for non-VARCHAR, non-STRUCT types
 					params_obj = JSONUtils::CreateObject(doc);
 				}
 

@@ -278,10 +278,6 @@ MCPPaginationResult ParsePaginationResponse(const MCPMessage &response, const st
 	}
 }
 
-MCPMessage CreatePaginatedRequest(const string &method, const MCPPaginationParams &params, const Value &id) {
-	return MCPMessage::CreateRequest(method, params.ToRPCParams(), id);
-}
-
 bool IsValidCursor(const string &cursor) {
 	// Basic cursor validation - non-empty and reasonable length
 	return !cursor.empty() && cursor.length() < 1024;

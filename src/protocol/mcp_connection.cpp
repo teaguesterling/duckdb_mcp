@@ -127,12 +127,7 @@ vector<MCPResource> MCPConnection::ListResources(const string &cursor) {
 	if (!response.result.IsNull()) {
 		string json_str = response.result.ToString();
 		yyjson_doc *doc = JSONUtils::Parse(json_str);
-		struct DocGuard {
-			yyjson_doc *d;
-			~DocGuard() {
-				JSONUtils::FreeDocument(d);
-			}
-		} guard {doc};
+		DocGuard guard {doc};
 
 		yyjson_val *root = yyjson_doc_get_root(doc);
 		yyjson_val *arr = yyjson_is_obj(root) ? yyjson_obj_get(root, "resources") : nullptr;
@@ -213,12 +208,7 @@ vector<string> MCPConnection::ListTools() {
 	if (!response.result.IsNull()) {
 		string json_str = response.result.ToString();
 		yyjson_doc *doc = JSONUtils::Parse(json_str);
-		struct DocGuard {
-			yyjson_doc *d;
-			~DocGuard() {
-				JSONUtils::FreeDocument(d);
-			}
-		} guard {doc};
+		DocGuard guard {doc};
 
 		yyjson_val *root = yyjson_doc_get_root(doc);
 		yyjson_val *arr = yyjson_is_obj(root) ? yyjson_obj_get(root, "tools") : nullptr;
@@ -358,12 +348,7 @@ void MCPConnection::ParseCapabilities(const Value &server_info) {
 	}
 
 	// RAII guard so doc is freed on any exit path
-	struct DocGuard {
-		yyjson_doc *d;
-		~DocGuard() {
-			JSONUtils::FreeDocument(d);
-		}
-	} guard {doc};
+	DocGuard guard {doc};
 
 	auto *root = yyjson_doc_get_root(doc);
 

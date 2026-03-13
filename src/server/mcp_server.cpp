@@ -567,12 +567,7 @@ MCPMessage MCPServer::HandleResourcesRead(const MCPMessage &request) {
 		// Params stored as JSON string - parse it
 		string params_str = request.params.ToString();
 		yyjson_doc *doc = JSONUtils::Parse(params_str);
-		struct DocGuard {
-			yyjson_doc *d;
-			~DocGuard() {
-				JSONUtils::FreeDocument(d);
-			}
-		} guard {doc};
+		DocGuard guard {doc};
 		yyjson_val *root = yyjson_doc_get_root(doc);
 		uri = JSONUtils::GetString(root, "uri");
 	} else if (request.params.type().id() == LogicalTypeId::STRUCT) {
@@ -670,12 +665,7 @@ MCPMessage MCPServer::HandleToolsCall(const MCPMessage &request) {
 		// Params stored as JSON string - parse it
 		string params_str = request.params.ToString();
 		yyjson_doc *doc = JSONUtils::Parse(params_str);
-		struct DocGuard {
-			yyjson_doc *d;
-			~DocGuard() {
-				JSONUtils::FreeDocument(d);
-			}
-		} guard {doc};
+		DocGuard guard {doc};
 		yyjson_val *root = yyjson_doc_get_root(doc);
 
 		tool_name = JSONUtils::GetString(root, "name");

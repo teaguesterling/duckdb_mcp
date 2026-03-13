@@ -292,12 +292,7 @@ void WebMCPTransport::SyncTools() {
 		yyjson_val *result_obj = yyjson_obj_get(root, "result");
 		yyjson_val *tools_arr = result_obj ? yyjson_obj_get(result_obj, "tools") : nullptr;
 
-		struct DocGuard {
-			yyjson_doc *d;
-			~DocGuard() {
-				JSONUtils::FreeDocument(d);
-			}
-		} doc_guard {doc};
+		DocGuard doc_guard {doc};
 
 		if (tools_arr && yyjson_is_arr(tools_arr)) {
 			size_t idx, max;

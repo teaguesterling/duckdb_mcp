@@ -48,6 +48,8 @@ bool StdioTransport::Connect() {
 }
 
 void StdioTransport::Disconnect() {
+	// NOTE: This blocks until any in-flight SendAndReceive() completes (up to
+	// timeout_seconds) because SendAndReceive holds io_mutex for the full round-trip.
 	lock_guard<mutex> lock(io_mutex);
 
 	if (!connected) {

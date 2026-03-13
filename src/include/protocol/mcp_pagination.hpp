@@ -92,9 +92,6 @@ namespace MCPPagination {
 // Parse pagination response from MCP server
 MCPPaginationResult ParsePaginationResponse(const MCPMessage &response, const string &items_field);
 
-// Create paginated request message
-MCPMessage CreatePaginatedRequest(const string &method, const MCPPaginationParams &params, const Value &id);
-
 // Validate cursor format (basic validation)
 bool IsValidCursor(const string &cursor);
 
