@@ -100,8 +100,8 @@ static void AppendJsonValue(string &out, const Value &value, const LogicalType &
 	if (type.IsNumeric()) {
 		string s = value.ToString();
 		// JSON does not support NaN/Infinity — substitute null
-		if (s == "nan" || s == "-nan" || s == "inf" || s == "-inf" ||
-		    s == "NaN" || s == "Infinity" || s == "-Infinity") {
+		if (s == "nan" || s == "-nan" || s == "inf" || s == "-inf" || s == "NaN" || s == "Infinity" ||
+		    s == "-Infinity") {
 			out += "null";
 		} else {
 			out += s;

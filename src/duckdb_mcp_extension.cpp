@@ -888,9 +888,8 @@ static void MCPServerStatusFunction(DataChunk &args, ExpressionState &state, Vec
 				continue;
 			}
 
-			result.SetValue(i, CreateMCPStatus(true, true, stats.status, "", "", 0, true,
-			                                   stats.requests_received, stats.responses_sent,
-			                                   stats.errors_returned));
+			result.SetValue(i, CreateMCPStatus(true, true, stats.status, "", "", 0, true, stats.requests_received,
+			                                   stats.responses_sent, stats.errors_returned));
 
 		} catch (const std::exception &e) {
 			result.SetValue(i, CreateMCPStatus(false, false, string(e.what())));
@@ -1899,7 +1898,8 @@ static void PragmaMCPPublishExecutionTool(ClientContext &context, const Function
 	                            params.values[5].ToString(), "");
 }
 
-// PRAGMA mcp_publish_execution_tool(name, description, sql_template, properties_json, required_json, bindings_json, format)
+// PRAGMA mcp_publish_execution_tool(name, description, sql_template, properties_json, required_json, bindings_json,
+// format)
 static void PragmaMCPPublishExecutionToolWithFormat(ClientContext &context, const FunctionParameters &params) {
 	MCPPublishExecutionToolCore(context, params.values[0].ToString(), params.values[1].ToString(),
 	                            params.values[2].ToString(), params.values[3].ToString(), params.values[4].ToString(),
@@ -2135,15 +2135,15 @@ static void LoadInternal(ExtensionLoader &loader) {
 
 	// Register execution tool publishing functions
 	// mcp_publish_execution_tool(name, description, sql_template, properties_json, required_json, bindings_json)
-	auto publish_exec_tool_func =
-	    ScalarFunction("mcp_publish_execution_tool",
-	                   {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
-	                    LogicalType::VARCHAR, LogicalType::VARCHAR},
-	                   LogicalType::VARCHAR, MCPPublishExecutionToolFunction);
+	auto publish_exec_tool_func = ScalarFunction("mcp_publish_execution_tool",
+	                                             {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
+	                                              LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
+	                                             LogicalType::VARCHAR, MCPPublishExecutionToolFunction);
 	publish_exec_tool_func.null_handling = FunctionNullHandling::SPECIAL_HANDLING;
 	loader.RegisterFunction(publish_exec_tool_func);
 
-	// mcp_publish_execution_tool(name, description, sql_template, properties_json, required_json, bindings_json, format)
+	// mcp_publish_execution_tool(name, description, sql_template, properties_json, required_json, bindings_json,
+	// format)
 	auto publish_exec_tool_format_func =
 	    ScalarFunction("mcp_publish_execution_tool",
 	                   {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
@@ -2211,10 +2211,10 @@ static void LoadInternal(ExtensionLoader &loader) {
 	    PragmaFunction::PragmaCall("mcp_publish_execution_tool", PragmaMCPPublishExecutionTool,
 	                               {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
 	                                LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR}));
-	pragma_publish_exec_tool.AddFunction(
-	    PragmaFunction::PragmaCall("mcp_publish_execution_tool", PragmaMCPPublishExecutionToolWithFormat,
-	                               {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
-	                                LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR}));
+	pragma_publish_exec_tool.AddFunction(PragmaFunction::PragmaCall(
+	    "mcp_publish_execution_tool", PragmaMCPPublishExecutionToolWithFormat,
+	    {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
+	     LogicalType::VARCHAR, LogicalType::VARCHAR}));
 	loader.RegisterFunction(std::move(pragma_publish_exec_tool));
 
 	// PRAGMA mcp_publish_table - 2 overloads (1 arg, 3 args)

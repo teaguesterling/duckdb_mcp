@@ -202,8 +202,8 @@ private:
 	vector<unordered_map<string, string>> statement_binding_specs;
 	// Each inner map: param_name -> json_schema_type
 
-	case_insensitive_map_t<BoundParameterData> BuildNamedParameters(
-	    const JSONArgumentParser &parser, const unordered_map<string, string> &binding_spec) const;
+	case_insensitive_map_t<BoundParameterData>
+	BuildNamedParameters(const JSONArgumentParser &parser, const unordered_map<string, string> &binding_spec) const;
 };
 
 // List tables tool handler - lists all tables (and optionally views) in the database

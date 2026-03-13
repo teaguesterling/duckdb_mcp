@@ -250,13 +250,14 @@ MCPMessage MCPTemplateManager::HandlePromptsList(const MCPMessage &request) cons
 	for (const auto &tmpl : template_list) {
 		vector<Value> arg_values;
 		for (const auto &arg : tmpl.arguments) {
-			arg_values.push_back(Value::STRUCT(
-			    {{"name", Value(arg.name)}, {"description", Value(arg.description)}, {"required", Value::BOOLEAN(arg.required)}}));
+			arg_values.push_back(Value::STRUCT({{"name", Value(arg.name)},
+			                                    {"description", Value(arg.description)},
+			                                    {"required", Value::BOOLEAN(arg.required)}}));
 		}
 
 		Value args_list = Value::LIST(arg_struct_type, arg_values);
-		prompts.push_back(
-		    Value::STRUCT({{"name", Value(tmpl.name)}, {"description", Value(tmpl.description)}, {"arguments", args_list}}));
+		prompts.push_back(Value::STRUCT(
+		    {{"name", Value(tmpl.name)}, {"description", Value(tmpl.description)}, {"arguments", args_list}}));
 	}
 
 	Value prompts_list = Value::LIST(prompt_struct_type, prompts);

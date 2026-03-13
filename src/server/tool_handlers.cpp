@@ -599,7 +599,8 @@ SQLToolHandler::SQLToolHandler(const string &name, const string &description, co
       db_instance(db), result_format(result_format) {
 }
 
-case_insensitive_map_t<BoundParameterData> SQLToolHandler::BuildNamedParameters(const JSONArgumentParser &parser) const {
+case_insensitive_map_t<BoundParameterData>
+SQLToolHandler::BuildNamedParameters(const JSONArgumentParser &parser) const {
 	case_insensitive_map_t<BoundParameterData> named_params;
 
 	// Build typed values for all schema properties
@@ -643,7 +644,8 @@ case_insensitive_map_t<BoundParameterData> SQLToolHandler::BuildNamedParameters(
 			} else if (str_val == "false") {
 				named_params[param_name] = BoundParameterData(Value::BOOLEAN(false));
 			} else {
-				throw InvalidInputException("Parameter '" + param_name + "' must be 'true' or 'false', got: " + str_val);
+				throw InvalidInputException("Parameter '" + param_name +
+				                            "' must be 'true' or 'false', got: " + str_val);
 			}
 		} else {
 			// Default to string (VARCHAR)
@@ -895,8 +897,9 @@ ExecutionSQLToolHandler::ExecutionSQLToolHandler(const string &name, const strin
 	statement_binding_specs = ParseBindingsJson(bindings_json, per_statement_bindings);
 }
 
-case_insensitive_map_t<BoundParameterData> ExecutionSQLToolHandler::BuildNamedParameters(
-    const JSONArgumentParser &parser, const unordered_map<string, string> &binding_spec) const {
+case_insensitive_map_t<BoundParameterData>
+ExecutionSQLToolHandler::BuildNamedParameters(const JSONArgumentParser &parser,
+                                              const unordered_map<string, string> &binding_spec) const {
 	case_insensitive_map_t<BoundParameterData> named_params;
 
 	for (const auto &entry : binding_spec) {
@@ -938,7 +941,8 @@ case_insensitive_map_t<BoundParameterData> ExecutionSQLToolHandler::BuildNamedPa
 			} else if (str_val == "false") {
 				named_params[param_name] = BoundParameterData(Value::BOOLEAN(false));
 			} else {
-				throw InvalidInputException("Parameter '" + param_name + "' must be 'true' or 'false', got: " + str_val);
+				throw InvalidInputException("Parameter '" + param_name +
+				                            "' must be 'true' or 'false', got: " + str_val);
 			}
 		} else {
 			named_params[param_name] = BoundParameterData(Value(str_val));
@@ -982,8 +986,7 @@ CallToolResult ExecutionSQLToolHandler::Execute(const Value &arguments) {
 			string stmt_sql = statements[i]->query;
 
 			// Determine binding spec for this statement
-			const auto &binding_spec =
-			    per_statement_bindings ? statement_binding_specs[i] : statement_binding_specs[0];
+			const auto &binding_spec = per_statement_bindings ? statement_binding_specs[i] : statement_binding_specs[0];
 
 			auto prepared = conn.Prepare(stmt_sql);
 			if (prepared->HasError()) {

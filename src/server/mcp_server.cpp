@@ -533,9 +533,7 @@ MCPMessage MCPServer::HandleInitialize(const MCPMessage &request) {
 	    {"listChanged", Value::BOOLEAN(true)} // We can notify when prompt list changes
 	});
 
-	Value capabilities = Value::STRUCT({
-	    {"resources", resources_cap}, {"tools", tools_cap}, {"prompts", prompts_cap}
-	});
+	Value capabilities = Value::STRUCT({{"resources", resources_cap}, {"tools", tools_cap}, {"prompts", prompts_cap}});
 
 	Value server_info = Value::STRUCT({{"name", Value("DuckDB MCP Server")}, {"version", Value(DUCKDB_MCP_VERSION)}});
 
@@ -936,9 +934,9 @@ void MCPServerManager::ApplyRegistrationsTo(MCPServer *target) {
 			ToolInputSchema input_schema = ParseToolInputSchema(reg.properties_json, reg.required_json);
 			shared_ptr<ToolHandler> handler;
 			if (reg.multi_statement) {
-				handler = make_shared_ptr<ExecutionSQLToolHandler>(reg.name, reg.description, reg.sql_template,
-				                                                   input_schema, *reg.db_instance, reg.bindings_json,
-				                                                   reg.format);
+				handler =
+				    make_shared_ptr<ExecutionSQLToolHandler>(reg.name, reg.description, reg.sql_template, input_schema,
+				                                             *reg.db_instance, reg.bindings_json, reg.format);
 			} else {
 				handler = make_shared_ptr<SQLToolHandler>(reg.name, reg.description, reg.sql_template, input_schema,
 				                                          *reg.db_instance, reg.format);
