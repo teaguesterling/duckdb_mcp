@@ -5,5 +5,4 @@
 
 #include "duckdb_mcp_config.hpp"
 
-namespace duckdb {
-} // namespace duckdb
+namespace duckdb {} // namespace duckdb

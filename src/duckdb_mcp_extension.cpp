@@ -1448,9 +1448,11 @@ static void MCPListResourcesWithCursorFunction(DataChunk &args, ExpressionState 
 			}
 
 			// Use tool call for pagination instead of modifying standard MCP methods
-			Value call_params =
-			    Value::STRUCT({{"name", Value("list_resources_paginated")},
-			                   {"arguments", Value(cursor.empty() ? "{}" : "{\"cursor\": \"" + ResultFormatter::EscapeJsonString(cursor) + "\"}")}});
+			Value call_params = Value::STRUCT(
+			    {{"name", Value("list_resources_paginated")},
+			     {"arguments",
+			      Value(cursor.empty() ? "{}"
+			                           : "{\"cursor\": \"" + ResultFormatter::EscapeJsonString(cursor) + "\"}")}});
 
 			// Send MCP tool call for pagination
 			auto response = connection->SendRequest(MCPMethods::TOOLS_CALL, call_params);
@@ -1493,9 +1495,11 @@ static void MCPListToolsWithCursorFunction(DataChunk &args, ExpressionState &sta
 			}
 
 			// Use tool call for pagination
-			Value call_params =
-			    Value::STRUCT({{"name", Value("list_tools_paginated")},
-			                   {"arguments", Value(cursor.empty() ? "{}" : "{\"cursor\": \"" + ResultFormatter::EscapeJsonString(cursor) + "\"}")}});
+			Value call_params = Value::STRUCT(
+			    {{"name", Value("list_tools_paginated")},
+			     {"arguments",
+			      Value(cursor.empty() ? "{}"
+			                           : "{\"cursor\": \"" + ResultFormatter::EscapeJsonString(cursor) + "\"}")}});
 
 			// Send MCP tool call for pagination
 			auto response = connection->SendRequest(MCPMethods::TOOLS_CALL, call_params);
@@ -1538,9 +1542,11 @@ static void MCPListPromptsWithCursorFunction(DataChunk &args, ExpressionState &s
 			}
 
 			// Use tool call for pagination
-			Value call_params =
-			    Value::STRUCT({{"name", Value("list_prompts_paginated")},
-			                   {"arguments", Value(cursor.empty() ? "{}" : "{\"cursor\": \"" + ResultFormatter::EscapeJsonString(cursor) + "\"}")}});
+			Value call_params = Value::STRUCT(
+			    {{"name", Value("list_prompts_paginated")},
+			     {"arguments",
+			      Value(cursor.empty() ? "{}"
+			                           : "{\"cursor\": \"" + ResultFormatter::EscapeJsonString(cursor) + "\"}")}});
 
 			// Send MCP tool call for pagination
 			auto response = connection->SendRequest(MCPMethods::TOOLS_CALL, call_params);

@@ -69,7 +69,7 @@ private:
 public:
 	MCPPaginationIterator(shared_ptr<MCPConnection> conn, const string &server, const string &method);
 	MCPPaginationIterator(shared_ptr<MCPConnection> conn, const string &server, const string &method,
-	                       const string &cursor);
+	                      const string &cursor);
 
 	// Iterator interface
 	bool HasNext() const;

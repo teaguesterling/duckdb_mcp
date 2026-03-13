@@ -115,13 +115,12 @@ MCPPaginationParams MCPPaginationParams::FromRPCParams(const Value &params) {
 #ifndef __EMSCRIPTEN__
 
 // MCPPaginationIterator implementation
-MCPPaginationIterator::MCPPaginationIterator(shared_ptr<MCPConnection> conn, const string &server,
-                                             const string &method)
+MCPPaginationIterator::MCPPaginationIterator(shared_ptr<MCPConnection> conn, const string &server, const string &method)
     : connection(std::move(conn)), server_name(server), method_name(method), is_initialized(false), is_finished(false) {
 }
 
-MCPPaginationIterator::MCPPaginationIterator(shared_ptr<MCPConnection> conn, const string &server,
-                                             const string &method, const string &cursor)
+MCPPaginationIterator::MCPPaginationIterator(shared_ptr<MCPConnection> conn, const string &server, const string &method,
+                                             const string &cursor)
     : connection(std::move(conn)), server_name(server), method_name(method), params(cursor), is_initialized(false),
       is_finished(false) {
 }
