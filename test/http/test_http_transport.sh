@@ -119,10 +119,10 @@ else
     fail "Initialize request" "Response containing serverInfo" "$RESPONSE"
 fi
 
-if echo "$RESPONSE" | grep -q '"version":"1.5.2"'; then
-    pass "Server reports version 1.5.2"
+if echo "$RESPONSE" | grep -q '"version":"2.0.0"'; then
+    pass "Server reports version 2.0.0"
 else
-    fail "Server version" "1.5.2" "$RESPONSE"
+    fail "Server version" "2.0.0" "$RESPONSE"
 fi
 
 stop_server
