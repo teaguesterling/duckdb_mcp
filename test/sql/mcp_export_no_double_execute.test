@@ -4,6 +4,8 @@
 
 require duckdb_mcp
 
+require notwindows
+
 statement ok
 LOAD duckdb_mcp;
 
