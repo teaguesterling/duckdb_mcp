@@ -24,6 +24,7 @@ set(EXTENSION_SOURCES
   src/protocol/mcp_template.cpp
   src/protocol/mcp_pagination.cpp
   src/server/mcp_server.cpp
+  src/server/mcp_state_table_functions.cpp
   src/server/resource_providers.cpp
   src/server/tool_handlers.cpp
   src/server/memory_transport.cpp

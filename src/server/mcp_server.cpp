@@ -56,6 +56,16 @@ bool ResourceRegistry::ResourceExists(const string &uri) const {
 	return resources.find(uri) != resources.end();
 }
 
+vector<pair<string, shared_ptr<ResourceProvider>>> ResourceRegistry::GetAllResources() const {
+	lock_guard<mutex> lock(registry_mutex);
+	vector<pair<string, shared_ptr<ResourceProvider>>> result;
+	result.reserve(resources.size());
+	for (const auto &pair : resources) {
+		result.emplace_back(pair.first, pair.second);
+	}
+	return result;
+}
+
 //===--------------------------------------------------------------------===//
 // ToolRegistry Implementation
 //===--------------------------------------------------------------------===//
@@ -88,6 +98,16 @@ shared_ptr<ToolHandler> ToolRegistry::GetTool(const string &name) const {
 bool ToolRegistry::ToolExists(const string &name) const {
 	lock_guard<mutex> lock(registry_mutex);
 	return tools.find(name) != tools.end();
+}
+
+vector<pair<string, shared_ptr<ToolHandler>>> ToolRegistry::GetAllTools() const {
+	lock_guard<mutex> lock(registry_mutex);
+	vector<pair<string, shared_ptr<ToolHandler>>> result;
+	result.reserve(tools.size());
+	for (const auto &pair : tools) {
+		result.emplace_back(pair.first, pair.second);
+	}
+	return result;
 }
 
 //===--------------------------------------------------------------------===//
@@ -265,6 +285,18 @@ bool MCPServer::UnregisterTool(const string &name) {
 
 vector<string> MCPServer::ListRegisteredTools() const {
 	return tool_registry.ListTools();
+}
+
+const MCPServerConfig &MCPServer::GetConfig() const {
+	return config;
+}
+
+vector<pair<string, shared_ptr<ToolHandler>>> MCPServer::GetAllRegisteredTools() const {
+	return tool_registry.GetAllTools();
+}
+
+vector<pair<string, shared_ptr<ResourceProvider>>> MCPServer::GetAllPublishedResources() const {
+	return resource_registry.GetAllResources();
 }
 
 #ifndef __EMSCRIPTEN__
@@ -978,6 +1010,143 @@ void MCPServerManager::ApplyRegistrationsTo(MCPServer *target) {
 		             static_cast<uint64_t>(pending_resources.size()));
 	}
 	pending_resources.clear();
+}
+
+//===--------------------------------------------------------------------===//
+// MCPServerManager State Introspection
+//===--------------------------------------------------------------------===//
+
+vector<ToolMetadataEntry> MCPServerManager::GetToolSnapshot() const {
+	lock_guard<mutex> lock(manager_mutex);
+	vector<ToolMetadataEntry> entries;
+
+	if (server && server->IsRunning()) {
+		// Server is running — get live tools from registry
+		auto all_tools = server->GetAllRegisteredTools();
+		entries.reserve(all_tools.size());
+		for (auto &tool_pair : all_tools) {
+			auto &handler = tool_pair.second;
+			ToolMetadataEntry entry;
+			entry.name = handler->GetName();
+			entry.description = handler->GetDescription();
+			entry.status = "active";
+
+			// Try to extract SQL-specific metadata via downcast
+			auto *sql_handler = dynamic_cast<SQLToolHandler *>(handler.get());
+			auto *exec_handler = dynamic_cast<ExecutionSQLToolHandler *>(handler.get());
+			if (sql_handler) {
+				entry.sql_template = sql_handler->GetSqlTemplate();
+				entry.format = sql_handler->GetResultFormat();
+				entry.is_builtin = false;
+			} else if (exec_handler) {
+				entry.sql_template = exec_handler->GetSqlTemplate();
+				entry.format = exec_handler->GetResultFormat();
+				entry.is_builtin = false;
+			} else {
+				// Built-in tool (query, describe, export, etc.)
+				entry.is_builtin = true;
+			}
+
+			// Serialize input schema properties as JSON
+			auto schema = handler->GetInputSchema();
+			auto *doc = JSONUtils::CreateDocument();
+			auto *props = JSONUtils::CreateObject(doc);
+			for (const auto &prop : schema.properties) {
+				auto *prop_val = JSONUtils::ValueToJSON(doc, prop.second);
+				JSONUtils::AddObject(doc, props, prop.first.c_str(), prop_val);
+			}
+			yyjson_mut_doc_set_root(doc, props);
+			entry.parameters_json = JSONUtils::Serialize(doc);
+			JSONUtils::FreeDocument(doc);
+			string req = "[";
+			for (idx_t i = 0; i < schema.required_fields.size(); i++) {
+				if (i > 0) {
+					req += ",";
+				}
+				req += "\"" + schema.required_fields[i] + "\"";
+			}
+			req += "]";
+			entry.required_json = req;
+
+			entries.push_back(std::move(entry));
+		}
+	} else {
+		// Server not running — show pending registrations
+		entries.reserve(pending_tools.size());
+		for (const auto &reg : pending_tools) {
+			ToolMetadataEntry entry;
+			entry.name = reg.name;
+			entry.description = reg.description;
+			entry.sql_template = reg.sql_template;
+			entry.parameters_json = reg.properties_json;
+			entry.required_json = reg.required_json;
+			entry.format = reg.format;
+			entry.status = "pending";
+			entry.is_builtin = false;
+			entries.push_back(std::move(entry));
+		}
+	}
+
+	return entries;
+}
+
+vector<ResourceMetadataEntry> MCPServerManager::GetResourceSnapshot() const {
+	lock_guard<mutex> lock(manager_mutex);
+	vector<ResourceMetadataEntry> entries;
+
+	if (server && server->IsRunning()) {
+		// Server is running — get live resources from registry
+		auto all_resources = server->GetAllPublishedResources();
+		entries.reserve(all_resources.size());
+		for (auto &res_pair : all_resources) {
+			ResourceMetadataEntry entry;
+			entry.uri = res_pair.first;
+			auto &provider = res_pair.second;
+			entry.description = provider->GetDescription();
+			entry.mime_type = provider->GetMimeType();
+			entry.status = "active";
+
+			// Determine type from provider class
+			if (dynamic_cast<TableResourceProvider *>(provider.get())) {
+				entry.type = "table";
+			} else if (dynamic_cast<QueryResourceProvider *>(provider.get())) {
+				entry.type = "query";
+			} else if (dynamic_cast<StaticResourceProvider *>(provider.get())) {
+				entry.type = "resource";
+			}
+
+			entries.push_back(std::move(entry));
+		}
+	} else {
+		// Server not running — show pending registrations
+		entries.reserve(pending_resources.size());
+		for (const auto &reg : pending_resources) {
+			ResourceMetadataEntry entry;
+			entry.uri = reg.uri;
+			entry.type = reg.type;
+			entry.description = reg.description;
+			entry.mime_type = reg.mime_type;
+			entry.source = reg.source;
+			entry.format = reg.format;
+			entry.status = "pending";
+			entries.push_back(std::move(entry));
+		}
+	}
+
+	return entries;
+}
+
+MCPServerConfig MCPServerManager::GetServerConfigSnapshot() const {
+	lock_guard<mutex> lock(manager_mutex);
+	if (server) {
+		return server->GetConfig();
+	}
+	return MCPServerConfig {};
+}
+
+bool MCPServerManager::HasServerConfig() const {
+	lock_guard<mutex> lock(manager_mutex);
+	return server != nullptr;
 }
 
 } // namespace duckdb

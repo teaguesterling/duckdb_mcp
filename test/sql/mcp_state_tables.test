@@ -1,0 +1,205 @@
+# name: test/sql/mcp_state_tables.test
+# description: Test MCP state introspection table functions
+# group: [sql]
+
+# Load the MCP extension
+require duckdb_mcp
+
+statement ok
+LOAD duckdb_mcp;
+
+# =============================================================================
+# SETUP: Force clean state
+# =============================================================================
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# SECTION 1: Empty state before any registrations
+# =============================================================================
+
+# mcp_tools() should return zero rows before any registrations
+query I
+SELECT count(*) FROM mcp_tools();
+----
+0
+
+# mcp_list_tools() alias should also return zero rows
+query I
+SELECT count(*) FROM mcp_list_tools();
+----
+0
+
+# mcp_resources() should return zero rows
+query I
+SELECT count(*) FROM mcp_resources();
+----
+0
+
+# mcp_server_config() should return zero rows when server not started
+query I
+SELECT count(*) FROM mcp_server_config();
+----
+0
+
+# =============================================================================
+# SECTION 2: Pending tools visible before server start
+# =============================================================================
+
+# Create test table for SQL tool
+statement ok
+CREATE TABLE IF NOT EXISTS test_products AS SELECT 1 as id, 'Widget' as name;
+
+# Publish tools using PRAGMA (avoids double-evaluation of scalar function side effects)
+statement ok
+PRAGMA mcp_publish_tool('get_product', 'Get product by ID', 'SELECT * FROM test_products WHERE id = $id', '{"id":{"type":"integer","description":"Product ID"}}', '["id"]');
+
+# mcp_tools() should now show the pending tool
+query I
+SELECT count(*) FROM mcp_tools();
+----
+1
+
+# Check pending tool metadata
+query TT
+SELECT name, status FROM mcp_tools();
+----
+get_product	pending
+
+# Check sql_template is populated for pending tools
+query I
+SELECT sql_template IS NOT NULL FROM mcp_tools() WHERE name = 'get_product';
+----
+true
+
+# mcp_list_tools() should return the same result
+query TT
+SELECT name, status FROM mcp_list_tools();
+----
+get_product	pending
+
+# Publish another tool
+statement ok
+PRAGMA mcp_publish_tool('list_products', 'List all products', 'SELECT * FROM test_products', '{}', '[]', 'markdown');
+
+# Should now have 2 pending tools
+query I
+SELECT count(*) FROM mcp_tools() WHERE status = 'pending';
+----
+2
+
+# =============================================================================
+# SECTION 3: Pending resources visible before server start
+# =============================================================================
+
+# Publish a table resource
+statement ok
+PRAGMA mcp_publish_table('test_products', 'data://products', 'json');
+
+# Publish a static resource
+statement ok
+PRAGMA mcp_publish_resource('data://readme', 'Hello World', 'text/plain', 'A readme');
+
+# mcp_resources() should show 2 pending resources
+query I
+SELECT count(*) FROM mcp_resources();
+----
+2
+
+# Check resource metadata
+query TT
+SELECT uri, status FROM mcp_resources() ORDER BY uri;
+----
+data://products	pending
+data://readme	pending
+
+# =============================================================================
+# SECTION 4: After server start — tools become active
+# =============================================================================
+
+# Start server with memory transport
+statement ok
+SELECT mcp_server_start('memory');
+
+# User-defined tools should be present and not marked as built-in
+query I
+SELECT count(*) FROM mcp_tools() WHERE name = 'get_product' AND is_builtin = false;
+----
+1
+
+# Built-in tools should be present
+query I
+SELECT count(*) FROM mcp_tools() WHERE is_builtin = true AND name = 'query';
+----
+1
+
+# All tools should be active after server start (no pending)
+query I
+SELECT count(*) FROM mcp_tools() WHERE status = 'pending';
+----
+0
+
+# All tools should be active (built-in + user-defined)
+query I
+SELECT count(*) FROM mcp_tools() WHERE status = 'active';
+----
+7
+
+# =============================================================================
+# SECTION 5: After server start — resources become active
+# =============================================================================
+
+# Resources should be present
+query I
+SELECT count(*) FROM mcp_resources();
+----
+2
+
+# =============================================================================
+# SECTION 6: Server config visible after start
+# =============================================================================
+
+# mcp_server_config() should have entries
+query I
+SELECT count(*) > 0 FROM mcp_server_config();
+----
+true
+
+# Check transport is memory
+query T
+SELECT value FROM mcp_server_config() WHERE key = 'transport';
+----
+memory
+
+# Check some boolean config values
+query T
+SELECT value FROM mcp_server_config() WHERE key = 'enable_query_tool';
+----
+true
+
+# =============================================================================
+# SECTION 7: SQL composability
+# =============================================================================
+
+# Filter tools by type
+query I
+SELECT count(*) FROM mcp_tools() WHERE is_builtin = false;
+----
+2
+
+# SELECT specific columns
+query T
+SELECT name FROM mcp_tools() WHERE name = 'list_products';
+----
+list_products
+
+# =============================================================================
+# SECTION 8: Clean up
+# =============================================================================
+
+statement ok
+SELECT mcp_server_stop(true);
+
+statement ok
+DROP TABLE IF EXISTS test_products;

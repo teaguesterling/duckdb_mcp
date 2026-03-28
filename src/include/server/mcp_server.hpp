@@ -81,6 +81,7 @@ public:
 	vector<string> ListResources() const;
 	shared_ptr<ResourceProvider> GetResource(const string &uri) const;
 	bool ResourceExists(const string &uri) const;
+	vector<pair<string, shared_ptr<ResourceProvider>>> GetAllResources() const;
 
 private:
 	mutable mutex registry_mutex;
@@ -95,6 +96,7 @@ public:
 	vector<string> ListTools() const;
 	shared_ptr<ToolHandler> GetTool(const string &name) const;
 	bool ToolExists(const string &name) const;
+	vector<pair<string, shared_ptr<ToolHandler>>> GetAllTools() const;
 
 private:
 	mutable mutex registry_mutex;
@@ -140,6 +142,11 @@ public:
 	bool RegisterTool(const string &name, shared_ptr<ToolHandler> handler);
 	bool UnregisterTool(const string &name);
 	vector<string> ListRegisteredTools() const;
+
+	// Bulk accessors for state introspection
+	const MCPServerConfig &GetConfig() const;
+	vector<pair<string, shared_ptr<ToolHandler>>> GetAllRegisteredTools() const;
+	vector<pair<string, shared_ptr<ResourceProvider>>> GetAllPublishedResources() const;
 
 #ifndef __EMSCRIPTEN__
 	// Main loop for stdio mode (blocks until process ends)
@@ -250,6 +257,28 @@ struct PendingResourceRegistration {
 	DatabaseInstance *db_instance;
 };
 
+// Metadata snapshot entries for state introspection table functions
+struct ToolMetadataEntry {
+	string name;
+	string description;
+	string sql_template;
+	string parameters_json;
+	string required_json;
+	string format;
+	string status; // "pending" or "active"
+	bool is_builtin = false;
+};
+
+struct ResourceMetadataEntry {
+	string uri;
+	string type;
+	string description;
+	string mime_type;
+	string source;
+	string format;
+	string status; // "pending" or "active"
+};
+
 // Per-instance server management
 class MCPServerManager {
 public:
@@ -288,6 +317,12 @@ public:
 
 	// Apply pending registrations to an external server (for foreground mode)
 	void ApplyPendingRegistrationsTo(MCPServer *external_server);
+
+	// State introspection snapshots (for table functions)
+	vector<ToolMetadataEntry> GetToolSnapshot() const;
+	vector<ResourceMetadataEntry> GetResourceSnapshot() const;
+	MCPServerConfig GetServerConfigSnapshot() const;
+	bool HasServerConfig() const;
 
 private:
 	unique_ptr<MCPServer> server;

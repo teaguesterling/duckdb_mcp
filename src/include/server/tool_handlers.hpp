@@ -159,6 +159,14 @@ public:
 		return input_schema;
 	}
 
+	// Accessors for state introspection
+	const string &GetSqlTemplate() const {
+		return sql_template;
+	}
+	const string &GetResultFormat() const {
+		return result_format;
+	}
+
 private:
 	string tool_name;
 	string tool_description;
@@ -187,6 +195,14 @@ public:
 	}
 	ToolInputSchema GetInputSchema() const override {
 		return input_schema;
+	}
+
+	// Accessors for state introspection
+	const string &GetSqlTemplate() const {
+		return sql_template;
+	}
+	const string &GetResultFormat() const {
+		return result_format;
 	}
 
 private:

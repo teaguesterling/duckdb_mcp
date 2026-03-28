@@ -24,6 +24,7 @@ using namespace duckdb_yyjson;
 #include "server/tool_handlers.hpp"
 #include "result_formatter.hpp"
 #include "server/memory_transport.hpp"
+#include "server/mcp_state_table_functions.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/parser/keyword_helper.hpp"
@@ -2248,6 +2249,9 @@ static void LoadInternal(ExtensionLoader &loader) {
 	// PRAGMA mcp_config_begin / mcp_config_end — suppress scalar function output during config
 	loader.RegisterFunction(PragmaFunction::PragmaStatement("mcp_config_begin", PragmaMCPConfigBegin));
 	loader.RegisterFunction(PragmaFunction::PragmaStatement("mcp_config_end", PragmaMCPConfigEnd));
+
+	// State introspection table functions
+	RegisterMCPStateTableFunctions(loader);
 
 #ifdef __EMSCRIPTEN__
 	// Register WebMCP-specific functions (WASM only)
