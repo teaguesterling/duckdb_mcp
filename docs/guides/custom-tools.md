@@ -277,6 +277,72 @@ PRAGMA mcp_publish_tool(
 );
 ```
 
+## Multi-Statement Tools
+
+`mcp_publish_tool` runs a single SQL statement. When you need to run several statements in sequence — set a session variable, create a temp table, then query it — use `mcp_publish_execution_tool` instead. It takes one extra argument, `bindings`, that declares how each tool argument maps to prepared-statement parameters per statement. The result of the last statement is what the tool returns.
+
+### When to Use It
+
+Reach for `mcp_publish_execution_tool` when your tool needs any of:
+
+- `SET VARIABLE` followed by a query that reads it via `getvariable()`
+- `CREATE TEMP TABLE` / `CREATE TEMP VIEW` followed by a query against it
+- A sequence of DDL or pragma statements that prepare state for a final `SELECT`
+
+For everything else, stick with `mcp_publish_tool` — it's simpler and the single-statement path has less ceremony.
+
+### SET VARIABLE Example
+
+```sql
+PRAGMA mcp_publish_execution_tool(
+    'high_value_sales',
+    'List sales above a configurable threshold',
+    'SET VARIABLE min_amount = $threshold;
+     SELECT * FROM sales
+      WHERE amount > getvariable(''min_amount'')
+      ORDER BY amount DESC',
+    '{"threshold": {"type": "number", "description": "Minimum sale amount"}}',
+    '["threshold"]',
+    '[{}, {"threshold": "number"}]'  -- first stmt needs no params, second binds $threshold
+);
+```
+
+### Temp Table Staging Example
+
+```sql
+PRAGMA mcp_publish_execution_tool(
+    'category_price_report',
+    'Build and report on products in a category',
+    'CREATE OR REPLACE TEMP TABLE staged AS
+        SELECT * FROM products WHERE category = $cat;
+     SELECT name, price,
+            price - AVG(price) OVER () as price_vs_avg
+       FROM staged
+      ORDER BY price DESC',
+    '{"cat": {"type": "string", "description": "Product category"}}',
+    '["cat"]',
+    '{"cat": "string"}',  -- object form: bind $cat in every statement that references it
+    'markdown'
+);
+```
+
+### Bindings: Object vs Array Form
+
+The `bindings` argument tells the execution engine how to prepare each statement. Two shapes are supported:
+
+- **Object form** `{"q": "string"}` — apply the same parameter types to every statement. Simplest; use when every statement references the same parameters.
+- **Array form** `[{}, {"q": "string"}]` — one entry per statement, in order. Use when only some statements reference parameters (e.g., a `SET VARIABLE` followed by a query that uses `getvariable()` — the first statement binds `$threshold` directly, the second doesn't bind anything new).
+
+The array length must match the number of semicolon-separated statements in your template.
+
+!!! note "Parameter types"
+    Binding type names (`"string"`, `"integer"`, `"number"`, `"boolean"`) are the DuckDB-side types used when preparing each statement. They should match the JSON Schema `type` values in your `properties` argument.
+
+!!! tip "Falling back to interpolation"
+    If a statement can't be prepared (for example, a macro invocation), the execution tool falls back to safe string interpolation for that statement. You generally don't need to think about this — but it means the function works with macro-based tools as well.
+
+See [`mcp_publish_execution_tool` in the server reference](../reference/server.md#mcp_publish_execution_tool) for the complete argument list.
+
 ## Security Considerations
 
 ### Input Validation

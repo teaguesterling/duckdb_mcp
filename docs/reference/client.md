@@ -166,6 +166,9 @@ List available tools from an MCP server.
 mcp_list_tools(server_name [, cursor]) → VARCHAR (JSON)
 ```
 
+!!! note "Scalar vs table form"
+    This is the **scalar** client form — it returns a JSON string describing tools on a remote MCP server. A separate no-argument **table** function `mcp_list_tools()` exists as a convenience alias for `mcp_tools()` (server-side introspection of local publications). See [State Introspection](server.md#mcp_list_tools) in the server reference. DuckDB disambiguates the two by arity.
+
 **Parameters:**
 
 | Parameter | Type | Description |
@@ -222,7 +225,9 @@ SELECT json_extract(
 
 ---
 
-## Prompt Functions
+## Remote Prompt Functions
+
+These functions retrieve prompts from **remote** MCP servers that DuckDB is attached to. For registering and serving prompt templates from your own DuckDB instance, see [Prompt Templates](server.md#prompt-templates) in the server reference.
 
 ### mcp_list_prompts
 
@@ -256,75 +261,6 @@ mcp_get_prompt(server_name, prompt_name, arguments) → VARCHAR (JSON)
 
 ```sql
 SELECT mcp_get_prompt('ai_server', 'code_review', '{"language": "python"}');
-```
-
----
-
-## Local Prompt Templates
-
-Manage reusable prompt templates locally within DuckDB.
-
-### mcp_register_prompt_template
-
-Register a new prompt template.
-
-```sql
-mcp_register_prompt_template(name, description, content) → VARCHAR
-```
-
-**Parameters:**
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `name` | VARCHAR | Unique template name |
-| `description` | VARCHAR | Human-readable description |
-| `content` | VARCHAR | Template content with `{variable}` placeholders |
-
-**Example:**
-
-```sql
-SELECT mcp_register_prompt_template(
-    'sql_query',
-    'Generate a SQL query',
-    'Write a SQL query to {action} from the {table} table where {condition}.'
-);
-```
-
----
-
-### mcp_list_prompt_templates
-
-List all registered local prompt templates.
-
-```sql
-mcp_list_prompt_templates() → VARCHAR (JSON)
-```
-
----
-
-### mcp_render_prompt_template
-
-Render a prompt template with arguments.
-
-```sql
-mcp_render_prompt_template(name, arguments) → VARCHAR
-```
-
-**Parameters:**
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `name` | VARCHAR | Template name |
-| `arguments` | VARCHAR | JSON object mapping variable names to values |
-
-**Example:**
-
-```sql
-SELECT mcp_render_prompt_template(
-    'sql_query',
-    '{"action": "count users", "table": "users", "condition": "created_at > ''2024-01-01''"}'
-);
--- Returns: "Write a SQL query to count users from the users table where created_at > '2024-01-01'."
 ```
 
 ---

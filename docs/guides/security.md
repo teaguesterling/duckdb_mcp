@@ -19,10 +19,10 @@ The `execute` tool allows DDL/DML operations (CREATE, INSERT, UPDATE, DELETE). I
 
 ```sql
 -- Default: execute is disabled
-SELECT mcp_server_start('stdio', 'localhost', 0, '{}');
+PRAGMA mcp_server_start('stdio');
 
 -- Only enable if you trust your clients
-SELECT mcp_server_start('stdio', 'localhost', 0, '{
+PRAGMA mcp_server_start('stdio', '{
     "enable_execute_tool": true
 }');
 ```
@@ -39,7 +39,7 @@ SELECT mcp_server_start('stdio', 'localhost', 0, '{
 If you need the execute tool, restrict it to only the statement types you need:
 
 ```sql
-SELECT mcp_server_start('stdio', 'localhost', 0, '{
+PRAGMA mcp_server_start('stdio', '{
     "enable_execute_tool": true,
     "execute_allow_ddl": true,
     "execute_allow_dml": true,
@@ -70,7 +70,7 @@ ATTACH 'mydata.duckdb' AS main (READ_ONLY);
 Only enable the tools you need:
 
 ```sql
-SELECT mcp_server_start('stdio', 'localhost', 0, '{
+PRAGMA mcp_server_start('stdio', '{
     "enable_query_tool": true,
     "enable_describe_tool": true,
     "enable_list_tables_tool": true,
@@ -85,13 +85,8 @@ SELECT mcp_server_start('stdio', 'localhost', 0, '{
 Instead of exposing the general `query` tool, create specific tools:
 
 ```sql
--- Disable general query
-SELECT mcp_server_start('stdio', 'localhost', 0, '{
-    "enable_query_tool": false
-}');
-
--- Publish specific, safe tools
-SELECT mcp_publish_tool(
+-- Publish specific, safe tools before starting the server
+PRAGMA mcp_publish_tool(
     'get_public_stats',
     'Get aggregated public statistics',
     'SELECT category, COUNT(*) as count, AVG(price) as avg_price
@@ -100,6 +95,11 @@ SELECT mcp_publish_tool(
     '{}',
     '[]'
 );
+
+-- Start the server with the general query tool disabled
+PRAGMA mcp_server_start('stdio', '{
+    "enable_query_tool": false
+}');
 ```
 
 ### Validate and Sanitize Inputs
@@ -107,7 +107,7 @@ SELECT mcp_publish_tool(
 While parameters are safely substituted (not concatenated), add SQL-level validation:
 
 ```sql
-SELECT mcp_publish_tool(
+PRAGMA mcp_publish_tool(
     'safe_lookup',
     'Lookup item by numeric ID only',
     'SELECT * FROM items WHERE id = CAST($id AS INTEGER) LIMIT 1',
@@ -121,7 +121,7 @@ SELECT mcp_publish_tool(
 Prevent large data exfiltration:
 
 ```sql
-SELECT mcp_publish_tool(
+PRAGMA mcp_publish_tool(
     'list_items',
     'List items (max 100)',
     'SELECT * FROM items LIMIT LEAST($limit, 100)',
@@ -135,7 +135,7 @@ SELECT mcp_publish_tool(
 CORS is **disabled by default**. If you need browser-based clients, configure specific origins:
 
 ```sql
-SELECT mcp_server_start('http', 'localhost', 8080, '{
+PRAGMA mcp_server_start('http', 'localhost', 8080, '{
     "cors_origins": "https://app.example.com,https://admin.example.com"
 }');
 ```
@@ -148,7 +148,7 @@ SELECT mcp_server_start('http', 'localhost', 8080, '{
 The `/health` endpoint is enabled by default and unauthenticated. In security-sensitive environments, either require auth or disable it:
 
 ```sql
-SELECT mcp_server_start('http', 'localhost', 8080, '{
+PRAGMA mcp_server_start('http', 'localhost', 8080, '{
     "auth_token": "secret",
     "auth_health_endpoint": true
 }');
@@ -157,7 +157,7 @@ SELECT mcp_server_start('http', 'localhost', 8080, '{
 Or disable entirely:
 
 ```sql
-SELECT mcp_server_start('http', 'localhost', 8080, '{
+PRAGMA mcp_server_start('http', 'localhost', 8080, '{
     "enable_health_endpoint": false
 }');
 ```
@@ -167,7 +167,7 @@ SELECT mcp_server_start('http', 'localhost', 8080, '{
 For HTTP transport, always configure an auth token in production:
 
 ```sql
-SELECT mcp_server_start('http', 'localhost', 8080, '{
+PRAGMA mcp_server_start('http', 'localhost', 8080, '{
     "auth_token": "your-secret-token",
     "require_auth": true
 }');
@@ -224,7 +224,7 @@ If you only need client functionality, disable serving entirely:
 SET mcp_disable_serving = true;
 
 -- Now mcp_server_start() will fail
-SELECT mcp_server_start('stdio', 'localhost', 0, '{}');
+PRAGMA mcp_server_start('stdio');
 -- Error: MCP serving is disabled
 ```
 
@@ -236,7 +236,7 @@ Don't hardcode secrets in init scripts. Use environment variables:
 
 ```sql
 -- init-server.sql
-LOAD 'duckdb_mcp';
+LOAD duckdb_mcp;
 
 -- Get API key from environment
 CREATE OR REPLACE MACRO get_env(name) AS (
@@ -244,7 +244,7 @@ CREATE OR REPLACE MACRO get_env(name) AS (
 );
 
 -- Use in queries
-SELECT mcp_publish_tool(
+PRAGMA mcp_publish_tool(
     'call_api',
     'Call external API',
     'SELECT http_get(''https://api.example.com?key='' || get_env(''API_KEY''))',
@@ -297,7 +297,7 @@ If using HTTP or HTTPS transport:
 
 ```sql
 -- Bind to localhost only
-SELECT mcp_server_start('http', '127.0.0.1', 8080, '{}');
+PRAGMA mcp_server_start('http', '127.0.0.1', 8080, '{}');
 
 -- NOT: '0.0.0.0' which exposes to all interfaces
 ```

@@ -4,26 +4,37 @@ This guide will get you up and running with the DuckDB MCP extension in just a f
 
 ## Installation
 
+### From the DuckDB Community Extensions repository
+
+The easiest way is to install from the official community registry:
+
+```sql
+INSTALL duckdb_mcp FROM community;
+LOAD duckdb_mcp;
+```
+
+This pulls a prebuilt binary for your DuckDB version and platform. No compilation required.
+
 ### Building from Source
 
+If you need a development build or an unreleased branch:
+
 ```bash
-# Clone the repository
-git clone https://github.com/teague/duckdb_mcp.git
+# Clone the repository (recursively — submodules are required)
+git clone --recursive https://github.com/teaguesterling/duckdb_mcp.git
 cd duckdb_mcp
 
 # Build the extension
 make
 
-# Run DuckDB with the extension
+# Run DuckDB with the extension preloaded
 ./build/release/duckdb
 ```
 
-### Loading the Extension
-
-Once built, load the extension in DuckDB:
+Source builds load the extension from disk:
 
 ```sql
-LOAD 'duckdb_mcp';
+LOAD 'build/release/extension/duckdb_mcp/duckdb_mcp.duckdb_extension';
 ```
 
 ## Quick Start: Running as an MCP Server
@@ -35,8 +46,8 @@ The most common use case is running DuckDB as an MCP server that AI assistants c
 Create a file called `init-server.sql`:
 
 ```sql
--- Load the extension
-LOAD 'build/release/duckdb_mcp.duckdb_extension';
+-- Load the extension (installed via INSTALL FROM community)
+LOAD duckdb_mcp;
 
 -- Create some sample data
 CREATE TABLE products (
@@ -86,11 +97,11 @@ When running as an MCP server, DuckDB exposes these tools to clients:
 
 | Tool | Description |
 |------|-------------|
-| `query` | Execute SQL SELECT queries |
+| `query` | Execute read-only SQL queries (formats: `json`, `jsonl`, `csv`, `markdown`, `text`) |
 | `describe` | Get table or query schema information |
 | `list_tables` | List all tables and views |
 | `database_info` | Get database overview (schemas, tables, extensions) |
-| `export` | Export query results to files |
+| `export` | Export query results inline or to a file (file output disabled by default) |
 | `execute` | Run DDL/DML statements (disabled by default) |
 
 ### Example: Query Tool
@@ -119,7 +130,7 @@ You can also use DuckDB to connect to external MCP servers.
 
 ```sql
 -- Load the extension
-LOAD 'duckdb_mcp';
+LOAD duckdb_mcp;
 
 -- Attach an MCP server
 ATTACH 'python3' AS data_server (

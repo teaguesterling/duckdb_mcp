@@ -18,7 +18,7 @@ When acting as an MCP client, DuckDB can:
 Use the `ATTACH` statement to connect to an MCP server:
 
 ```sql
-LOAD 'duckdb_mcp';
+LOAD duckdb_mcp;
 
 ATTACH 'python3' AS data_server (
     TYPE mcp,

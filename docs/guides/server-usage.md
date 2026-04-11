@@ -16,7 +16,7 @@ When running as an MCP server, DuckDB:
 ### Basic Server
 
 ```sql
-LOAD 'duckdb_mcp';
+LOAD duckdb_mcp;
 
 -- Start with default settings (PRAGMA produces no output)
 PRAGMA mcp_server_start('stdio');
@@ -270,7 +270,7 @@ Create an init script for your server. Use `PRAGMA` syntax for side-effectful op
 -- init-server.sql
 
 -- Load extension
-LOAD 'duckdb_mcp';
+LOAD duckdb_mcp;
 
 -- Create schema
 CREATE TABLE IF NOT EXISTS products (
@@ -340,9 +340,11 @@ Now Claude can:
 - Use your custom tools
 - Read published resources
 
-## Monitoring
+## Monitoring and Introspection
 
-Check server status:
+### Server status
+
+For request/response counters and transport state:
 
 ```sql
 SELECT mcp_server_status();
@@ -358,6 +360,41 @@ Returns:
     "responses_sent": 42,
     "errors_returned": 0
 }
+```
+
+### Inspecting published state
+
+The v2.1 state introspection table functions let you query what the server has registered — tools, resources, and effective configuration — as normal SQL tables:
+
+```sql
+-- What tools are published? Which are user-defined vs built-in?
+SELECT name, status, is_builtin FROM mcp_tools();
+
+-- What resources are available to clients?
+SELECT uri, type, status FROM mcp_resources();
+
+-- What's the effective server configuration?
+SELECT key, value FROM mcp_server_config() WHERE key LIKE 'enable_%';
+```
+
+These functions work **both before and after** `mcp_server_start()` — entries you publish in an init script show up as `status = 'pending'` until the server starts, then flip to `'active'`. This makes them useful for init script validation:
+
+```sql
+-- Verify all expected user tools published successfully
+SELECT COUNT(*) AS user_tool_count
+FROM mcp_tools()
+WHERE NOT is_builtin AND status IN ('pending', 'active');
+```
+
+See the [State Introspection reference](../reference/server.md#state-introspection) for full schemas and more examples.
+
+### Diagnostics
+
+For version and log level info (useful in bug reports):
+
+```sql
+SELECT mcp_get_diagnostics();
+-- {"log_level":"info","extension_version":"2.1.0","logging_available":true}
 ```
 
 ## Best Practices
