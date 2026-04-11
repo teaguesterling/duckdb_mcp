@@ -32,8 +32,8 @@ cat test-calls.ldjson | duckdb -init init-mcp-server.sql 2>/dev/null | jq .
 The simplest possible MCP server - an empty database with default tools.
 
 ```sql
-LOAD 'duckdb_mcp';
-SELECT mcp_server_start('stdio', 'localhost', 0, '{}');
+LOAD duckdb_mcp;
+PRAGMA mcp_server_start('stdio');
 ```
 
 **Use case:** Testing MCP client connections, learning the basics.
@@ -51,7 +51,7 @@ Demonstrates server configuration options:
 - Tool enable/disable settings
 
 ```sql
-SELECT mcp_server_start('stdio', 'localhost', 0, '{
+PRAGMA mcp_server_start('stdio', '{
     "enable_execute_tool": false,
     "default_result_format": "markdown"
 }');
@@ -96,7 +96,7 @@ Shows security hardening:
 - Limited tool exposure
 
 ```sql
-SELECT mcp_server_start('stdio', 'localhost', 0, '{
+PRAGMA mcp_server_start('stdio', '{
     "enable_query_tool": true,
     "enable_execute_tool": false,
     "enable_export_tool": false
@@ -113,15 +113,17 @@ SELECT mcp_server_start('stdio', 'localhost', 0, '{
 
 Demonstrates creating custom tools:
 
-- Simple parameterized queries
-- DuckDB macros as tools
+- Simple parameterized queries via `mcp_publish_tool`
+- Multi-statement tools via `mcp_publish_execution_tool` (v2.0+)
+- DuckDB macros as tool targets
 - Multiple output formats
 
 ```sql
+-- Single-statement tool backed by a macro
 CREATE MACRO product_search(term) AS TABLE
     SELECT * FROM products WHERE name ILIKE '%' || term || '%';
 
-SELECT mcp_publish_tool(
+PRAGMA mcp_publish_tool(
     'search',
     'Search products',
     'SELECT * FROM product_search($query)',
@@ -129,7 +131,22 @@ SELECT mcp_publish_tool(
     '["query"]',
     'markdown'
 );
+
+-- Multi-statement tool: stage a temp table, then report on it
+PRAGMA mcp_publish_execution_tool(
+    'category_report',
+    'Build and report on products in a category',
+    'CREATE OR REPLACE TEMP TABLE staged AS
+        SELECT * FROM products WHERE category = $cat;
+     SELECT name, price FROM staged ORDER BY price DESC',
+    '{"cat": {"type": "string"}}',
+    '["cat"]',
+    '{"cat": "string"}',
+    'markdown'
+);
 ```
+
+See the [Custom Tools guide](guides/custom-tools.md#multi-statement-tools) for when to reach for `mcp_publish_execution_tool` instead of the single-statement form.
 
 **Use case:** Building domain-specific APIs.
 
@@ -259,7 +276,7 @@ Use the examples as templates:
 -- init-mcp-server.sql
 
 -- Load extension
-LOAD 'duckdb_mcp';
+LOAD duckdb_mcp;
 
 -- Create your schema
 CREATE TABLE my_data (...);
@@ -270,8 +287,8 @@ COPY my_data FROM 'data.csv';
 -- Create views
 CREATE VIEW my_summary AS SELECT ...;
 
--- Publish custom tools
-SELECT mcp_publish_tool(
+-- Publish custom tools (PRAGMA is silent — keeps init output clean)
+PRAGMA mcp_publish_tool(
     'my_tool',
     'Description of what it does',
     'SELECT * FROM my_data WHERE field = $param',
@@ -281,7 +298,7 @@ SELECT mcp_publish_tool(
 );
 
 -- Start server
-SELECT mcp_server_start('stdio', 'localhost', 0, '{
+PRAGMA mcp_server_start('stdio', '{
     "enable_execute_tool": false,
     "default_result_format": "markdown"
 }');

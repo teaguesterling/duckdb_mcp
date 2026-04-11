@@ -7,7 +7,7 @@ This page documents all configuration options for the DuckDB MCP extension.
 Configuration is passed as a JSON object to `mcp_server_start()`:
 
 ```sql
-SELECT mcp_server_start('stdio', 'localhost', 0, '{
+PRAGMA mcp_server_start('stdio', '{
     "enable_query_tool": true,
     "enable_execute_tool": false,
     "default_result_format": "markdown"
@@ -75,7 +75,7 @@ When `enable_execute_tool` is `true`, you can control which statement types are 
 **Example: Read-only server with minimal tools**
 
 ```sql
-SELECT mcp_server_start('stdio', 'localhost', 0, '{
+PRAGMA mcp_server_start('stdio', '{
     "enable_query_tool": true,
     "enable_describe_tool": true,
     "enable_list_tables_tool": true,
@@ -260,7 +260,7 @@ Use `PRAGMA` syntax for side-effectful operations — it produces no output, kee
 
 ```sql
 -- 1. Load extension
-LOAD 'duckdb_mcp';
+LOAD duckdb_mcp;
 
 -- 2. Set up database
 CREATE TABLE IF NOT EXISTS products (
@@ -288,7 +288,7 @@ PRAGMA mcp_publish_table('products');
 -- 4. Configure (optional)
 -- SET allowed_mcp_commands = '...';
 
--- 5. Start server
+-- 5. Start server (PRAGMA — silent, keeps init output clean)
 PRAGMA mcp_server_start('stdio', '{"default_result_format": "markdown"}');
 ```
 

@@ -36,20 +36,20 @@ SELECT mcp_call_tool('data_server', 'process_data', '{"table": "sales"}');
 Expose your DuckDB database as an MCP server for AI assistants:
 
 ```sql
--- Start the MCP server
-SELECT mcp_server_start('stdio', 'localhost', 0, '{}');
-
 -- Publish a table as a resource
-SELECT mcp_publish_table('products', 'data://products', 'json');
+PRAGMA mcp_publish_table('products', 'data://products', 'json');
 
 -- Publish a custom tool
-SELECT mcp_publish_tool(
+PRAGMA mcp_publish_tool(
     'search_products',
     'Search products by name',
     'SELECT * FROM products WHERE name ILIKE ''%'' || $query || ''%''',
     '{"query": {"type": "string", "description": "Search term"}}',
     '["query"]'
 );
+
+-- Start the MCP server (stdio for CLI integration)
+PRAGMA mcp_server_start('stdio');
 ```
 
 ## Quick Links
@@ -115,7 +115,7 @@ JOIN read_csv('mcp://geo_server/countries.csv') c ON s.country_code = c.code;
 Expose domain-specific SQL queries as tools for AI assistants:
 
 ```sql
-SELECT mcp_publish_tool(
+PRAGMA mcp_publish_tool(
     'revenue_by_region',
     'Get revenue breakdown by region for a date range',
     'SELECT region, SUM(amount) as revenue
@@ -135,4 +135,4 @@ SELECT mcp_publish_tool(
 
 ## License
 
-MIT License - see [LICENSE](https://github.com/teague/duckdb_mcp/blob/main/LICENSE) for details.
+MIT License - see [LICENSE](https://github.com/teaguesterling/duckdb_mcp/blob/main/LICENSE) for details.

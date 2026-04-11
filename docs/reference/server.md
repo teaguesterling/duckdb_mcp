@@ -232,7 +232,7 @@ SELECT mcp_publish_resource(
 -- Publish with defaults (text/plain, no description)
 SELECT mcp_publish_resource(
     'info://version',
-    'v1.3.2',
+    'v2.1.0',
     NULL,
     NULL
 );
@@ -400,6 +400,253 @@ SELECT mcp_publish_execution_tool(
 
 ---
 
+## State Introspection
+
+Added in v2.1, these table functions expose the running server's published tools, resources, and configuration as queryable tables. They follow DuckDB's "everything is a table" philosophy and work **both before and after** `mcp_server_start()` is called — entries registered before start appear with `status = 'pending'` (queued), and active entries appear with `status = 'active'`.
+
+Typical uses:
+
+- **Init script validation** — assert that every tool/resource you expected to publish is actually registered
+- **Auto-generated help** — render a tool catalog for client-side discovery
+- **Diagnostics** — inspect effective configuration without parsing the `mcp_server_status()` JSON
+- **SQL composability** — join tool metadata with other tables, filter by status, etc.
+
+### mcp_tools
+
+Table function listing all published tools — both user-published (via `mcp_publish_tool` / `mcp_publish_execution_tool`) and server built-ins.
+
+```sql
+SELECT * FROM mcp_tools();
+```
+
+**Schema:**
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `name` | VARCHAR | Tool name |
+| `description` | VARCHAR | Human-readable description |
+| `sql_template` | VARCHAR | SQL template for user-published tools; NULL for built-ins |
+| `parameters` | VARCHAR | JSON Schema `properties` object |
+| `required` | VARCHAR | JSON array of required parameter names |
+| `format` | VARCHAR | Output format |
+| `status` | VARCHAR | `pending` (queued), `active` (registered on a running server), or `error` |
+| `is_builtin` | BOOLEAN | `true` for server-provided tools (`query`, `describe`, etc.), `false` for user-published |
+
+**Example — verify init script published what you expected:**
+
+```sql
+-- After your init script runs
+SELECT name, status, is_builtin FROM mcp_tools() WHERE NOT is_builtin ORDER BY name;
+
+-- Assert every expected tool is registered
+SELECT COUNT(*) FILTER (WHERE status = 'pending' OR status = 'active') AS published,
+       COUNT(*) FILTER (WHERE status = 'error')                         AS failed
+FROM mcp_tools()
+WHERE NOT is_builtin;
+```
+
+---
+
+### mcp_list_tools
+
+No-argument alias for `mcp_tools()`. Provided as a convenience for symmetry with the client-side `mcp_list_tools(server_name)` scalar function.
+
+```sql
+SELECT * FROM mcp_list_tools();
+```
+
+Schema is identical to `mcp_tools()`. Use whichever name reads better in context — they are interchangeable.
+
+!!! note "Scalar vs table form"
+    `mcp_list_tools(server_name)` (one VARCHAR argument) is the **client** function that queries a remote MCP server. The no-arg table form shown here is the **server** introspection function for the local DuckDB instance. Both names coexist because DuckDB's function registry disambiguates by arity.
+
+---
+
+### mcp_resources
+
+Table function listing all published resources — tables, queries, and static content.
+
+```sql
+SELECT * FROM mcp_resources();
+```
+
+**Schema:**
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `uri` | VARCHAR | Resource URI (e.g. `data://tables/products`) |
+| `type` | VARCHAR | Resource type: `table`, `query`, or `resource` |
+| `description` | VARCHAR | Human-readable description |
+| `mime_type` | VARCHAR | MIME type (e.g. `application/json`, `text/plain`) |
+| `source` | VARCHAR | Source table name, SQL query, or inline content preview |
+| `format` | VARCHAR | Output format |
+| `status` | VARCHAR | `pending`, `active`, or `error` |
+
+**Example — list everything a client would see:**
+
+```sql
+SELECT uri, type, mime_type FROM mcp_resources() WHERE status = 'active';
+```
+
+---
+
+### mcp_server_config
+
+Table function returning the effective server configuration as key-value pairs.
+
+```sql
+SELECT * FROM mcp_server_config();
+```
+
+**Schema:**
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `key` | VARCHAR | Configuration key (e.g. `enable_execute_tool`) |
+| `value` | VARCHAR | Stringified value — booleans as `true`/`false`, numbers as decimal strings |
+
+Every option documented in [Configuration Reference](configuration.md) is available as a row. Before the server starts this reflects the pending config; after start it reflects the live server's config.
+
+**Example — sanity-check a hardened server:**
+
+```sql
+SELECT key, value
+FROM mcp_server_config()
+WHERE key IN (
+    'enable_execute_tool',
+    'execute_allow_load',
+    'execute_allow_attach',
+    'cors_origins',
+    'require_auth'
+);
+```
+
+**Example — filter to just the `enable_*` flags:**
+
+```sql
+SELECT key, value
+FROM mcp_server_config()
+WHERE key LIKE 'enable_%'
+ORDER BY key;
+```
+
+---
+
+## Diagnostics
+
+### mcp_get_diagnostics
+
+Return extension diagnostic information as a JSON object.
+
+```sql
+mcp_get_diagnostics() → JSON
+```
+
+**Returns:** JSON object containing:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `log_level` | string | Active log level: `trace`, `debug`, `info`, `warn`, `error`, `off` |
+| `extension_version` | string | Loaded extension version (e.g. `2.1.0`) |
+| `logging_available` | boolean | Whether MCP logging is wired into DuckDB's logging facility |
+
+**Example:**
+
+```sql
+SELECT mcp_get_diagnostics();
+-- {"log_level":"info","extension_version":"2.1.0","logging_available":true}
+```
+
+Use this when filing bug reports — it captures the exact extension version and log level without requiring a separate `duckdb_extensions()` query.
+
+---
+
+## Prompt Templates
+
+Register reusable prompt templates that this DuckDB instance will serve over MCP. Registered templates appear in the `prompts/list` response and can be rendered via `prompts/get` by connected clients. They can also be rendered locally in SQL for preview or testing.
+
+Templates use `{variable}` placeholder syntax.
+
+!!! note "Local vs remote"
+    The functions below manage prompts that **this** DuckDB instance exposes as an MCP server. To retrieve prompts from a **remote** MCP server that DuckDB is attached to, use `mcp_list_prompts(server_name)` / `mcp_get_prompt(server_name, ...)` — see [Remote Prompt Functions](client.md#remote-prompt-functions) in the client reference.
+
+### mcp_register_prompt_template
+
+Register a new prompt template with the local server.
+
+```sql
+-- As PRAGMA (no output)
+PRAGMA mcp_register_prompt_template('name', 'description', 'template_content');
+
+-- As SELECT (returns status string)
+SELECT mcp_register_prompt_template('name', 'description', 'template_content');
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `name` | VARCHAR | Unique template name (used by clients as the prompt name) |
+| `description` | VARCHAR | Human-readable description |
+| `template_content` | VARCHAR | Template body with `{variable}` placeholders |
+
+**Example:**
+
+```sql
+PRAGMA mcp_register_prompt_template(
+    'sql_query',
+    'Generate a SQL query',
+    'Write a SQL query to {action} from the {table} table where {condition}.'
+);
+```
+
+Once registered (and after the server starts), this template is discoverable by clients via `prompts/list` and retrievable via `prompts/get`.
+
+---
+
+### mcp_list_prompt_templates
+
+List all registered templates on the local server.
+
+```sql
+mcp_list_prompt_templates() → JSON
+```
+
+**Example:**
+
+```sql
+SELECT mcp_list_prompt_templates();
+```
+
+---
+
+### mcp_render_prompt_template
+
+Render a registered template with supplied arguments — useful for previewing prompts or driving them from SQL without going through the MCP protocol.
+
+```sql
+mcp_render_prompt_template(name, arguments_json) → VARCHAR
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `name` | VARCHAR | Template name |
+| `arguments_json` | VARCHAR | JSON object mapping placeholder names to values |
+
+**Example:**
+
+```sql
+SELECT mcp_render_prompt_template(
+    'sql_query',
+    '{"action": "count users", "table": "users", "condition": "created_at > ''2024-01-01''"}'
+);
+-- Returns: "Write a SQL query to count users from the users table where created_at > '2024-01-01'."
+```
+
+---
+
 ## Built-in Server Tools
 
 When running as an MCP server, these tools are automatically available to clients:
@@ -413,7 +660,9 @@ Execute read-only SQL queries.
 | Argument | Type | Required | Description |
 |----------|------|----------|-------------|
 | `sql` | string | Yes | SQL SELECT statement |
-| `format` | string | No | Output format: `json` (default), `markdown`, `csv` |
+| `format` | string | No | Output format: `json` (default), `jsonl`, `csv`, `markdown`, `text` |
+
+The default can be changed server-wide via `default_result_format` (see [Configuration](configuration.md#output-options)).
 
 **Example request:**
 
@@ -469,18 +718,28 @@ Get comprehensive database information including schemas, tables, and extensions
 
 ### export
 
-Export query results to a file.
+Export query results inline or to a file.
 
 **Arguments:**
 
 | Argument | Type | Required | Description |
 |----------|------|----------|-------------|
-| `query` | string | Yes | SQL query to export |
-| `output` | string | No | Output file path |
-| `format` | string | No | Format: `json`, `csv`, `parquet` (parquet requires output path) |
+| `query` | string | Yes | Read-only SQL query to export |
+| `output` | string | No | Output file path — only available when `export_allow_file_output` is enabled |
+| `format` | string | No | Output format (see below) |
+
+**Supported formats:**
+
+| Mode | Formats |
+|------|---------|
+| Inline (no `output`) | `json`, `jsonl`, `csv`, `markdown`, `text` |
+| File export (with `output`) | `json`, `csv`, `parquet` |
+
+!!! note "File output is disabled by default"
+    `export_allow_file_output` defaults to `false` — inline return is the only mode available until you explicitly enable file output in the server config. The tool's advertised `inputSchema` reflects this: the `output` argument only appears when file output is allowed.
 
 !!! warning
-    When `output` is not specified, results are returned inline. Inline export only supports `json`, `csv`, and `markdown` formats. Use a file path for `parquet` exports.
+    The `export` tool only allows read-only statements. Use the `execute` tool for DDL/DML.
 
 ---
 
@@ -498,7 +757,7 @@ Execute DDL/DML statements (CREATE, INSERT, UPDATE, DELETE, etc.).
     The `execute` tool is **disabled by default** because it allows modifying the database. Only enable it when you trust the MCP clients connecting to your server.
 
     ```sql
-    SELECT mcp_server_start('stdio', 'localhost', 0, '{"enable_execute_tool": true}');
+    PRAGMA mcp_server_start('stdio', '{"enable_execute_tool": true}');
     ```
 
 ---
@@ -525,7 +784,7 @@ mcp_server_send_request(request_json) → VARCHAR (JSON)
 
 ```sql
 -- Start memory server
-SELECT mcp_server_start('memory', 'localhost', 0, '{}');
+PRAGMA mcp_server_start('memory');
 
 -- Send initialize request
 SELECT mcp_server_send_request('{
@@ -619,17 +878,17 @@ CORS is disabled by default. To enable CORS for browser-based clients, set the `
 
 ```sql
 -- Allow all origins
-SELECT mcp_server_start('http', 'localhost', 8080, '{"cors_origins": "*"}');
+PRAGMA mcp_server_start('http', 'localhost', 8080, '{"cors_origins": "*"}');
 
 -- Allow specific origins
-SELECT mcp_server_start('http', 'localhost', 8080, '{"cors_origins": "https://example.com, https://app.example.com"}');
+PRAGMA mcp_server_start('http', 'localhost', 8080, '{"cors_origins": "https://example.com, https://app.example.com"}');
 ```
 
 ### Example: Using curl
 
 ```bash
 # Start server
-duckdb -c "LOAD 'duckdb_mcp'; SELECT mcp_server_start('http', 'localhost', 8080, '{}');"
+duckdb -c "LOAD duckdb_mcp; SELECT mcp_server_start('http', 'localhost', 8080, '{}');"
 
 # Health check
 curl http://localhost:8080/health
@@ -672,7 +931,7 @@ curl -X POST http://localhost:8080/mcp \
 For production use, enable HTTPS with SSL certificates:
 
 ```sql
-SELECT mcp_server_start('https', '0.0.0.0', 8443, '{
+PRAGMA mcp_server_start('https', '0.0.0.0', 8443, '{
     "auth_token": "secure-token-here",
     "ssl_cert_path": "/etc/ssl/certs/server.crt",
     "ssl_key_path": "/etc/ssl/private/server.key"
