@@ -1,5 +1,6 @@
 #include "server/mcp_state_table_functions.hpp"
 #include "mcp_instance_state.hpp"
+#include "duckdb_compat.hpp"
 #include "duckdb/function/table_function.hpp"
 
 namespace duckdb {
@@ -49,15 +50,17 @@ static void MCPToolsScan(ClientContext &context, TableFunctionInput &data_p, Dat
 		output.SetValue(0, count, Value(entry.name));
 		output.SetValue(1, count, Value(entry.description));
 		output.SetValue(2, count, entry.sql_template.empty() ? Value(LogicalType::VARCHAR) : Value(entry.sql_template));
-		output.SetValue(3, count, entry.parameters_json.empty() ? Value(LogicalType::VARCHAR) : Value(entry.parameters_json));
-		output.SetValue(4, count, entry.required_json.empty() ? Value(LogicalType::VARCHAR) : Value(entry.required_json));
+		output.SetValue(3, count,
+		                entry.parameters_json.empty() ? Value(LogicalType::VARCHAR) : Value(entry.parameters_json));
+		output.SetValue(4, count,
+		                entry.required_json.empty() ? Value(LogicalType::VARCHAR) : Value(entry.required_json));
 		output.SetValue(5, count, entry.format.empty() ? Value(LogicalType::VARCHAR) : Value(entry.format));
 		output.SetValue(6, count, Value(entry.status));
 		output.SetValue(7, count, Value::BOOLEAN(entry.is_builtin));
 		count++;
 		data.offset++;
 	}
-	output.SetCardinality(count);
+	CompatSetOutputCardinality(output, count);
 }
 
 //===--------------------------------------------------------------------===//
@@ -110,7 +113,7 @@ static void MCPResourcesScan(ClientContext &context, TableFunctionInput &data_p,
 		count++;
 		data.offset++;
 	}
-	output.SetCardinality(count);
+	CompatSetOutputCardinality(output, count);
 }
 
 //===--------------------------------------------------------------------===//
@@ -187,7 +190,7 @@ static void MCPServerConfigScan(ClientContext &context, TableFunctionInput &data
 		count++;
 		data.offset++;
 	}
-	output.SetCardinality(count);
+	CompatSetOutputCardinality(output, count);
 }
 
 //===--------------------------------------------------------------------===//
