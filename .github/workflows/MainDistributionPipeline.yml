@@ -19,6 +19,12 @@ jobs:
       duckdb_version: main
       ci_tools_version: main
       extension_name: duckdb_mcp
+      # Same cp1252 reporter crash as the v1.5.3 stable job (see below) —
+      # duckdb's scripts/ci/run_tests.py emits U+274C ❌ on test-batch
+      # failure and Windows' default cp1252 stdout can't encode it,
+      # masking the actual test result. Excluded here too until upstream
+      # sets PYTHONIOENCODING / utf8_mode on the mingw runner.
+      exclude_archs: 'windows_amd64;windows_amd64_mingw'
 
   duckdb-stable-build:
     name: Build extension binaries
@@ -27,6 +33,17 @@ jobs:
       duckdb_version: v1.5.3
       ci_tools_version: v1.5.3
       extension_name: duckdb_mcp
+      # windows_amd64_mingw excluded on v1.5.3 stable: duckdb's
+      # scripts/ci/run_tests.py prints a U+274C ❌ glyph on test-batch failure,
+      # which Windows' default cp1252 stdout can't encode (UnicodeEncodeError),
+      # masking the underlying test result. Affects every extension migrating
+      # to v1.5.3 on this runner (see duckdb_urlpattern + duckdb_webbed
+      # exclude lists); revisit once upstream sets PYTHONIOENCODING /
+      # utf8_mode in the runner. windows_amd64 also excluded here because
+      # duckdb_mcp's transitively-included fmt headers force MSVC into a
+      # C++17-inline-variable path despite our PRIVATE /std:c++17 flag —
+      # tracking separately.
+      exclude_archs: 'windows_amd64;windows_amd64_mingw'
 
   integration-tests:
     name: Integration Tests

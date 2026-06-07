@@ -45,4 +45,20 @@ inline void CompatSetOutputCardinality(DataChunk &chunk, idx_t count) {
 
 #endif
 
+// --- Direct flat-vector writes (cross-version) ---
+// DuckDB main's FlatVector::GetData<T>(Vector&) and FlatVector::Validity(Vector&)
+// return const-qualified by default; new GetDataMutable<T> / ValidityMutable
+// overloads exist for writes. On v1.4.x/v1.5.x the returns are already non-const,
+// so the const_cast is a no-op there.
+//
+// See duckdb_markdown's docs/DUCKDB_API_MIGRATION.md §4 for the long-form rationale.
+template <typename T>
+inline T *CompatGetDataMutable(Vector &vec) {
+	return const_cast<T *>(FlatVector::GetData<T>(vec));
+}
+
+inline ValidityMask &CompatGetValidityMutable(Vector &vec) {
+	return const_cast<ValidityMask &>(FlatVector::Validity(vec));
+}
+
 } // namespace duckdb
