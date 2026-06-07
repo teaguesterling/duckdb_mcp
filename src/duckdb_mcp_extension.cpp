@@ -2061,28 +2061,34 @@ static void LoadInternal(ExtensionLoader &loader) {
 	// mcp_server_start(transport) - simplest form for stdio
 	auto server_start_simple_func =
 	    ScalarFunction("mcp_server_start", {LogicalType::VARCHAR}, mcp_status_type, MCPServerStartSimpleFunction);
+	PreventStructConstantFolding(server_start_simple_func);
 	loader.RegisterFunction(server_start_simple_func);
 
 	// mcp_server_start(transport, config_json) - with config for stdio
 	auto server_start_config_func = ScalarFunction("mcp_server_start", {LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                                               mcp_status_type, MCPServerStartConfigFunction);
+	PreventStructConstantFolding(server_start_config_func);
 	loader.RegisterFunction(server_start_config_func);
 
 	// mcp_server_start(transport, bind_address, port, config_json) - full form
 	auto server_start_func = ScalarFunction(
 	    "mcp_server_start", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::INTEGER, LogicalType::VARCHAR},
 	    mcp_status_type, MCPServerStartFunction);
+	PreventStructConstantFolding(server_start_func);
 	loader.RegisterFunction(server_start_func);
 
 	auto server_stop_func = ScalarFunction("mcp_server_stop", {}, mcp_status_type, MCPServerStopFunction);
+	PreventStructConstantFolding(server_stop_func);
 	loader.RegisterFunction(server_stop_func);
 
 	// mcp_server_stop(force) - with force option for test setup/teardown
 	auto server_stop_force_func =
 	    ScalarFunction("mcp_server_stop", {LogicalType::BOOLEAN}, mcp_status_type, MCPServerStopForceFunction);
+	PreventStructConstantFolding(server_stop_force_func);
 	loader.RegisterFunction(server_stop_force_func);
 
 	auto server_status_func = ScalarFunction("mcp_server_status", {}, mcp_status_type, MCPServerStatusFunction);
+	PreventStructConstantFolding(server_status_func);
 	loader.RegisterFunction(server_status_func);
 
 	// Register MCP server test function (for unit testing protocol handling)

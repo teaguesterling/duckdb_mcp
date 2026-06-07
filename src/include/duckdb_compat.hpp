@@ -42,6 +42,16 @@ inline void SetScalarFunctionNullHandling(ScalarFunction &func, FunctionNullHand
 	func.SetNullHandling(handling);
 }
 
+// --- Constant folding workaround (from duckdb_webbed PR #76) ---
+// DuckDB main's VectorStructBuffer::SetVectorType throws InternalException when
+// the optimizer constant-folds functions returning STRUCT-containing types
+// (LIST(STRUCT), STRUCT, MAP) due to child size mismatches. Marking them
+// VOLATILE skips constant folding. Semantically correct for mcp_server_*
+// functions anyway — they have side effects (start/stop server, status).
+inline void PreventStructConstantFolding(ScalarFunction &func) {
+	func.SetStability(FunctionStability::VOLATILE);
+}
+
 #else // Old API (v1.4.x / v1.5.x)
 
 inline void CompatSetOutputCardinality(DataChunk &chunk, idx_t count) {
@@ -50,6 +60,10 @@ inline void CompatSetOutputCardinality(DataChunk &chunk, idx_t count) {
 
 inline void SetScalarFunctionNullHandling(ScalarFunction &func, FunctionNullHandling handling) {
 	func.null_handling = handling;
+}
+
+// No-op on old API — constant folding works fine for complex types
+inline void PreventStructConstantFolding(ScalarFunction &) {
 }
 
 #endif
