@@ -2101,13 +2101,13 @@ static void LoadInternal(ExtensionLoader &loader) {
 	auto publish_table_func =
 	    ScalarFunction("mcp_publish_table", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                   LogicalType::VARCHAR, MCPPublishTableFunction);
-	publish_table_func.null_handling = FunctionNullHandling::SPECIAL_HANDLING;
+	SetScalarFunctionNullHandling(publish_table_func, FunctionNullHandling::SPECIAL_HANDLING);
 	loader.RegisterFunction(publish_table_func);
 
 	auto publish_query_func = ScalarFunction(
 	    "mcp_publish_query", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::INTEGER},
 	    LogicalType::VARCHAR, MCPPublishQueryFunction);
-	publish_query_func.null_handling = FunctionNullHandling::SPECIAL_HANDLING;
+	SetScalarFunctionNullHandling(publish_query_func, FunctionNullHandling::SPECIAL_HANDLING);
 	loader.RegisterFunction(publish_query_func);
 
 	// mcp_publish_resource(uri, content, mime_type, description)
@@ -2115,7 +2115,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	    ScalarFunction("mcp_publish_resource",
 	                   {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                   LogicalType::VARCHAR, MCPPublishResourceFunction);
-	publish_resource_func.null_handling = FunctionNullHandling::SPECIAL_HANDLING;
+	SetScalarFunctionNullHandling(publish_resource_func, FunctionNullHandling::SPECIAL_HANDLING);
 	loader.RegisterFunction(publish_resource_func);
 
 	// Register tool publishing functions
@@ -2124,7 +2124,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	    "mcp_publish_tool",
 	    {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
 	    LogicalType::VARCHAR, MCPPublishToolFunction);
-	publish_tool_func.null_handling = FunctionNullHandling::SPECIAL_HANDLING;
+	SetScalarFunctionNullHandling(publish_tool_func, FunctionNullHandling::SPECIAL_HANDLING);
 	loader.RegisterFunction(publish_tool_func);
 
 	// mcp_publish_tool(name, description, sql_template, properties_json, required_json, format)
@@ -2132,7 +2132,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                                               {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
 	                                                LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                                               LogicalType::VARCHAR, MCPPublishToolWithFormatFunction);
-	publish_tool_format_func.null_handling = FunctionNullHandling::SPECIAL_HANDLING;
+	SetScalarFunctionNullHandling(publish_tool_format_func, FunctionNullHandling::SPECIAL_HANDLING);
 	loader.RegisterFunction(publish_tool_format_func);
 
 	// Register execution tool publishing functions
@@ -2141,7 +2141,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                                             {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
 	                                              LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                                             LogicalType::VARCHAR, MCPPublishExecutionToolFunction);
-	publish_exec_tool_func.null_handling = FunctionNullHandling::SPECIAL_HANDLING;
+	SetScalarFunctionNullHandling(publish_exec_tool_func, FunctionNullHandling::SPECIAL_HANDLING);
 	loader.RegisterFunction(publish_exec_tool_func);
 
 	// mcp_publish_execution_tool(name, description, sql_template, properties_json, required_json, bindings_json,
@@ -2151,7 +2151,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                   {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
 	                    LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                   LogicalType::VARCHAR, MCPPublishExecutionToolWithFormatFunction);
-	publish_exec_tool_format_func.null_handling = FunctionNullHandling::SPECIAL_HANDLING;
+	SetScalarFunctionNullHandling(publish_exec_tool_format_func, FunctionNullHandling::SPECIAL_HANDLING);
 	loader.RegisterFunction(publish_exec_tool_format_func);
 
 	// Register MCP template functions

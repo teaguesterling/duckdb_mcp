@@ -37,10 +37,19 @@ inline void CompatSetOutputCardinality(DataChunk &chunk, idx_t count) {
 	chunk.SetChildCardinality(count);
 }
 
+// --- ScalarFunction property setters (fields are now private) ---
+inline void SetScalarFunctionNullHandling(ScalarFunction &func, FunctionNullHandling handling) {
+	func.SetNullHandling(handling);
+}
+
 #else // Old API (v1.4.x / v1.5.x)
 
 inline void CompatSetOutputCardinality(DataChunk &chunk, idx_t count) {
 	chunk.SetCardinality(count);
+}
+
+inline void SetScalarFunctionNullHandling(ScalarFunction &func, FunctionNullHandling handling) {
+	func.null_handling = handling;
 }
 
 #endif
