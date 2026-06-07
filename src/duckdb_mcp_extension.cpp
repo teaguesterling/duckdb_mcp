@@ -3,6 +3,7 @@
 #include "duckdb_mcp_config.hpp"
 #include "duckdb_mcp_security.hpp"
 #include "duckdb_mcp_logging.hpp"
+#include "duckdb_compat.hpp"
 #include "mcp_instance_state.hpp"
 #include "json_utils.hpp"
 #include "yyjson.hpp"
@@ -50,8 +51,8 @@ static void MCPGetResourceFunction(DataChunk &args, ExpressionState &state, Vect
 	auto &resource_vector = args.data[1];
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
-	auto result_data = FlatVector::GetData<string_t>(result);
-	auto &result_validity = FlatVector::Validity(result);
+	auto result_data = CompatGetDataMutable<string_t>(result);
+	auto &result_validity = CompatGetValidityMutable(result);
 	auto &registry = MCPInstanceState::Get(state.GetContext()).connection_registry;
 
 	for (idx_t i = 0; i < args.size(); i++) {
@@ -99,8 +100,8 @@ static void MCPListResourcesFunction(DataChunk &args, ExpressionState &state, Ve
 	auto &server_vector = args.data[0];
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
-	auto result_data = FlatVector::GetData<string_t>(result);
-	auto &result_validity = FlatVector::Validity(result);
+	auto result_data = CompatGetDataMutable<string_t>(result);
+	auto &result_validity = CompatGetValidityMutable(result);
 	auto &registry = MCPInstanceState::Get(state.GetContext()).connection_registry;
 
 	for (idx_t i = 0; i < args.size(); i++) {
@@ -148,8 +149,8 @@ static void MCPCallToolFunction(DataChunk &args, ExpressionState &state, Vector 
 	auto &params_vector = args.data[2];
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
-	auto result_data = FlatVector::GetData<string_t>(result);
-	auto &result_validity = FlatVector::Validity(result);
+	auto result_data = CompatGetDataMutable<string_t>(result);
+	auto &result_validity = CompatGetValidityMutable(result);
 	auto &registry = MCPInstanceState::Get(state.GetContext()).connection_registry;
 
 	for (idx_t i = 0; i < args.size(); i++) {
@@ -204,8 +205,8 @@ static void MCPListToolsFunction(DataChunk &args, ExpressionState &state, Vector
 	auto &server_vector = args.data[0];
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
-	auto result_data = FlatVector::GetData<string_t>(result);
-	auto &result_validity = FlatVector::Validity(result);
+	auto result_data = CompatGetDataMutable<string_t>(result);
+	auto &result_validity = CompatGetValidityMutable(result);
 	auto &registry = MCPInstanceState::Get(state.GetContext()).connection_registry;
 
 	for (idx_t i = 0; i < args.size(); i++) {
@@ -251,8 +252,8 @@ static void MCPListPromptsFunction(DataChunk &args, ExpressionState &state, Vect
 	auto &server_vector = args.data[0];
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
-	auto result_data = FlatVector::GetData<string_t>(result);
-	auto &result_validity = FlatVector::Validity(result);
+	auto result_data = CompatGetDataMutable<string_t>(result);
+	auto &result_validity = CompatGetValidityMutable(result);
 	auto &registry = MCPInstanceState::Get(state.GetContext()).connection_registry;
 
 	for (idx_t i = 0; i < args.size(); i++) {
@@ -300,8 +301,8 @@ static void MCPGetPromptFunction(DataChunk &args, ExpressionState &state, Vector
 	auto &params_vector = args.data[2];
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
-	auto result_data = FlatVector::GetData<string_t>(result);
-	auto &result_validity = FlatVector::Validity(result);
+	auto result_data = CompatGetDataMutable<string_t>(result);
+	auto &result_validity = CompatGetValidityMutable(result);
 	auto &registry = MCPInstanceState::Get(state.GetContext()).connection_registry;
 
 	for (idx_t i = 0; i < args.size(); i++) {
@@ -355,8 +356,8 @@ static void MCPReconnectServerFunction(DataChunk &args, ExpressionState &state, 
 	auto &server_vector = args.data[0];
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
-	auto result_data = FlatVector::GetData<string_t>(result);
-	auto &result_validity = FlatVector::Validity(result);
+	auto result_data = CompatGetDataMutable<string_t>(result);
+	auto &result_validity = CompatGetValidityMutable(result);
 	auto &registry = MCPInstanceState::Get(state.GetContext()).connection_registry;
 
 	for (idx_t i = 0; i < args.size(); i++) {
@@ -408,8 +409,8 @@ static void MCPServerHealthFunction(DataChunk &args, ExpressionState &state, Vec
 	auto &server_vector = args.data[0];
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
-	auto result_data = FlatVector::GetData<string_t>(result);
-	auto &result_validity = FlatVector::Validity(result);
+	auto result_data = CompatGetDataMutable<string_t>(result);
+	auto &result_validity = CompatGetValidityMutable(result);
 	auto &registry = MCPInstanceState::Get(state.GetContext()).connection_registry;
 
 	for (idx_t i = 0; i < args.size(); i++) {
@@ -904,7 +905,7 @@ static void MCPServerTestFunction(DataChunk &args, ExpressionState &state, Vecto
 	auto &request_vector = args.data[0];
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
-	auto result_data = FlatVector::GetData<string_t>(result);
+	auto result_data = CompatGetDataMutable<string_t>(result);
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		try {
@@ -957,7 +958,7 @@ static void MCPServerSendRequestFunction(DataChunk &args, ExpressionState &state
 	auto &request_vector = args.data[0];
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
-	auto result_data = FlatVector::GetData<string_t>(result);
+	auto result_data = CompatGetDataMutable<string_t>(result);
 	auto &server_manager = MCPInstanceState::Get(state.GetContext()).server_manager;
 
 	for (idx_t i = 0; i < args.size(); i++) {
@@ -1060,7 +1061,7 @@ static void MCPPublishTableFunction(DataChunk &args, ExpressionState &state, Vec
 	bool suppress = MCPInstanceState::Get(state.GetContext()).config.config_mode;
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
-	auto result_data = FlatVector::GetData<string_t>(result);
+	auto result_data = CompatGetDataMutable<string_t>(result);
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		try {
@@ -1122,7 +1123,7 @@ static void MCPPublishQueryFunction(DataChunk &args, ExpressionState &state, Vec
 	bool suppress = MCPInstanceState::Get(state.GetContext()).config.config_mode;
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
-	auto result_data = FlatVector::GetData<string_t>(result);
+	auto result_data = CompatGetDataMutable<string_t>(result);
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		try {
@@ -1179,7 +1180,7 @@ static void MCPPublishResourceFunction(DataChunk &args, ExpressionState &state, 
 	bool suppress = MCPInstanceState::Get(db).config.config_mode;
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
-	auto result_data = FlatVector::GetData<string_t>(result);
+	auto result_data = CompatGetDataMutable<string_t>(result);
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		try {
@@ -1248,7 +1249,7 @@ static void MCPPublishToolFunction(DataChunk &args, ExpressionState &state, Vect
 	bool suppress = MCPInstanceState::Get(state.GetContext()).config.config_mode;
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
-	auto result_data = FlatVector::GetData<string_t>(result);
+	auto result_data = CompatGetDataMutable<string_t>(result);
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		try {
@@ -1277,7 +1278,7 @@ static void MCPPublishToolWithFormatFunction(DataChunk &args, ExpressionState &s
 	bool suppress = MCPInstanceState::Get(state.GetContext()).config.config_mode;
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
-	auto result_data = FlatVector::GetData<string_t>(result);
+	auto result_data = CompatGetDataMutable<string_t>(result);
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		try {
@@ -1353,7 +1354,7 @@ static void MCPPublishExecutionToolFunction(DataChunk &args, ExpressionState &st
 	bool suppress = MCPInstanceState::Get(state.GetContext()).config.config_mode;
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
-	auto result_data = FlatVector::GetData<string_t>(result);
+	auto result_data = CompatGetDataMutable<string_t>(result);
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		try {
@@ -1384,7 +1385,7 @@ static void MCPPublishExecutionToolWithFormatFunction(DataChunk &args, Expressio
 	bool suppress = MCPInstanceState::Get(state.GetContext()).config.config_mode;
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
-	auto result_data = FlatVector::GetData<string_t>(result);
+	auto result_data = CompatGetDataMutable<string_t>(result);
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		try {
@@ -1407,8 +1408,8 @@ static void MCPPublishExecutionToolWithFormatFunction(DataChunk &args, Expressio
 // MCP diagnostics function
 static void MCPGetDiagnosticsFunction(DataChunk &args, ExpressionState &state, Vector &result) {
 	result.SetVectorType(VectorType::FLAT_VECTOR);
-	auto result_data = FlatVector::GetData<string_t>(result);
-	auto &result_validity = FlatVector::Validity(result);
+	auto result_data = CompatGetDataMutable<string_t>(result);
+	auto &result_validity = CompatGetValidityMutable(result);
 
 	try {
 		auto &logger = MCPLogger::GetInstance();
@@ -1527,7 +1528,7 @@ static void MCPListResourcesWithCursorFunction(DataChunk &args, ExpressionState 
 	auto &cursor_vector = args.data[1];
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
-	auto result_data = FlatVector::GetData<string_t>(result);
+	auto result_data = CompatGetDataMutable<string_t>(result);
 	auto &registry = MCPInstanceState::Get(state.GetContext()).connection_registry;
 
 	for (idx_t i = 0; i < args.size(); i++) {
@@ -1574,7 +1575,7 @@ static void MCPListToolsWithCursorFunction(DataChunk &args, ExpressionState &sta
 	auto &cursor_vector = args.data[1];
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
-	auto result_data = FlatVector::GetData<string_t>(result);
+	auto result_data = CompatGetDataMutable<string_t>(result);
 	auto &registry = MCPInstanceState::Get(state.GetContext()).connection_registry;
 
 	for (idx_t i = 0; i < args.size(); i++) {
@@ -1621,7 +1622,7 @@ static void MCPListPromptsWithCursorFunction(DataChunk &args, ExpressionState &s
 	auto &cursor_vector = args.data[1];
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
-	auto result_data = FlatVector::GetData<string_t>(result);
+	auto result_data = CompatGetDataMutable<string_t>(result);
 	auto &registry = MCPInstanceState::Get(state.GetContext()).connection_registry;
 
 	for (idx_t i = 0; i < args.size(); i++) {
@@ -1683,8 +1684,8 @@ static void MCPRegisterPromptTemplateFunction(DataChunk &args, ExpressionState &
 	bool suppress = MCPInstanceState::Get(db).config.config_mode;
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
-	auto result_data = FlatVector::GetData<string_t>(result);
-	auto &result_validity = FlatVector::Validity(result);
+	auto result_data = CompatGetDataMutable<string_t>(result);
+	auto &result_validity = CompatGetValidityMutable(result);
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		if (name_vector.GetValue(i).IsNull() || description_vector.GetValue(i).IsNull() ||
@@ -1706,8 +1707,8 @@ static void MCPRegisterPromptTemplateFunction(DataChunk &args, ExpressionState &
 
 static void MCPListPromptTemplatesFunction(DataChunk &args, ExpressionState &state, Vector &result) {
 	result.SetVectorType(VectorType::FLAT_VECTOR);
-	auto result_data = FlatVector::GetData<string_t>(result);
-	auto &result_validity = FlatVector::Validity(result);
+	auto result_data = CompatGetDataMutable<string_t>(result);
+	auto &result_validity = CompatGetValidityMutable(result);
 
 	try {
 		auto &manager = MCPInstanceState::Get(state.GetContext()).template_manager;
@@ -1753,8 +1754,8 @@ static void MCPRenderPromptTemplateFunction(DataChunk &args, ExpressionState &st
 	auto &args_vector = args.data[1];
 
 	result.SetVectorType(VectorType::FLAT_VECTOR);
-	auto result_data = FlatVector::GetData<string_t>(result);
-	auto &result_validity = FlatVector::Validity(result);
+	auto result_data = CompatGetDataMutable<string_t>(result);
+	auto &result_validity = CompatGetValidityMutable(result);
 	auto &template_manager = MCPInstanceState::Get(state.GetContext()).template_manager;
 
 	for (idx_t i = 0; i < args.size(); i++) {
@@ -1803,7 +1804,7 @@ static void MCPRenderPromptTemplateFunction(DataChunk &args, ExpressionState &st
 // Call after publishing new tools/resources to update the browser
 static void MCPWebMCPSyncFunction(DataChunk &args, ExpressionState &state, Vector &result) {
 	result.SetVectorType(VectorType::FLAT_VECTOR);
-	auto result_data = FlatVector::GetData<string_t>(result);
+	auto result_data = CompatGetDataMutable<string_t>(result);
 	auto &server_manager = MCPInstanceState::Get(state.GetContext()).server_manager;
 
 	for (idx_t i = 0; i < args.size(); i++) {
@@ -1834,7 +1835,7 @@ static void MCPWebMCPSyncFunction(DataChunk &args, ExpressionState &state, Vecto
 // Requires webmcp_client.js interceptor to be loaded
 static void WebMCPListPageToolsFunction(DataChunk &args, ExpressionState &state, Vector &result) {
 	result.SetVectorType(VectorType::FLAT_VECTOR);
-	auto result_data = FlatVector::GetData<string_t>(result);
+	auto result_data = CompatGetDataMutable<string_t>(result);
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		try {
@@ -2060,28 +2061,34 @@ static void LoadInternal(ExtensionLoader &loader) {
 	// mcp_server_start(transport) - simplest form for stdio
 	auto server_start_simple_func =
 	    ScalarFunction("mcp_server_start", {LogicalType::VARCHAR}, mcp_status_type, MCPServerStartSimpleFunction);
+	PreventStructConstantFolding(server_start_simple_func);
 	loader.RegisterFunction(server_start_simple_func);
 
 	// mcp_server_start(transport, config_json) - with config for stdio
 	auto server_start_config_func = ScalarFunction("mcp_server_start", {LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                                               mcp_status_type, MCPServerStartConfigFunction);
+	PreventStructConstantFolding(server_start_config_func);
 	loader.RegisterFunction(server_start_config_func);
 
 	// mcp_server_start(transport, bind_address, port, config_json) - full form
 	auto server_start_func = ScalarFunction(
 	    "mcp_server_start", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::INTEGER, LogicalType::VARCHAR},
 	    mcp_status_type, MCPServerStartFunction);
+	PreventStructConstantFolding(server_start_func);
 	loader.RegisterFunction(server_start_func);
 
 	auto server_stop_func = ScalarFunction("mcp_server_stop", {}, mcp_status_type, MCPServerStopFunction);
+	PreventStructConstantFolding(server_stop_func);
 	loader.RegisterFunction(server_stop_func);
 
 	// mcp_server_stop(force) - with force option for test setup/teardown
 	auto server_stop_force_func =
 	    ScalarFunction("mcp_server_stop", {LogicalType::BOOLEAN}, mcp_status_type, MCPServerStopForceFunction);
+	PreventStructConstantFolding(server_stop_force_func);
 	loader.RegisterFunction(server_stop_force_func);
 
 	auto server_status_func = ScalarFunction("mcp_server_status", {}, mcp_status_type, MCPServerStatusFunction);
+	PreventStructConstantFolding(server_status_func);
 	loader.RegisterFunction(server_status_func);
 
 	// Register MCP server test function (for unit testing protocol handling)
@@ -2100,13 +2107,13 @@ static void LoadInternal(ExtensionLoader &loader) {
 	auto publish_table_func =
 	    ScalarFunction("mcp_publish_table", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                   LogicalType::VARCHAR, MCPPublishTableFunction);
-	publish_table_func.null_handling = FunctionNullHandling::SPECIAL_HANDLING;
+	SetScalarFunctionNullHandling(publish_table_func, FunctionNullHandling::SPECIAL_HANDLING);
 	loader.RegisterFunction(publish_table_func);
 
 	auto publish_query_func = ScalarFunction(
 	    "mcp_publish_query", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::INTEGER},
 	    LogicalType::VARCHAR, MCPPublishQueryFunction);
-	publish_query_func.null_handling = FunctionNullHandling::SPECIAL_HANDLING;
+	SetScalarFunctionNullHandling(publish_query_func, FunctionNullHandling::SPECIAL_HANDLING);
 	loader.RegisterFunction(publish_query_func);
 
 	// mcp_publish_resource(uri, content, mime_type, description)
@@ -2114,7 +2121,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	    ScalarFunction("mcp_publish_resource",
 	                   {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                   LogicalType::VARCHAR, MCPPublishResourceFunction);
-	publish_resource_func.null_handling = FunctionNullHandling::SPECIAL_HANDLING;
+	SetScalarFunctionNullHandling(publish_resource_func, FunctionNullHandling::SPECIAL_HANDLING);
 	loader.RegisterFunction(publish_resource_func);
 
 	// Register tool publishing functions
@@ -2123,7 +2130,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	    "mcp_publish_tool",
 	    {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
 	    LogicalType::VARCHAR, MCPPublishToolFunction);
-	publish_tool_func.null_handling = FunctionNullHandling::SPECIAL_HANDLING;
+	SetScalarFunctionNullHandling(publish_tool_func, FunctionNullHandling::SPECIAL_HANDLING);
 	loader.RegisterFunction(publish_tool_func);
 
 	// mcp_publish_tool(name, description, sql_template, properties_json, required_json, format)
@@ -2131,7 +2138,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                                               {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
 	                                                LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                                               LogicalType::VARCHAR, MCPPublishToolWithFormatFunction);
-	publish_tool_format_func.null_handling = FunctionNullHandling::SPECIAL_HANDLING;
+	SetScalarFunctionNullHandling(publish_tool_format_func, FunctionNullHandling::SPECIAL_HANDLING);
 	loader.RegisterFunction(publish_tool_format_func);
 
 	// Register execution tool publishing functions
@@ -2140,7 +2147,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                                             {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
 	                                              LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                                             LogicalType::VARCHAR, MCPPublishExecutionToolFunction);
-	publish_exec_tool_func.null_handling = FunctionNullHandling::SPECIAL_HANDLING;
+	SetScalarFunctionNullHandling(publish_exec_tool_func, FunctionNullHandling::SPECIAL_HANDLING);
 	loader.RegisterFunction(publish_exec_tool_func);
 
 	// mcp_publish_execution_tool(name, description, sql_template, properties_json, required_json, bindings_json,
@@ -2150,7 +2157,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                   {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
 	                    LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                   LogicalType::VARCHAR, MCPPublishExecutionToolWithFormatFunction);
-	publish_exec_tool_format_func.null_handling = FunctionNullHandling::SPECIAL_HANDLING;
+	SetScalarFunctionNullHandling(publish_exec_tool_format_func, FunctionNullHandling::SPECIAL_HANDLING);
 	loader.RegisterFunction(publish_exec_tool_format_func);
 
 	// Register MCP template functions
