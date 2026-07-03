@@ -29,6 +29,10 @@ public:
 	//! Disable MCP server functionality entirely (client-only mode)
 	void SetServingDisabled(bool disabled);
 
+	//! Enable/disable the permissive escape hatch (opt-in). Default OFF: with no
+	//! command allowlist configured, spawning is DENY-ALL (fail-closed).
+	void SetAllowPermissive(bool value);
+
 	//! Check if a command path is allowed
 	bool IsCommandAllowed(const string &command_path) const;
 
@@ -69,7 +73,8 @@ public:
 
 private:
 	MCPSecurityConfig()
-	    : servers_locked(false), commands_locked(false), serving_disabled(false), server_file("./.mcp.json") {
+	    : servers_locked(false), commands_locked(false), serving_disabled(false), allow_permissive(false),
+	      server_file("./.mcp.json") {
 	}
 
 	mutable mutex config_mutex;
@@ -79,6 +84,9 @@ private:
 	bool servers_locked;
 	bool commands_locked;
 	bool serving_disabled;
+	//! Opt-in escape hatch. When false (default), an empty allowlist is DENY-ALL,
+	//! not "allow everything". Enabled only via SET mcp_allow_all_commands=true.
+	bool allow_permissive;
 
 	//! Parse colon or space delimited string into vector
 	vector<string> ParseDelimitedString(const string &input, char delimiter) const;

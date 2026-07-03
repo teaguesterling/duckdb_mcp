@@ -1,0 +1,116 @@
+# name: test/sql/mcp_query_tool_file_read.test
+# description: The "read-only" query/export/describe tools must not read arbitrary local files
+# group: [sql]
+
+# Reproduce-first regression test for the "read-only query tool = arbitrary file
+# read" gap. A SELECT is "read-only" by statement type but can still call
+# file-reaching table functions (read_text/read_csv/read_blob/glob/...), which
+# exfiltrates local files to an MCP peer.
+#
+# SAFE fixture: the privileged outer connection writes a LOCAL temp file
+# (__TEST_DIR__) containing a distinctive canary. We then drive the query tool
+# with a SELECT over read_text() of that temp file. No real system path and no
+# network are ever touched.
+
+require duckdb_mcp
+
+require notwindows
+
+statement ok
+LOAD duckdb_mcp;
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# Create a local canary file via the privileged outer connection.
+statement ok
+COPY (SELECT 'SECRET-CANARY-9f3a2b7c' AS x) TO '__TEST_DIR__/mcp_canary_file.txt' (FORMAT csv, HEADER false);
+
+# A harmless in-memory table for the positive control.
+statement ok
+CREATE TABLE fileread_ok AS SELECT 1 AS id, 'legit_data' AS value;
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# =============================================================================
+# CORE: query tool must NOT leak the canary via read_text().
+# =============================================================================
+# Pre-fix: the file content (canary) is returned in the tool response
+#          -> NOT LIKE '%SECRET-CANARY%' is FALSE (RED).
+# Post-fix: the file-reaching function is denied
+#          -> response has no canary -> NOT LIKE is TRUE (GREEN).
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM read_text(''__TEST_DIR__/mcp_canary_file.txt'')"}}}') NOT LIKE '%SECRET-CANARY%';
+----
+true
+
+# read_blob is another file-reaching path and must also be blocked.
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM read_blob(''__TEST_DIR__/mcp_canary_file.txt'')"}}}') NOT LIKE '%SECRET-CANARY%';
+----
+true
+
+# read_csv path must also be blocked.
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM read_csv(''__TEST_DIR__/mcp_canary_file.txt'')"}}}') NOT LIKE '%SECRET-CANARY%';
+----
+true
+
+# glob discloses filesystem layout and must be blocked.
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM glob(''__TEST_DIR__/*'')"}}}') LIKE '%disallowed%';
+----
+true
+
+# =============================================================================
+# POSITIVE CONTROL: a normal SELECT over an in-memory table still works.
+# =============================================================================
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM fileread_ok"}}}') LIKE '%legit_data%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# EXPORT tool must also refuse file-reaching functions.
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory');
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT * FROM read_text(''__TEST_DIR__/mcp_canary_file.txt'')","format":"csv"}}}') NOT LIKE '%SECRET-CANARY%';
+----
+true
+
+# Normal export still works.
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT * FROM fileread_ok","format":"csv"}}}') LIKE '%legit_data%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# DESCRIBE tool must also refuse file-reaching functions.
+# =============================================================================
+
+statement ok
+SELECT mcp_server_start('memory');
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"describe","arguments":{"query":"SELECT * FROM read_text(''__TEST_DIR__/mcp_canary_file.txt'')"}}}') LIKE '%disallowed%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
+
+statement ok
+DROP TABLE IF EXISTS fileread_ok;

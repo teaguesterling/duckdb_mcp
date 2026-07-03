@@ -116,11 +116,23 @@ These DuckDB settings control MCP extension behavior:
 
 | Setting | Description | Default |
 |---------|-------------|---------|
-| `allowed_mcp_commands` | Allowlist of executable commands | Empty (permissive) |
-| `allowed_mcp_urls` | Allowlist of permitted URLs | Empty (permissive) |
+| `allowed_mcp_commands` | Allowlist of executable commands | Empty (**deny-all** — set to allow spawning) |
+| `mcp_allow_all_commands` | INSECURE opt-in: allow ANY command when no allowlist is set | `false` |
+| `allowed_mcp_urls` | Allowlist of permitted URL prefixes (**not currently enforced**, see note) | Empty |
 | `mcp_server_file` | Path to MCP server configuration file | Empty |
 | `mcp_lock_servers` | Prevent runtime server changes | `false` |
 | `mcp_disable_serving` | Disable server functionality (client-only) | `false` |
+
+> **Note on `allowed_mcp_commands`:** command spawning is **fail-closed by default**.
+> With no allowlist configured, `ATTACH ... (TYPE mcp, COMMAND ...)` is refused. Set
+> `allowed_mcp_commands` to the exact executable paths you trust. `mcp_allow_all_commands=true`
+> restores the old permissive behavior (spawn anything) and is intended only for trusted,
+> non-networked local use — it emits a security warning on every spawn.
+>
+> **Note on `allowed_mcp_urls`:** this setting is currently **not enforced**. The client
+> attach path only supports the `stdio` transport today (no outbound HTTP client is
+> constructed), so URL allowlisting has no reachable code path. Do not rely on it as a
+> security control until it is wired into an outbound transport.
 
 **Example: Production security settings**
 

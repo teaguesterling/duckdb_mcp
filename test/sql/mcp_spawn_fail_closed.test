@@ -1,0 +1,52 @@
+# name: test/sql/mcp_spawn_fail_closed.test
+# description: Command spawning must be deny-by-default (fail-closed) on a fresh load
+# group: [sql]
+
+# Reproduce-first regression test for the fail-open command-spawn gap.
+# On a fresh load with NO allowed_mcp_commands configured, an ATTACH that would
+# spawn a process must be REFUSED by the security policy (not merely fail at the
+# connection step). We use a benign, non-existent command so no process is ever
+# spawned and nothing network/destructive can run.
+
+require duckdb_mcp
+
+require notwindows
+
+statement ok
+LOAD duckdb_mcp;
+
+# =============================================================================
+# DENY-BY-DEFAULT: fresh load, no allowed_mcp_commands set.
+# =============================================================================
+# The ATTACH must be rejected by the command allowlist BEFORE any spawn attempt.
+# Pre-fix (permissive default) this instead reaches the connect path and fails
+# with a "Failed to connect" style error -> assertion mismatch (RED).
+# Post-fix the policy refuses it with "No MCP commands are allowed" (GREEN).
+
+statement error
+ATTACH '' AS spawn_denied (TYPE mcp, COMMAND 'nonexistent_mcp_binary', TRANSPORT 'stdio');
+----
+No MCP commands are allowed
+
+# =============================================================================
+# PERMIT AFTER EXPLICIT ALLOWLIST (regression guard: must not over-block).
+# =============================================================================
+# Once the host explicitly allow-lists the command, the policy must let it
+# through to the connection step. The command still does not exist, so it fails
+# at connect ("Failed to connect ...") rather than at the policy gate. This
+# proves an allow-listed command is permitted by the policy.
+# NOTE: this SET locks the command list, so it must come AFTER the deny check.
+
+statement ok
+SET allowed_mcp_commands='nonexistent_mcp_binary';
+
+statement error
+ATTACH '' AS spawn_allowed (TYPE mcp, COMMAND 'nonexistent_mcp_binary', TRANSPORT 'stdio');
+----
+Failed to
+
+# A command NOT on the allowlist is still rejected by policy.
+statement error
+ATTACH '' AS spawn_other (TYPE mcp, COMMAND 'some_other_binary', TRANSPORT 'stdio');
+----
+not allowed

@@ -1,0 +1,42 @@
+# name: test/sql/mcp_bind_guard.test
+# description: Refuse an unauthenticated non-loopback HTTP bind (fail-closed)
+# group: [sql]
+
+# The guard returns BEFORE any socket is bound, so this test never opens a
+# public socket in CI. It only asserts that the refusal happens.
+
+require duckdb_mcp
+
+require notwindows
+
+statement ok
+LOAD duckdb_mcp;
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# Non-loopback bind with no auth_token must be refused (no socket bound).
+query I
+SELECT (mcp_server_start('http', '0.0.0.0', 9877, '{}')).success;
+----
+false
+
+query I
+SELECT (mcp_server_start('http', '0.0.0.0', 9877, '{}')).message LIKE '%Refusing%';
+----
+true
+
+# https is likewise refused on a non-loopback bind with no auth.
+query I
+SELECT (mcp_server_start('https', '0.0.0.0', 9878, '{}')).success;
+----
+false
+
+# A non-loopback numeric address is also refused.
+query I
+SELECT (mcp_server_start('http', '192.0.2.10', 9879, '{}')).success;
+----
+false
+
+statement ok
+SELECT mcp_server_stop(true);
