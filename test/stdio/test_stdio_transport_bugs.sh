@@ -78,6 +78,7 @@ echo -e "${YELLOW}CR-21: Fast-failing server detection${NC}"
 # Before fix: 100ms fixed sleep regardless. After fix: polling detects early exit.
 RESULT=$(echo "
 LOAD '${EXTENSION}';
+SET allowed_mcp_commands='${SCRIPT_DIR}/mock_fast_exit.sh';
 ATTACH '' AS fast_exit_test (TYPE mcp, COMMAND '${SCRIPT_DIR}/mock_fast_exit.sh', TRANSPORT 'stdio');
 " | timeout 10 "$DUCKDB" -unsigned 2>&1 || true)
 
@@ -90,6 +91,7 @@ fi
 # Test: ATTACH to a nonexistent binary should fail
 RESULT=$(echo "
 LOAD '${EXTENSION}';
+SET allowed_mcp_commands='/nonexistent/binary/path';
 ATTACH '' AS nonexist_test (TYPE mcp, COMMAND '/nonexistent/binary/path', TRANSPORT 'stdio');
 " | timeout 10 "$DUCKDB" -unsigned 2>&1 || true)
 
@@ -112,6 +114,7 @@ set +e
 timeout 15 bash -c "
 echo \"
 LOAD '${EXTENSION}';
+SET allowed_mcp_commands='${SCRIPT_DIR}/mock_echo_server.sh';
 ATTACH '' AS pid_test (TYPE mcp, COMMAND '${SCRIPT_DIR}/mock_echo_server.sh', TRANSPORT 'stdio');
 DETACH pid_test;
 \" | '${DUCKDB}' -unsigned 2>&1
@@ -135,6 +138,7 @@ CANARY_PID=$!
 
 echo "
 LOAD '${EXTENSION}';
+SET allowed_mcp_commands='${SCRIPT_DIR}/mock_echo_server.sh';
 ATTACH '' AS canary_test (TYPE mcp, COMMAND '${SCRIPT_DIR}/mock_echo_server.sh', TRANSPORT 'stdio');
 DETACH canary_test;
 " | timeout 15 "$DUCKDB" -unsigned 2>&1 > /dev/null || true
@@ -186,6 +190,7 @@ chmod +x /tmp/mock_slow_mcp_$$.sh
 
 RESULT=$(echo "
 LOAD '${EXTENSION}';
+SET allowed_mcp_commands='/tmp/mock_slow_mcp_$$.sh';
 ATTACH '' AS slow_json_test (TYPE mcp, COMMAND '/tmp/mock_slow_mcp_$$.sh', TRANSPORT 'stdio');
 SELECT 'attach_ok' AS status;
 DETACH slow_json_test;
@@ -207,6 +212,7 @@ rm -f "/tmp/mock_slow_mcp_$$.sh"
 # Test: Verify the basic echo server works (baseline for chunked test)
 RESULT=$(echo "
 LOAD '${EXTENSION}';
+SET allowed_mcp_commands='${SCRIPT_DIR}/mock_echo_server.sh';
 ATTACH '' AS echo_test (TYPE mcp, COMMAND '${SCRIPT_DIR}/mock_echo_server.sh', TRANSPORT 'stdio');
 SELECT 'echo_ok' AS status;
 DETACH echo_test;

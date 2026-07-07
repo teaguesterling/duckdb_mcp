@@ -725,6 +725,22 @@ static Value MCPServerStartCore(ClientContext &context, const string &transport,
 				}
 			}
 		} else if (transport == "http" || transport == "https") {
+			// Fail-closed: refuse to expose the tool surface on a non-loopback interface
+			// unless an auth token is configured. This prevents an accidental
+			// bind_address='0.0.0.0' from serving the tool surface to the network with
+			// no authentication. Loopback binds (localhost/127.x/::1) remain allowed.
+			{
+				string addr = StringUtil::Lower(bind_address);
+				bool is_loopback = (addr == "localhost" || addr == "127.0.0.1" || addr == "::1" ||
+				                    addr == "[::1]" || StringUtil::StartsWith(addr, "127."));
+				if (!is_loopback && server_config.auth_token.empty()) {
+					return CreateMCPStatus(false, false,
+					                       "Refusing to start MCP server: bind_address '" + bind_address +
+					                           "' is not loopback and no auth_token is set. Set an auth_token (and "
+					                           "require_auth) or bind to localhost.",
+					                       transport, bind_address, port, false);
+				}
+			}
 			// HTTP/HTTPS transport
 			if (server_config.background) {
 				// Background mode: use server manager (non-blocking, starts thread)
@@ -1468,6 +1484,10 @@ static void MCPGetDiagnosticsFunction(DataChunk &args, ExpressionState &state, V
 static void SetAllowedMCPCommands(ClientContext &context, SetScope scope, Value &parameter) {
 	MCPInstanceState::Get(context).security.SetAllowedCommands(parameter.ToString());
 }
+
+static void SetMCPAllowAllCommands(ClientContext &context, SetScope scope, Value &parameter) {
+	MCPInstanceState::Get(context).security.SetAllowPermissive(parameter.GetValue<bool>());
+}
 #endif
 
 static void SetMCPLogLevel(ClientContext &context, SetScope scope, Value &parameter) {
@@ -1979,6 +1999,12 @@ static void LoadInternal(ExtensionLoader &loader) {
 
 	config.AddExtensionOption("allowed_mcp_urls", "Space-delimited list of URL prefixes allowed for MCP servers",
 	                          LogicalType::VARCHAR, Value(""), SetAllowedMCPUrls);
+
+	config.AddExtensionOption(
+	    "mcp_allow_all_commands",
+	    "INSECURE opt-in: when true, allow spawning ANY command if no allowed_mcp_commands allowlist is "
+	    "set. Default false = deny-all (fail-closed). Prefer setting allowed_mcp_commands instead.",
+	    LogicalType::BOOLEAN, Value(false), SetMCPAllowAllCommands);
 
 	config.AddExtensionOption("mcp_server_file", "Path to MCP server configuration file", LogicalType::VARCHAR,
 	                          Value("./.mcp.json"), SetMCPServerFile);

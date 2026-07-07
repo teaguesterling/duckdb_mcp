@@ -197,7 +197,12 @@ ATTACH '/usr/bin/python3' AS server (TYPE mcp, ARGS '["server.py"]');
 
 ### URL Allowlists
 
-Restrict which URLs can be accessed:
+> **Not currently enforced.** `allowed_mcp_urls` is parsed and stored, but there is no
+> reachable outbound-HTTP client path today (client `ATTACH` supports only the `stdio`
+> transport), so this setting does **not** currently restrict anything. Do not rely on it
+> as a security control until an outbound transport wires it in.
+
+Intended usage (once enforced) — restrict which URLs can be accessed:
 
 ```sql
 -- Only allow specific domains
@@ -379,8 +384,8 @@ High error rates may indicate:
 
 ### For MCP Clients
 
-- [ ] Use `allowed_mcp_commands` in production
-- [ ] Use `allowed_mcp_urls` to restrict access
+- [ ] Set `allowed_mcp_commands` (spawning is deny-all by default; do NOT set `mcp_allow_all_commands=true` in production)
+- [ ] Do not expose the query/export tools' file-access surface; keep the default file-function denylist in place
 - [ ] Lock server configuration after setup
 - [ ] Don't hardcode secrets in SQL
 - [ ] Review server code before trusting

@@ -5,6 +5,7 @@
 #endif
 #include <iomanip>
 #include <sstream>
+#include <cstdlib>
 
 namespace duckdb {
 
@@ -145,10 +146,19 @@ void MCPLogger::LogProtocolMessage(bool outgoing, const string &server, const st
 	string direction = outgoing ? "SEND" : "RECV";
 	string component = StringUtil::Format("MCP-PROTOCOL[%s]", server);
 
-	// Truncate very long JSON messages for readability
-	string display_json = json;
-	if (display_json.length() > 500) {
-		display_json = display_json.substr(0, 497) + "...";
+	// Redact message bodies by default: MCP params can carry auth tokens/secrets,
+	// and logging them verbatim leaks them into log files. Opt in to raw bodies
+	// with the DUCKDB_MCP_LOG_UNSAFE_BODIES=1 environment variable.
+	string display_json;
+	const char *unsafe = std::getenv("DUCKDB_MCP_LOG_UNSAFE_BODIES");
+	if (unsafe && string(unsafe) == "1") {
+		display_json = json;
+		if (display_json.length() > 500) {
+			display_json = display_json.substr(0, 497) + "...";
+		}
+	} else {
+		display_json = StringUtil::Format("<redacted %llu-byte body; set DUCKDB_MCP_LOG_UNSAFE_BODIES=1 to log>",
+		                                  static_cast<unsigned long long>(json.length()));
 	}
 
 	string message = StringUtil::Format("%s: %s", direction, display_json);

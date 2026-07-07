@@ -78,6 +78,43 @@ bool IsReadOnlyStatementType(StatementType type) {
 	}
 }
 
+// A "read-only" SELECT is still allowed to call file-reaching table functions
+// (read_text/read_csv/read_blob/glob/...), which would turn the query/export/
+// describe tools into an arbitrary local-file read for the connected MCP peer.
+// Deny these functions so "read-only" does not mean "read any file". This is a
+// best-effort textual guard: it matches known file-access table functions called
+// with parentheses. It does not attempt to defeat operator-defined macros that
+// wrap a reader, nor DuckDB replacement scans (SELECT * FROM 'file.parquet');
+// those are documented residual risks.
+static bool ReferencesFileAccessFunction(const string &sql, string &matched_out) {
+	static const char *const kDeniedFns[] = {
+	    "read_text",        "read_blob",     "read_csv",        "read_csv_auto", "read_json",
+	    "read_json_auto",   "read_json_objects", "read_ndjson",  "read_ndjson_auto", "read_parquet",
+	    "parquet_scan",     "read_xlsx",     "read_arrow",      "sniff_csv",     "glob"};
+	string lower = StringUtil::Lower(sql);
+	for (const char *fn : kDeniedFns) {
+		string needle(fn);
+		size_t pos = 0;
+		while ((pos = lower.find(needle, pos)) != string::npos) {
+			// Whole-identifier match: the char before must not be an identifier char.
+			bool left_ok =
+			    (pos == 0) || !(isalnum(static_cast<unsigned char>(lower[pos - 1])) || lower[pos - 1] == '_');
+			// It must be a call: the next non-space char must be '('.
+			size_t after = pos + needle.size();
+			while (after < lower.size() && isspace(static_cast<unsigned char>(lower[after]))) {
+				after++;
+			}
+			bool right_ok = (after < lower.size() && lower[after] == '(');
+			if (left_ok && right_ok) {
+				matched_out = needle;
+				return true;
+			}
+			pos += needle.size();
+		}
+	}
+	return false;
+}
+
 //===--------------------------------------------------------------------===//
 // ToolInputSchema Implementation
 //===--------------------------------------------------------------------===//
@@ -231,6 +268,15 @@ CallToolResult QueryToolHandler::Execute(const Value &arguments) {
 			                             "). Use the execute tool for DDL/DML operations.");
 		}
 
+		// Deny file-reaching functions: a "read-only" SELECT must not read local files.
+		{
+			string matched_fn;
+			if (ReferencesFileAccessFunction(sql, matched_fn)) {
+				return CallToolResult::Error("Query references a disallowed file-access function ('" + matched_fn +
+				                             "'). Local file/filesystem access is not permitted via this tool.");
+			}
+		}
+
 		// Additional security check: validate against allowlist/denylist
 		if (!IsQueryAllowedByType(stmt_type, allowed_queries, denied_queries)) {
 			return CallToolResult::Error("Query not allowed by security policy");
@@ -372,6 +418,15 @@ Value DescribeToolHandler::DescribeQuery(const string &query) const {
 		                            "). Use the execute tool for DDL/DML operations.");
 	}
 
+	// Deny file-reaching functions: describe must not read local files either.
+	{
+		string matched_fn;
+		if (ReferencesFileAccessFunction(query, matched_fn)) {
+			throw InvalidInputException("Query references a disallowed file-access function ('" + matched_fn +
+			                            "'). Local file/filesystem access is not permitted via this tool.");
+		}
+	}
+
 	// Additional security check: validate against allowlist/denylist
 	if (!IsQueryAllowedByType(stmt_type, allowed_queries, denied_queries)) {
 		throw InvalidInputException("Query not allowed by security policy");
@@ -479,6 +534,15 @@ CallToolResult ExportToolHandler::Execute(const Value &arguments) {
 			string type_name = StatementTypeToString(stmt_type);
 			return CallToolResult::Error("Export tool only allows read-only statements (got " + type_name +
 			                             "). Use the execute tool for DDL/DML operations.");
+		}
+
+		// Deny file-reaching functions: export must not read local files.
+		{
+			string matched_fn;
+			if (ReferencesFileAccessFunction(query, matched_fn)) {
+				return CallToolResult::Error("Query references a disallowed file-access function ('" + matched_fn +
+				                             "'). Local file/filesystem access is not permitted via this tool.");
+			}
 		}
 
 		if (!IsQueryAllowedByType(stmt_type, allowed_queries, denied_queries)) {

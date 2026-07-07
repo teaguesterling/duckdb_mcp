@@ -13,6 +13,7 @@
 #include <fstream>
 #include <sstream>
 #endif
+#include <cstdio>
 #ifndef _WIN32
 #include <climits>
 #include <cstdlib>
@@ -62,6 +63,11 @@ void MCPSecurityConfig::LockServers(bool lock) {
 void MCPSecurityConfig::SetServingDisabled(bool disabled) {
 	lock_guard<mutex> guard(config_mutex);
 	serving_disabled = disabled;
+}
+
+void MCPSecurityConfig::SetAllowPermissive(bool value) {
+	lock_guard<mutex> guard(config_mutex);
+	allow_permissive = value;
 }
 
 bool MCPSecurityConfig::IsCommandAllowed(const string &command_path) const {
@@ -141,9 +147,11 @@ bool MCPSecurityConfig::IsPermissiveMode() const {
 }
 
 bool MCPSecurityConfig::IsPermissiveModeInternal() const {
-	// Permissive mode is when NO security settings have been configured
-	// (both commands and URLs are empty, and commands haven't been locked)
-	return allowed_commands.empty() && allowed_urls.empty() && !commands_locked;
+	// Fail-closed by default. Permissive mode (allow any command when no allowlist
+	// is configured) is OFF unless the host explicitly opts in via
+	// `SET mcp_allow_all_commands=true`. Without that opt-in an unset
+	// allowed_mcp_commands means DENY-ALL, not "allow everything".
+	return allow_permissive && allowed_commands.empty() && allowed_urls.empty() && !commands_locked;
 }
 
 void MCPSecurityConfig::ValidateAttachSecurity(const string &command, const vector<string> &args) const {
@@ -154,6 +162,13 @@ void MCPSecurityConfig::ValidateAttachSecurity(const string &command, const vect
 
 	// If we're in permissive mode, skip security validation but still do basic safety checks
 	if (IsPermissiveModeInternal()) {
+		// LOUD WARNING: permissive mode spawns arbitrary processes from SQL with no
+		// command allowlist. This is opt-in (mcp_allow_all_commands=true); make it noisy.
+		fprintf(stderr,
+		        "[duckdb_mcp][SECURITY WARNING] Spawning MCP command '%s' in PERMISSIVE mode "
+		        "(mcp_allow_all_commands=true): no command allowlist is enforced. Set "
+		        "allowed_mcp_commands to restrict which executables may be spawned.\n",
+		        command.c_str());
 		// Basic safety checks even in permissive mode
 		for (const auto &arg : args) {
 			// Prevent dangerous arguments even in permissive mode
