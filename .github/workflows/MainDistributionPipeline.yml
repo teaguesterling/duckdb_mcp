@@ -19,6 +19,11 @@ jobs:
       duckdb_version: main
       ci_tools_version: main
       extension_name: duckdb_mcp
+      # next tracks duckdb main and is an expected-red forward-compat canary
+      # (upstream API drift, e.g. Identifier). Windows left excluded here since
+      # this leg can't be evaluated green anyway; Windows is re-enabled on the
+      # stable leg below where it's meaningful.
+      exclude_archs: 'windows_amd64;windows_amd64_mingw'
 
   duckdb-stable-build:
     name: Build extension binaries
