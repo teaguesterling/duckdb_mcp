@@ -740,7 +740,17 @@ CallToolResult SQLToolHandler::Execute(const Value &arguments) {
 		if (!prepared->HasError()) {
 			// Template is preparable — use parameterized execution
 			auto named_params = BuildNamedParameters(parser);
-			auto result = prepared->Execute(named_params);
+
+			// Filter to only params this statement expects: a schema may declare
+			// properties the template never references, and DuckDB rejects extras.
+			case_insensitive_map_t<BoundParameterData> filtered_params;
+			for (auto &entry : named_params) {
+				if (prepared->named_param_map.count(entry.first)) {
+					filtered_params[entry.first] = std::move(entry.second);
+				}
+			}
+
+			auto result = prepared->Execute(filtered_params);
 			if (result->HasError()) {
 				return CallToolResult::Error("SQL error: " + result->GetError());
 			}
