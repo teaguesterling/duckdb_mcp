@@ -199,7 +199,167 @@ SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":50,"method":"tools/call","
 true
 
 # =============================================================================
-# PREP-07: Execute error propagation — bad value for typed param returns error
+# PREP-07: Table function arguments — $param in a positional argument
+#
+# Table functions are bound from their argument values, so a $param in an
+# argument position forces DuckDB to re-bind the statement on every execution.
+# This section pins that behaviour down: extensions commonly expose their
+# functionality as table functions (read_csv, glob, zim_search, ...).
+# =============================================================================
+
+query I
+SELECT mcp_publish_tool(
+    'range_rows',
+    'Rows from a table function whose argument is a parameter',
+    'SELECT ''row_'' || range AS tag FROM range($n)',
+    '{"n": {"type": "integer", "description": "Row count"}}',
+    '["n"]'
+) LIKE 'SUCCESS%';
+----
+true
+
+# n=3 must reach range() → row_0 .. row_2
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":70,"method":"tools/call","params":{"name":"range_rows","arguments":{"n":3}}}') LIKE '%row_2%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":71,"method":"tools/call","params":{"name":"range_rows","arguments":{"n":3}}}') NOT LIKE '%row_3%';
+----
+true
+
+# A second call with a different value must re-bind, not reuse the first value
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":72,"method":"tools/call","params":{"name":"range_rows","arguments":{"n":5}}}') LIKE '%row_4%';
+----
+true
+
+# =============================================================================
+# PREP-08: Table function arguments — $param in a named argument position
+# =============================================================================
+
+statement ok
+COPY (SELECT * FROM (VALUES (1, 'alpha'), (2, 'beta')) t(id, label)) TO '__TEST_DIR__/prep_params.csv' (HEADER);
+
+query I
+SELECT mcp_publish_tool(
+    'csv_rows',
+    'Read a CSV with a parameterized named argument',
+    'SELECT * FROM read_csv(''__TEST_DIR__/prep_params.csv'', header := $hdr)',
+    '{"hdr": {"type": "boolean", "description": "Whether the file has a header row"}}',
+    '["hdr"]'
+) LIKE 'SUCCESS%';
+----
+true
+
+# header := true → the header row names the columns
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":80,"method":"tools/call","params":{"name":"csv_rows","arguments":{"hdr":true}}}') LIKE '%alpha%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":81,"method":"tools/call","params":{"name":"csv_rows","arguments":{"hdr":true}}}') NOT LIKE '%column0%';
+----
+true
+
+# header := false → columns fall back to generated names, proving the value bound
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":82,"method":"tools/call","params":{"name":"csv_rows","arguments":{"hdr":false}}}') LIKE '%column0%';
+----
+true
+
+# =============================================================================
+# PREP-09: Schema properties not referenced by the SQL template
+#
+# A tool may declare a property the template does not use ($param removed while
+# iterating on the SQL, a placeholder for a future revision, ...). Binding every
+# declared property unconditionally makes DuckDB reject the call with
+# "Parameter argument/count mismatch". Only params the statement expects may be
+# bound.
+# =============================================================================
+
+query I
+SELECT mcp_publish_tool(
+    'excess_schema_param',
+    'Schema declares a property the SQL never references',
+    'SELECT * FROM prep_test WHERE name = $name',
+    '{"name": {"type": "string", "description": "Name to find"}, "note": {"type": "string", "description": "Not referenced by the SQL"}}',
+    '["name"]'
+) LIKE 'SUCCESS%';
+----
+true
+
+# Caller supplies the unreferenced property
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":90,"method":"tools/call","params":{"name":"excess_schema_param","arguments":{"name":"alice","note":"ignored"}}}') LIKE '%alice%';
+----
+true
+
+# Caller omits it — it is still declared, so it must still be filtered out
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":91,"method":"tools/call","params":{"name":"excess_schema_param","arguments":{"name":"bob"}}}') LIKE '%bob%';
+----
+true
+
+# Same situation with a table function in play
+query I
+SELECT mcp_publish_tool(
+    'range_rows_excess',
+    'Table function tool with an unreferenced schema property',
+    'SELECT ''row_'' || range AS tag FROM range($n)',
+    '{"n": {"type": "integer", "description": "Row count"}, "max_results": {"type": "integer", "description": "Not referenced by the SQL"}}',
+    '["n"]'
+) LIKE 'SUCCESS%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":92,"method":"tools/call","params":{"name":"range_rows_excess","arguments":{"n":2,"max_results":10}}}') LIKE '%row_1%';
+----
+true
+
+# The interpolation fallback already tolerates unreferenced properties; the
+# prepared path must behave the same way.
+query I
+SELECT mcp_publish_tool(
+    'greet_tool_excess',
+    'Macro tool with an unreferenced schema property',
+    'SELECT greet($name) as greeting',
+    '{"name": {"type": "string", "description": "Name to greet"}, "note": {"type": "string", "description": "Not referenced by the SQL"}}',
+    '["name"]'
+) LIKE 'SUCCESS%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":93,"method":"tools/call","params":{"name":"greet_tool_excess","arguments":{"name":"world","note":"ignored"}}}') LIKE '%Hello, world%';
+----
+true
+
+# =============================================================================
+# PREP-10: Unknown $token in the template still reports a clear error
+# =============================================================================
+
+query I
+SELECT mcp_publish_tool(
+    'undeclared_token',
+    'Template references a token missing from the schema',
+    'SELECT * FROM prep_test WHERE name = $name AND id = $missing',
+    '{"name": {"type": "string", "description": "Name to find"}}',
+    '["name"]'
+) LIKE 'SUCCESS%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":95,"method":"tools/call","params":{"name":"undeclared_token","arguments":{"name":"alice"}}}') LIKE '%missing%';
+----
+true
+
+# =============================================================================
+# PREP-11: Execute error propagation — bad value for typed param returns error
 # =============================================================================
 
 query I

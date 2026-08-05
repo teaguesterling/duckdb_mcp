@@ -4,6 +4,26 @@ All notable changes to the DuckDB MCP Extension.
 
 ---
 
+## v2.1.2
+
+### Fixed
+
+- `mcp_publish_tool`: a schema property the SQL template never references no longer
+  breaks every call to the tool. The prepared-statement path bound all declared
+  properties, so DuckDB rejected the excess with
+  `Invalid Input Error: Parameter argument/count mismatch, identifiers of the excess
+  parameters: <name>`. Parameters are now filtered to those the statement expects,
+  matching `mcp_publish_execution_tool`, which already did this. Regression since
+  v2.0.0, when prepared binding replaced string interpolation.
+
+### Documentation
+
+- Custom tools guide: document `$param` in table function arguments (positional and
+  named), and the `COALESCE($param, default)` idiom for optional parameters that feed
+  a table function argument.
+
+---
+
 ## v2.0.0
 
 ### Security (15 bugs fixed from security audit)

@@ -55,6 +55,52 @@ PRAGMA mcp_publish_tool(
 !!! note "SQL String Escaping"
     In SQL strings, use `''` for literal single quotes. The `$param` values are safely substituted.
 
+### Table Function Arguments
+
+`$param` works in table function arguments too — both positional and named. Many
+extensions expose their functionality this way, and no special handling is needed:
+
+```sql
+-- Positional argument
+PRAGMA mcp_publish_tool(
+    'search_articles',
+    'Full-text search across an archive',
+    'SELECT title, snippet FROM zim_search(getenv(''ZIM_FILES''), $query)',
+    '{"query": {"type": "string", "description": "Search term"}}',
+    '["query"]'
+);
+
+-- Named argument
+PRAGMA mcp_publish_tool(
+    'search_articles_capped',
+    'Full-text search with a caller-supplied result cap',
+    'SELECT title FROM zim_search(getenv(''ZIM_FILES''), $query, max_results := $max_results)',
+    '{
+        "query": {"type": "string", "description": "Search term"},
+        "max_results": {"type": "integer", "description": "Maximum rows to return"}
+    }',
+    '["query", "max_results"]'
+);
+```
+
+A table function is bound from its argument *values*, so DuckDB re-binds the
+statement on every call — each invocation sees the argument it was given.
+
+!!! warning "Wrap optional parameters in COALESCE"
+    An omitted optional parameter binds as SQL `NULL`, and table functions
+    generally reject a NULL argument at bind time — sometimes with a confusing
+    error, since the failure comes from the function, not from this extension.
+    Give every optional parameter a default with `COALESCE`:
+
+    ```sql
+    'SELECT title FROM zim_search(getenv(''ZIM_FILES''), $query,
+                                  max_results := COALESCE($max_results, 25))'
+    ```
+
+    `COALESCE` is folded to a constant before the table function is bound, so the
+    function sees `25` when the caller omits the argument. Required parameters
+    need no such wrapper.
+
 ## Parameter Schema
 
 The parameter schema follows JSON Schema format:
@@ -124,6 +170,12 @@ For required parameters:
 ```sql
 '["customer_id", "start_date"]'  -- These must be provided
 ```
+
+A property the SQL template never references is ignored — only the parameters the
+statement actually uses are bound, so a schema stays valid while you edit the
+template. The reverse is an error: a `$token` in the template with no matching
+property fails the call with `Values were not provided for the following prepared
+statement parameters: <name>`.
 
 ## Output Format
 
