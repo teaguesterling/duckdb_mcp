@@ -130,7 +130,7 @@ bool ToolInputSchema::ValidateInput(const Value &input) const {
 	unordered_set<string> provided_fields;
 
 	for (size_t i = 0; i < struct_values.size(); i++) {
-		auto &key = StructType::GetChildName(input.type(), i);
+		auto key = CompatStructFieldName(input.type(), i);
 		provided_fields.insert(key);
 	}
 
@@ -150,7 +150,9 @@ Value ToolInputSchema::ToJSON() const {
 	child_list_t<Value> prop_entries;
 	for (const auto &prop : properties) {
 		// Each property value is a schema object with "type" field
-		prop_entries.push_back(make_pair(prop.first, Value::STRUCT({{"type", prop.second}})));
+		// child_list_t is keyed by Identifier on v2.0 and by string on v1.5, and
+		// prop.first is a runtime string either way.
+		prop_entries.push_back(make_pair(CompatMakeName(prop.first), Value::STRUCT({{"type", prop.second}})));
 	}
 
 	// Create the properties object (empty struct if no properties)
@@ -614,8 +616,8 @@ string ExportToolHandler::ExportToFile(QueryResult &result, const string &format
 			if (col > 0) {
 				create_sql += ", ";
 			}
-			create_sql += KeywordHelper::WriteQuoted(CompatNameStr(result.names[col]), '"') + " " +
-			              result.types[col].ToString();
+			create_sql += KeywordHelper::WriteQuoted(CompatNameStr(CompatResultNames(result)[col]), '"') + " " +
+			              CompatResultTypes(result)[col].ToString();
 		}
 		create_sql += ")";
 

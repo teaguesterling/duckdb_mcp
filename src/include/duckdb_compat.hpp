@@ -215,6 +215,92 @@ inline void CompatSetSchemaName(INFO &info, string name) {
 	CompatSetSchemaNameImpl(info, std::move(name), CompatHasSetSchema<INFO>());
 }
 
+// --- QueryResult names and types ----------------------------------------------
+// v1.5: BaseQueryResult::names (vector<string>) and ::types are PUBLIC fields
+// v2.0: both are private; GetNames() -> const vector<Identifier> &
+//                        GetTypes() -> const vector<LogicalType> &
+//
+// The accessors do not exist on v1.5, so this is a positive v2.0 probe.
+template <class T, class = void>
+struct CompatHasResultGetNames : std::false_type {};
+template <class T>
+struct CompatHasResultGetNames<T, decltype(void(std::declval<const T &>().GetNames()))> : std::true_type {};
+
+template <class RESULT>
+inline const vector<CompatName> &CompatResultNamesImpl(const RESULT &result, std::true_type) {
+	return result.GetNames();
+}
+template <class RESULT>
+inline const vector<CompatName> &CompatResultNamesImpl(const RESULT &result, std::false_type) {
+	return result.names;
+}
+//! The column names of a query result. Elements are CompatName -- run one through
+//! CompatNameStr to use it as a string.
+template <class RESULT>
+inline const vector<CompatName> &CompatResultNames(const RESULT &result) {
+	return CompatResultNamesImpl(result, CompatHasResultGetNames<RESULT>());
+}
+
+template <class T, class = void>
+struct CompatHasResultGetTypes : std::false_type {};
+template <class T>
+struct CompatHasResultGetTypes<T, decltype(void(std::declval<const T &>().GetTypes()))> : std::true_type {};
+
+template <class RESULT>
+inline const vector<LogicalType> &CompatResultTypesImpl(const RESULT &result, std::true_type) {
+	return result.GetTypes();
+}
+template <class RESULT>
+inline const vector<LogicalType> &CompatResultTypesImpl(const RESULT &result, std::false_type) {
+	return result.types;
+}
+//! The column types of a query result.
+template <class RESULT>
+inline const vector<LogicalType> &CompatResultTypes(const RESULT &result) {
+	return CompatResultTypesImpl(result, CompatHasResultGetTypes<RESULT>());
+}
+
+// --- STRUCT field names -------------------------------------------------------
+// child_list_t<T> is vector<pair<string, T>> on v1.5 and vector<pair<Identifier, T>>
+// on v2.0, and StructType::GetChildName returns the matching type.
+//
+// This one is worth reading twice, because the compiler will NOT catch the part
+// that matters. `field_name == "name"` keeps compiling on v2.0 -- Identifier has
+// operator== against const char* and string -- but Identifier's equality is
+// CASE-INSENSITIVE, so a comparison that was exact on v1.5 silently starts
+// matching "Name" and "NAME" on v2.0. These are JSON-RPC object keys off the
+// wire, where case-sensitive is the protocol's rule, so every comparison goes
+// through the raw string and keeps the v1.5 behaviour on both versions.
+inline string CompatStructFieldName(const LogicalType &type, idx_t index) {
+	return CompatNameStr(StructType::GetChildName(type, index));
+}
+
+// --- Value type reinterpretation ----------------------------------------------
+// v1.5: void Value::Reinterpret(LogicalType)   -- mutates in place
+// v2.0: Value Value::WithType(LogicalType) const -- returns a copy
+// Neither converts the underlying value; both just relabel its type. (The cast
+// is DefaultCastAs, which is a different thing and is unchanged.)
+template <class T, class = void>
+struct CompatHasValueWithType : std::false_type {};
+template <class T>
+struct CompatHasValueWithType<T, decltype(void(std::declval<const T &>().WithType(std::declval<LogicalType>())))>
+    : std::true_type {};
+
+template <class VALUE>
+inline VALUE CompatWithTypeImpl(VALUE value, LogicalType type, std::true_type) {
+	return value.WithType(std::move(type));
+}
+template <class VALUE>
+inline VALUE CompatWithTypeImpl(VALUE value, LogicalType type, std::false_type) {
+	value.Reinterpret(std::move(type));
+	return value;
+}
+//! Concrete entry point on purpose -- see the note on CompatWithAlias about why a
+//! defaulted template parameter is the wrong shape here.
+inline Value CompatWithType(Value value, LogicalType type) {
+	return CompatWithTypeImpl(std::move(value), std::move(type), CompatHasValueWithType<Value>());
+}
+
 // --- Prepared statement named parameters --------------------------------------
 // v2.0 re-keyed the named-parameter maps on Identifier and moved the map behind
 // an accessor:
