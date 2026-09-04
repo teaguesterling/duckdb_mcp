@@ -614,7 +614,8 @@ string ExportToolHandler::ExportToFile(QueryResult &result, const string &format
 			if (col > 0) {
 				create_sql += ", ";
 			}
-			create_sql += KeywordHelper::WriteQuoted(CompatNameStr(result.names[col]), '"') + " " + result.types[col].ToString();
+			create_sql += KeywordHelper::WriteQuoted(CompatNameStr(result.names[col]), '"') + " " +
+			              result.types[col].ToString();
 		}
 		create_sql += ")";
 
