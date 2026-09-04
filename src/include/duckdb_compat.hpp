@@ -260,6 +260,39 @@ inline bool CompatHasNamedParam(const STMT &stmt, const NAME &name) {
 	return CompatHasNamedParamImpl(stmt, name, CompatHasNamedParamMapAccessor<STMT>());
 }
 
+// --- Fallible scalar functions ------------------------------------------------
+// v2.0 requires a scalar function that can throw at EXECUTION time to say so.
+// Throwing from one that has not becomes:
+//
+//   INTERNAL Error: Scalar function "f" threw an execution error, but the
+//   function is not marked as fallible - the function must call SetFallible().
+//
+// This is not a compile error and nothing in the API is greppable for it. The
+// only symptom is a test that exercises an error path, and enforcement is an
+// assertion -- so one CI arch can be green while another is red on the very same
+// commit, purely because only one image builds with assertions on.
+//
+// BaseScalarFunction::SetFallible() also exists on the pinned v1.5 (it just is
+// not enforced there), so this is a shim only for the sake of an older pin.
+// Must be called BEFORE the function goes into a FunctionSet, since v2.0's set
+// members are no longer mutable.
+template <class T, class = void>
+struct CompatHasSetFallible : std::false_type {};
+template <class T>
+struct CompatHasSetFallible<T, decltype(void(std::declval<T &>().SetFallible()))> : std::true_type {};
+
+template <class FUNC>
+inline void CompatSetFallibleImpl(FUNC &fun, std::true_type) {
+	fun.SetFallible();
+}
+template <class FUNC>
+inline void CompatSetFallibleImpl(FUNC &, std::false_type) {
+}
+template <class FUNC>
+inline void CompatSetFallible(FUNC &fun) {
+	CompatSetFallibleImpl(fun, CompatHasSetFallible<FUNC>());
+}
+
 // --- LogicalType alias --------------------------------------------------------
 // v1.5: void SetAlias(string)                -- mutates in place
 // v2.0: LogicalType WithAlias(string) const  -- returns a copy, never mutating a

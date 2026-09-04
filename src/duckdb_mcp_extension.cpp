@@ -2036,48 +2036,67 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                          Value(false), SetMCPConsoleLogging);
 
 #ifndef __EMSCRIPTEN__
+	// Every scalar function below is marked fallible. DuckDB v2.0 turns a throw
+	// from a function that has not declared itself fallible into an INTERNAL
+	// error, and this extension is an RPC surface over an external process:
+	// every one of these can surface a transport failure, a JSON-RPC protocol
+	// error, a rejected tool call or an InvalidInputException on its arguments.
+	// Marking them individually after auditing each call stack would buy nothing
+	// and risks missing one -- and a miss is invisible until a user hits the
+	// error path at runtime. See CompatSetFallible in duckdb_compat.hpp.
 	// Register client-side MCP functions (require MCPConnectionRegistry)
 	auto get_resource_func = ScalarFunction("mcp_get_resource", {LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                                        LogicalType::JSON(), MCPGetResourceFunction);
+	CompatSetFallible(get_resource_func);
 	loader.RegisterFunction(get_resource_func);
 
 	auto list_resources_func_simple =
 	    ScalarFunction("mcp_list_resources", {LogicalType::VARCHAR}, LogicalType::JSON(), MCPListResourcesFunction);
 	auto list_resources_func_cursor = ScalarFunction("mcp_list_resources", {LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                                                 LogicalType::JSON(), MCPListResourcesWithCursorFunction);
+	CompatSetFallible(list_resources_func_simple);
 	loader.RegisterFunction(list_resources_func_simple);
+	CompatSetFallible(list_resources_func_cursor);
 	loader.RegisterFunction(list_resources_func_cursor);
 
 	auto call_tool_func =
 	    ScalarFunction("mcp_call_tool", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                   LogicalType::JSON(), MCPCallToolFunction);
+	CompatSetFallible(call_tool_func);
 	loader.RegisterFunction(call_tool_func);
 
 	auto list_tools_func_simple =
 	    ScalarFunction("mcp_list_tools", {LogicalType::VARCHAR}, LogicalType::JSON(), MCPListToolsFunction);
 	auto list_tools_func_cursor = ScalarFunction("mcp_list_tools", {LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                                             LogicalType::JSON(), MCPListToolsWithCursorFunction);
+	CompatSetFallible(list_tools_func_simple);
 	loader.RegisterFunction(list_tools_func_simple);
+	CompatSetFallible(list_tools_func_cursor);
 	loader.RegisterFunction(list_tools_func_cursor);
 
 	auto list_prompts_func_simple =
 	    ScalarFunction("mcp_list_prompts", {LogicalType::VARCHAR}, LogicalType::JSON(), MCPListPromptsFunction);
 	auto list_prompts_func_cursor = ScalarFunction("mcp_list_prompts", {LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                                               LogicalType::JSON(), MCPListPromptsWithCursorFunction);
+	CompatSetFallible(list_prompts_func_simple);
 	loader.RegisterFunction(list_prompts_func_simple);
+	CompatSetFallible(list_prompts_func_cursor);
 	loader.RegisterFunction(list_prompts_func_cursor);
 
 	auto get_prompt_func =
 	    ScalarFunction("mcp_get_prompt", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                   LogicalType::JSON(), MCPGetPromptFunction);
+	CompatSetFallible(get_prompt_func);
 	loader.RegisterFunction(get_prompt_func);
 
 	auto reconnect_func = ScalarFunction("mcp_reconnect_server", {LogicalType::VARCHAR}, LogicalType::VARCHAR,
 	                                     MCPReconnectServerFunction);
+	CompatSetFallible(reconnect_func);
 	loader.RegisterFunction(reconnect_func);
 
 	auto health_func =
 	    ScalarFunction("mcp_server_health", {LogicalType::VARCHAR}, LogicalType::VARCHAR, MCPServerHealthFunction);
+	CompatSetFallible(health_func);
 	loader.RegisterFunction(health_func);
 #endif // !__EMSCRIPTEN__
 
@@ -2088,12 +2107,14 @@ static void LoadInternal(ExtensionLoader &loader) {
 	auto server_start_simple_func =
 	    ScalarFunction("mcp_server_start", {LogicalType::VARCHAR}, mcp_status_type, MCPServerStartSimpleFunction);
 	PreventStructConstantFolding(server_start_simple_func);
+	CompatSetFallible(server_start_simple_func);
 	loader.RegisterFunction(server_start_simple_func);
 
 	// mcp_server_start(transport, config_json) - with config for stdio
 	auto server_start_config_func = ScalarFunction("mcp_server_start", {LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                                               mcp_status_type, MCPServerStartConfigFunction);
 	PreventStructConstantFolding(server_start_config_func);
+	CompatSetFallible(server_start_config_func);
 	loader.RegisterFunction(server_start_config_func);
 
 	// mcp_server_start(transport, bind_address, port, config_json) - full form
@@ -2101,31 +2122,37 @@ static void LoadInternal(ExtensionLoader &loader) {
 	    "mcp_server_start", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::INTEGER, LogicalType::VARCHAR},
 	    mcp_status_type, MCPServerStartFunction);
 	PreventStructConstantFolding(server_start_func);
+	CompatSetFallible(server_start_func);
 	loader.RegisterFunction(server_start_func);
 
 	auto server_stop_func = ScalarFunction("mcp_server_stop", {}, mcp_status_type, MCPServerStopFunction);
 	PreventStructConstantFolding(server_stop_func);
+	CompatSetFallible(server_stop_func);
 	loader.RegisterFunction(server_stop_func);
 
 	// mcp_server_stop(force) - with force option for test setup/teardown
 	auto server_stop_force_func =
 	    ScalarFunction("mcp_server_stop", {LogicalType::BOOLEAN}, mcp_status_type, MCPServerStopForceFunction);
 	PreventStructConstantFolding(server_stop_force_func);
+	CompatSetFallible(server_stop_force_func);
 	loader.RegisterFunction(server_stop_force_func);
 
 	auto server_status_func = ScalarFunction("mcp_server_status", {}, mcp_status_type, MCPServerStatusFunction);
 	PreventStructConstantFolding(server_status_func);
+	CompatSetFallible(server_status_func);
 	loader.RegisterFunction(server_status_func);
 
 	// Register MCP server test function (for unit testing protocol handling)
 	auto server_test_func =
 	    ScalarFunction("mcp_server_test", {LogicalType::VARCHAR}, LogicalType::VARCHAR, MCPServerTestFunction);
+	CompatSetFallible(server_test_func);
 	loader.RegisterFunction(server_test_func);
 
 	// Register MCP server send request function - sends request to running server
 	// mcp_server_send_request(request_json) - requires server to be started first
 	auto send_request_func = ScalarFunction("mcp_server_send_request", {LogicalType::VARCHAR}, LogicalType::VARCHAR,
 	                                        MCPServerSendRequestFunction);
+	CompatSetFallible(send_request_func);
 	loader.RegisterFunction(send_request_func);
 
 	// Register resource publishing functions
@@ -2134,12 +2161,14 @@ static void LoadInternal(ExtensionLoader &loader) {
 	    ScalarFunction("mcp_publish_table", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                   LogicalType::VARCHAR, MCPPublishTableFunction);
 	SetScalarFunctionNullHandling(publish_table_func, FunctionNullHandling::SPECIAL_HANDLING);
+	CompatSetFallible(publish_table_func);
 	loader.RegisterFunction(publish_table_func);
 
 	auto publish_query_func = ScalarFunction(
 	    "mcp_publish_query", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::INTEGER},
 	    LogicalType::VARCHAR, MCPPublishQueryFunction);
 	SetScalarFunctionNullHandling(publish_query_func, FunctionNullHandling::SPECIAL_HANDLING);
+	CompatSetFallible(publish_query_func);
 	loader.RegisterFunction(publish_query_func);
 
 	// mcp_publish_resource(uri, content, mime_type, description)
@@ -2148,6 +2177,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                   {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                   LogicalType::VARCHAR, MCPPublishResourceFunction);
 	SetScalarFunctionNullHandling(publish_resource_func, FunctionNullHandling::SPECIAL_HANDLING);
+	CompatSetFallible(publish_resource_func);
 	loader.RegisterFunction(publish_resource_func);
 
 	// Register tool publishing functions
@@ -2157,6 +2187,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	    {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
 	    LogicalType::VARCHAR, MCPPublishToolFunction);
 	SetScalarFunctionNullHandling(publish_tool_func, FunctionNullHandling::SPECIAL_HANDLING);
+	CompatSetFallible(publish_tool_func);
 	loader.RegisterFunction(publish_tool_func);
 
 	// mcp_publish_tool(name, description, sql_template, properties_json, required_json, format)
@@ -2165,6 +2196,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                                                LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                                               LogicalType::VARCHAR, MCPPublishToolWithFormatFunction);
 	SetScalarFunctionNullHandling(publish_tool_format_func, FunctionNullHandling::SPECIAL_HANDLING);
+	CompatSetFallible(publish_tool_format_func);
 	loader.RegisterFunction(publish_tool_format_func);
 
 	// Register execution tool publishing functions
@@ -2174,6 +2206,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                                              LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                                             LogicalType::VARCHAR, MCPPublishExecutionToolFunction);
 	SetScalarFunctionNullHandling(publish_exec_tool_func, FunctionNullHandling::SPECIAL_HANDLING);
+	CompatSetFallible(publish_exec_tool_func);
 	loader.RegisterFunction(publish_exec_tool_func);
 
 	// mcp_publish_execution_tool(name, description, sql_template, properties_json, required_json, bindings_json,
@@ -2184,25 +2217,30 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                    LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                   LogicalType::VARCHAR, MCPPublishExecutionToolWithFormatFunction);
 	SetScalarFunctionNullHandling(publish_exec_tool_format_func, FunctionNullHandling::SPECIAL_HANDLING);
+	CompatSetFallible(publish_exec_tool_format_func);
 	loader.RegisterFunction(publish_exec_tool_format_func);
 
 	// Register MCP template functions
 	auto register_prompt_template_func = ScalarFunction(
 	    "mcp_register_prompt_template", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
 	    LogicalType::VARCHAR, MCPRegisterPromptTemplateFunction);
+	CompatSetFallible(register_prompt_template_func);
 	loader.RegisterFunction(register_prompt_template_func);
 
 	auto list_prompt_templates_func =
 	    ScalarFunction("mcp_list_prompt_templates", {}, LogicalType::JSON(), MCPListPromptTemplatesFunction);
+	CompatSetFallible(list_prompt_templates_func);
 	loader.RegisterFunction(list_prompt_templates_func);
 
 	auto render_prompt_template_func =
 	    ScalarFunction("mcp_render_prompt_template", {LogicalType::VARCHAR, LogicalType::JSON()}, LogicalType::VARCHAR,
 	                   MCPRenderPromptTemplateFunction);
+	CompatSetFallible(render_prompt_template_func);
 	loader.RegisterFunction(render_prompt_template_func);
 
 	// Register MCP diagnostics functions
 	auto diagnostics_func = ScalarFunction("mcp_get_diagnostics", {}, LogicalType::JSON(), MCPGetDiagnosticsFunction);
+	CompatSetFallible(diagnostics_func);
 	loader.RegisterFunction(diagnostics_func);
 
 	// ========================================================================
@@ -2291,11 +2329,13 @@ static void LoadInternal(ExtensionLoader &loader) {
 
 	// mcp_webmcp_sync() - re-sync tools with navigator.modelContext after publishing new tools/resources
 	auto webmcp_sync_func = ScalarFunction("mcp_webmcp_sync", {}, LogicalType::VARCHAR, MCPWebMCPSyncFunction);
+	CompatSetFallible(webmcp_sync_func);
 	loader.RegisterFunction(webmcp_sync_func);
 
 	// webmcp_list_page_tools() - list tools registered by other page scripts
 	auto webmcp_list_page_tools_func =
 	    ScalarFunction("webmcp_list_page_tools", {}, LogicalType::JSON(), WebMCPListPageToolsFunction);
+	CompatSetFallible(webmcp_list_page_tools_func);
 	loader.RegisterFunction(webmcp_list_page_tools_func);
 #endif // __EMSCRIPTEN__
 }
