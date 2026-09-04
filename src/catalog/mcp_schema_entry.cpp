@@ -1,4 +1,5 @@
 #include "catalog/mcp_schema_entry.hpp"
+#include "duckdb_compat.hpp"
 #include "protocol/mcp_connection.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/parser/parsed_data/create_schema_info.hpp"
@@ -87,10 +88,12 @@ optional_ptr<CatalogEntry> MCPSchemaEntry::LookupEntry(CatalogTransaction transa
 void MCPSchemaEntry::DropEntry(ClientContext &context, DropInfo &info) {
 	lock_guard<mutex> lock(schema_lock);
 
-	auto it = entries.find(info.name);
+	// v2.0 removed DropInfo::name in favour of a private QualifiedName; see duckdb_compat.hpp.
+	auto drop_name = CompatEntryName(info);
+	auto it = entries.find(drop_name);
 	if (it == entries.end()) {
 		if (info.if_not_found == OnEntryNotFound::THROW_EXCEPTION) {
-			throw CatalogException("Entry \"%s\" not found", info.name);
+			throw CatalogException("Entry \"%s\" not found", drop_name);
 		}
 		return;
 	}
