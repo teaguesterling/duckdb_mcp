@@ -1,6 +1,7 @@
 #pragma once
 
 #include "duckdb.hpp"
+#include "duckdb_compat.hpp"
 #include "duckdb/main/database.hpp"
 #include "duckdb/planner/expression/bound_parameter_data.hpp"
 #include "json_utils.hpp"
@@ -176,7 +177,7 @@ private:
 	string result_format;
 
 	string SubstituteParameters(const string &template_sql, const JSONArgumentParser &parser) const;
-	case_insensitive_map_t<BoundParameterData> BuildNamedParameters(const JSONArgumentParser &parser) const;
+	CompatNamedParamMap<BoundParameterData> BuildNamedParameters(const JSONArgumentParser &parser) const;
 };
 
 // Execution SQL tool handler - executes multi-statement SQL templates with prepared binding
@@ -218,7 +219,7 @@ private:
 	vector<unordered_map<string, string>> statement_binding_specs;
 	// Each inner map: param_name -> json_schema_type
 
-	case_insensitive_map_t<BoundParameterData>
+	CompatNamedParamMap<BoundParameterData>
 	BuildNamedParameters(const JSONArgumentParser &parser, const unordered_map<string, string> &binding_spec) const;
 };
 
