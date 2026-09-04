@@ -414,8 +414,15 @@ inline ValidityMask &CompatFlatValidityMutableImpl(Vector &vec, std::false_type)
 	return const_cast<ValidityMask &>(FV::Validity(vec));
 }
 template <class FV = FlatVector>
-inline ValidityMask &CompatGetValidityMutable(Vector &vec) {
+inline ValidityMask &CompatFlatValidityMutable(Vector &vec) {
 	return CompatFlatValidityMutableImpl<FV>(vec, CompatHasFlatValidityMutable<FV>());
+}
+
+//! Long-standing spelling in this repo; the fleet-standard name is
+//! CompatFlatValidityMutable. Kept as a forwarder so the call sites do not churn.
+template <class FV = FlatVector>
+inline ValidityMask &CompatGetValidityMutable(Vector &vec) {
+	return CompatFlatValidityMutable<FV>(vec);
 }
 
 } // namespace duckdb
