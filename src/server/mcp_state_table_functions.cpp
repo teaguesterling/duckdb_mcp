@@ -15,7 +15,7 @@ struct MCPToolsData : public GlobalTableFunctionState {
 };
 
 static unique_ptr<FunctionData> MCPToolsBind(ClientContext &context, TableFunctionBindInput &input,
-                                             vector<LogicalType> &return_types, vector<string> &names) {
+                                             vector<LogicalType> &return_types, vector<CompatName> &names) {
 	names.emplace_back("name");
 	return_types.emplace_back(LogicalType::VARCHAR);
 	names.emplace_back("description");
@@ -73,7 +73,7 @@ struct MCPResourcesData : public GlobalTableFunctionState {
 };
 
 static unique_ptr<FunctionData> MCPResourcesBind(ClientContext &context, TableFunctionBindInput &input,
-                                                 vector<LogicalType> &return_types, vector<string> &names) {
+                                                 vector<LogicalType> &return_types, vector<CompatName> &names) {
 	names.emplace_back("uri");
 	return_types.emplace_back(LogicalType::VARCHAR);
 	names.emplace_back("type");
@@ -163,7 +163,7 @@ static vector<pair<string, string>> ConfigToKVPairs(const MCPServerConfig &confi
 }
 
 static unique_ptr<FunctionData> MCPServerConfigBind(ClientContext &context, TableFunctionBindInput &input,
-                                                    vector<LogicalType> &return_types, vector<string> &names) {
+                                                    vector<LogicalType> &return_types, vector<CompatName> &names) {
 	names.emplace_back("key");
 	return_types.emplace_back(LogicalType::VARCHAR);
 	names.emplace_back("value");

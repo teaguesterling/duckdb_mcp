@@ -3,6 +3,7 @@
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/main/appender.hpp"
 #include "duckdb/parser/keyword_helper.hpp"
+#include "duckdb_compat.hpp"
 #include "json_utils.hpp"
 #include "result_formatter.hpp"
 #include <cctype>
@@ -613,7 +614,7 @@ string ExportToolHandler::ExportToFile(QueryResult &result, const string &format
 			if (col > 0) {
 				create_sql += ", ";
 			}
-			create_sql += KeywordHelper::WriteQuoted(result.names[col], '"') + " " + result.types[col].ToString();
+			create_sql += KeywordHelper::WriteQuoted(CompatNameStr(result.names[col]), '"') + " " + result.types[col].ToString();
 		}
 		create_sql += ")";
 
@@ -627,7 +628,9 @@ string ExportToolHandler::ExportToFile(QueryResult &result, const string &format
 		auto &collection = materialized.Collection();
 
 		if (collection.Count() > 0) {
-			Appender appender(conn, temp_table);
+			// Appender takes an Identifier on v2.0 and a string on v1.5; temp_table is a
+			// runtime string, so promoting it is explicit.
+			Appender appender(conn, CompatMakeName(temp_table));
 			for (auto &chunk : collection.Chunks()) {
 				appender.AppendDataChunk(chunk);
 			}

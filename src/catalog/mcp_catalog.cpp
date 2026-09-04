@@ -1,5 +1,6 @@
 #include "catalog/mcp_catalog.hpp"
 #include "catalog/mcp_schema_entry.hpp"
+#include "duckdb_compat.hpp"
 #include "protocol/mcp_connection.hpp"
 #include "duckdb/catalog/catalog_entry/schema_catalog_entry.hpp"
 #include "duckdb/parser/parsed_data/create_schema_info.hpp"
@@ -35,7 +36,9 @@ void MCPCatalog::Initialize(bool load_builtin) {
 void MCPCatalog::CreateDefaultSchema() {
 	// Create the default "main" schema
 	CreateSchemaInfo schema_info;
-	schema_info.schema = "main";
+	// v2.0 folded CreateInfo's catalog/schema/name into a private QualifiedName;
+	// the schema being created lives in its Schema() slot. See duckdb_compat.hpp.
+	CompatSetSchemaName(schema_info, "main");
 	schema_info.on_conflict = OnCreateConflict::IGNORE_ON_CONFLICT;
 
 	auto schema_entry = make_uniq<MCPSchemaEntry>(*this, schema_info, mcp_connection);
@@ -45,18 +48,19 @@ void MCPCatalog::CreateDefaultSchema() {
 optional_ptr<CatalogEntry> MCPCatalog::CreateSchema(CatalogTransaction transaction, CreateSchemaInfo &info) {
 	lock_guard<mutex> lock(catalog_lock);
 
-	if (schemas.find(info.schema) != schemas.end()) {
+	auto schema_name = CompatSchemaName(info);
+	if (schemas.find(schema_name) != schemas.end()) {
 		if (info.on_conflict == OnCreateConflict::ERROR_ON_CONFLICT) {
-			throw CatalogException("Schema \"%s\" already exists", info.schema);
+			throw CatalogException("Schema \"%s\" already exists", schema_name);
 		}
 		// Schema already exists, return existing entry
-		return schemas[info.schema].get();
+		return schemas[schema_name].get();
 	}
 
 	// Create new schema
 	auto schema_entry = make_uniq<MCPSchemaEntry>(*this, info, mcp_connection);
 	auto result = schema_entry.get();
-	schemas[info.schema] = std::move(schema_entry);
+	schemas[schema_name] = std::move(schema_entry);
 	return result;
 }
 
@@ -88,16 +92,17 @@ void MCPCatalog::ScanSchemas(ClientContext &context, std::function<void(SchemaCa
 void MCPCatalog::DropSchema(ClientContext &context, DropInfo &info) {
 	lock_guard<mutex> lock(catalog_lock);
 
-	auto it = schemas.find(info.name);
+	auto drop_name = CompatEntryName(info);
+	auto it = schemas.find(drop_name);
 	if (it == schemas.end()) {
 		if (info.if_not_found == OnEntryNotFound::THROW_EXCEPTION) {
-			throw CatalogException("Schema \"%s\" not found", info.name);
+			throw CatalogException("Schema \"%s\" not found", drop_name);
 		}
 		return;
 	}
 
 	// Don't allow dropping the main schema
-	if (info.name == "main") {
+	if (drop_name == "main") {
 		throw CatalogException("Cannot drop the main schema");
 	}
 
@@ -114,7 +119,7 @@ SchemaCatalogEntry &MCPCatalog::GetOrCreateSchema(const string &name) {
 
 	// Create new schema
 	CreateSchemaInfo schema_info;
-	schema_info.schema = name;
+	CompatSetSchemaName(schema_info, name);
 	schema_info.on_conflict = OnCreateConflict::IGNORE_ON_CONFLICT;
 
 	auto schema_entry = make_uniq<MCPSchemaEntry>(*this, schema_info, mcp_connection);

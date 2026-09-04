@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "json_utils.hpp"
+#include "duckdb_compat.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/types/value.hpp"
@@ -245,7 +246,9 @@ yyjson_mut_val *JSONUtils::QueryResultToJSON(yyjson_mut_doc *doc, const unique_p
 			yyjson_mut_val *json_row = CreateObject(doc);
 
 			for (idx_t col = 0; col < result->names.size(); col++) {
-				const string &column_name = result->names[col];
+				// QueryResult::names is a vector<Identifier> on v2.0; reading a column
+				// name back out as a string is an explicit act there.
+				const string column_name = CompatNameStr(result->names[col]);
 				Value cell_value = chunk->GetValue(col, row);
 
 				yyjson_mut_val *json_value = ValueToJSON(doc, cell_value);
