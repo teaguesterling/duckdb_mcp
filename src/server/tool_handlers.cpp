@@ -666,9 +666,9 @@ SQLToolHandler::SQLToolHandler(const string &name, const string &description, co
       db_instance(db), result_format(result_format) {
 }
 
-case_insensitive_map_t<BoundParameterData>
+CompatNamedParamMap<BoundParameterData>
 SQLToolHandler::BuildNamedParameters(const JSONArgumentParser &parser) const {
-	case_insensitive_map_t<BoundParameterData> named_params;
+	CompatNamedParamMap<BoundParameterData> named_params;
 
 	// Build typed values for all schema properties
 	for (const auto &prop : input_schema.properties) {
@@ -677,7 +677,7 @@ SQLToolHandler::BuildNamedParameters(const JSONArgumentParser &parser) const {
 
 		if (!parser.HasField(param_name) || parser.IsNull(param_name)) {
 			// Omitted or explicit null → SQL NULL
-			named_params[param_name] = BoundParameterData(Value());
+			named_params[CompatMakeName(param_name)] = BoundParameterData(Value());
 			continue;
 		}
 
@@ -690,7 +690,7 @@ SQLToolHandler::BuildNamedParameters(const JSONArgumentParser &parser) const {
 				if (pos != str_val.size()) {
 					throw std::invalid_argument("trailing characters");
 				}
-				named_params[param_name] = BoundParameterData(Value::BIGINT(int_val));
+				named_params[CompatMakeName(param_name)] = BoundParameterData(Value::BIGINT(int_val));
 			} catch (const std::exception &) {
 				throw InvalidInputException("Parameter '" + param_name + "' must be a valid integer, got: " + str_val);
 			}
@@ -701,22 +701,22 @@ SQLToolHandler::BuildNamedParameters(const JSONArgumentParser &parser) const {
 				if (pos != str_val.size()) {
 					throw std::invalid_argument("trailing characters");
 				}
-				named_params[param_name] = BoundParameterData(Value::DOUBLE(num_val));
+				named_params[CompatMakeName(param_name)] = BoundParameterData(Value::DOUBLE(num_val));
 			} catch (const std::exception &) {
 				throw InvalidInputException("Parameter '" + param_name + "' must be a valid number, got: " + str_val);
 			}
 		} else if (param_type == "boolean") {
 			if (str_val == "true") {
-				named_params[param_name] = BoundParameterData(Value::BOOLEAN(true));
+				named_params[CompatMakeName(param_name)] = BoundParameterData(Value::BOOLEAN(true));
 			} else if (str_val == "false") {
-				named_params[param_name] = BoundParameterData(Value::BOOLEAN(false));
+				named_params[CompatMakeName(param_name)] = BoundParameterData(Value::BOOLEAN(false));
 			} else {
 				throw InvalidInputException("Parameter '" + param_name +
 				                            "' must be 'true' or 'false', got: " + str_val);
 			}
 		} else {
 			// Default to string (VARCHAR)
-			named_params[param_name] = BoundParameterData(Value(str_val));
+			named_params[CompatMakeName(param_name)] = BoundParameterData(Value(str_val));
 		}
 	}
 
@@ -746,9 +746,9 @@ CallToolResult SQLToolHandler::Execute(const Value &arguments) {
 
 			// Filter to only params this statement expects: a schema may declare
 			// properties the template never references, and DuckDB rejects extras.
-			case_insensitive_map_t<BoundParameterData> filtered_params;
+			CompatNamedParamMap<BoundParameterData> filtered_params;
 			for (auto &entry : named_params) {
-				if (prepared->named_param_map.count(entry.first)) {
+				if (CompatHasNamedParam(*prepared, entry.first)) {
 					filtered_params[entry.first] = std::move(entry.second);
 				}
 			}
@@ -974,17 +974,17 @@ ExecutionSQLToolHandler::ExecutionSQLToolHandler(const string &name, const strin
 	statement_binding_specs = ParseBindingsJson(bindings_json, per_statement_bindings);
 }
 
-case_insensitive_map_t<BoundParameterData>
+CompatNamedParamMap<BoundParameterData>
 ExecutionSQLToolHandler::BuildNamedParameters(const JSONArgumentParser &parser,
                                               const unordered_map<string, string> &binding_spec) const {
-	case_insensitive_map_t<BoundParameterData> named_params;
+	CompatNamedParamMap<BoundParameterData> named_params;
 
 	for (const auto &entry : binding_spec) {
 		const string &param_name = entry.first;
 		const string &param_type = entry.second;
 
 		if (!parser.HasField(param_name) || parser.IsNull(param_name)) {
-			named_params[param_name] = BoundParameterData(Value());
+			named_params[CompatMakeName(param_name)] = BoundParameterData(Value());
 			continue;
 		}
 
@@ -997,7 +997,7 @@ ExecutionSQLToolHandler::BuildNamedParameters(const JSONArgumentParser &parser,
 				if (pos != str_val.size()) {
 					throw std::invalid_argument("trailing characters");
 				}
-				named_params[param_name] = BoundParameterData(Value::BIGINT(int_val));
+				named_params[CompatMakeName(param_name)] = BoundParameterData(Value::BIGINT(int_val));
 			} catch (const std::exception &) {
 				throw InvalidInputException("Parameter '" + param_name + "' must be a valid integer, got: " + str_val);
 			}
@@ -1008,21 +1008,21 @@ ExecutionSQLToolHandler::BuildNamedParameters(const JSONArgumentParser &parser,
 				if (pos != str_val.size()) {
 					throw std::invalid_argument("trailing characters");
 				}
-				named_params[param_name] = BoundParameterData(Value::DOUBLE(num_val));
+				named_params[CompatMakeName(param_name)] = BoundParameterData(Value::DOUBLE(num_val));
 			} catch (const std::exception &) {
 				throw InvalidInputException("Parameter '" + param_name + "' must be a valid number, got: " + str_val);
 			}
 		} else if (param_type == "boolean") {
 			if (str_val == "true") {
-				named_params[param_name] = BoundParameterData(Value::BOOLEAN(true));
+				named_params[CompatMakeName(param_name)] = BoundParameterData(Value::BOOLEAN(true));
 			} else if (str_val == "false") {
-				named_params[param_name] = BoundParameterData(Value::BOOLEAN(false));
+				named_params[CompatMakeName(param_name)] = BoundParameterData(Value::BOOLEAN(false));
 			} else {
 				throw InvalidInputException("Parameter '" + param_name +
 				                            "' must be 'true' or 'false', got: " + str_val);
 			}
 		} else {
-			named_params[param_name] = BoundParameterData(Value(str_val));
+			named_params[CompatMakeName(param_name)] = BoundParameterData(Value(str_val));
 		}
 	}
 
@@ -1074,9 +1074,9 @@ CallToolResult ExecutionSQLToolHandler::Execute(const Value &arguments) {
 			auto named_params = BuildNamedParameters(parser, binding_spec);
 
 			// Filter to only params this statement expects (object binding may include extras)
-			case_insensitive_map_t<BoundParameterData> filtered_params;
+			CompatNamedParamMap<BoundParameterData> filtered_params;
 			for (auto &entry : named_params) {
-				if (prepared->named_param_map.count(entry.first)) {
+				if (CompatHasNamedParam(*prepared, entry.first)) {
 					filtered_params[entry.first] = std::move(entry.second);
 				}
 			}

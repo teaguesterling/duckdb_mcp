@@ -2,6 +2,8 @@
 
 #include "duckdb.hpp"
 #include "duckdb/function/table_function.hpp"
+#include "duckdb/main/prepared_statement.hpp"
+#include "duckdb/planner/expression/bound_parameter_data.hpp"
 #include <type_traits>
 #include <utility>
 
@@ -70,22 +72,6 @@ inline void PreventStructConstantFolding(ScalarFunction &) {
 }
 
 #endif
-
-// --- Direct flat-vector writes (cross-version) ---
-// DuckDB main's FlatVector::GetData<T>(Vector&) and FlatVector::Validity(Vector&)
-// return const-qualified by default; new GetDataMutable<T> / ValidityMutable
-// overloads exist for writes. On v1.4.x/v1.5.x the returns are already non-const,
-// so the const_cast is a no-op there.
-//
-// See duckdb_markdown's docs/DUCKDB_API_MIGRATION.md §4 for the long-form rationale.
-template <typename T>
-inline T *CompatGetDataMutable(Vector &vec) {
-	return const_cast<T *>(FlatVector::GetData<T>(vec));
-}
-
-inline ValidityMask &CompatGetValidityMutable(Vector &vec) {
-	return const_cast<ValidityMask &>(FlatVector::Validity(vec));
-}
 
 //===--------------------------------------------------------------------===//
 // DuckDB v2.0 (main / v2.0-cyanoptera) shims
@@ -229,6 +215,51 @@ inline void CompatSetSchemaName(INFO &info, string name) {
 	CompatSetSchemaNameImpl(info, std::move(name), CompatHasSetSchema<INFO>());
 }
 
+// --- Prepared statement named parameters --------------------------------------
+// v2.0 re-keyed the named-parameter maps on Identifier and moved the map behind
+// an accessor:
+//
+//   v1.5:  PreparedStatement::named_param_map      case_insensitive_map_t<idx_t>   (public field)
+//          Execute(case_insensitive_map_t<BoundParameterData> &)
+//   v2.0:  PreparedStatement::GetNamedParameterMap()  identifier_map_t<idx_t>
+//          Execute(identifier_map_t<BoundParameterData> &)
+//
+// Probed on the v2.0-only accessor. Deliberately NOT probed by trying to call
+// Execute with an identifier_map_t: PreparedStatement has a variadic
+// `template <class... ARGS> Execute(ARGS...)` overload that swallows any
+// argument, so such a probe answers "yes" on both versions and then fails deep
+// inside the variadic instantiation.
+template <class T, class = void>
+struct CompatHasNamedParamMapAccessor : std::false_type {};
+template <class T>
+struct CompatHasNamedParamMapAccessor<T, decltype(void(std::declval<const T &>().GetNamedParameterMap()))>
+    : std::true_type {};
+
+//! The map type PreparedStatement::Execute accepts for named parameters.
+#ifdef DUCKDB_HAS_IDENTIFIER
+template <class VALUE>
+using CompatNamedParamMap =
+    typename std::conditional<CompatHasNamedParamMapAccessor<PreparedStatement>::value, identifier_map_t<VALUE>,
+                              case_insensitive_map_t<VALUE>>::type;
+#else
+template <class VALUE>
+using CompatNamedParamMap = case_insensitive_map_t<VALUE>;
+#endif
+
+template <class STMT, class NAME>
+inline bool CompatHasNamedParamImpl(const STMT &stmt, const NAME &name, std::true_type) {
+	return stmt.GetNamedParameterMap().count(name) > 0;
+}
+template <class STMT, class NAME>
+inline bool CompatHasNamedParamImpl(const STMT &stmt, const NAME &name, std::false_type) {
+	return stmt.named_param_map.count(name) > 0;
+}
+//! Does this prepared statement declare a parameter with this name?
+template <class STMT, class NAME>
+inline bool CompatHasNamedParam(const STMT &stmt, const NAME &name) {
+	return CompatHasNamedParamImpl(stmt, name, CompatHasNamedParamMapAccessor<STMT>());
+}
+
 // --- LogicalType alias --------------------------------------------------------
 // v1.5: void SetAlias(string)                -- mutates in place
 // v2.0: LogicalType WithAlias(string) const  -- returns a copy, never mutating a
@@ -252,42 +283,62 @@ inline LogicalType CompatWithAliasImpl(TYPE type, string alias, std::false_type)
 	type.SetAlias(std::move(alias));
 	return type;
 }
-template <class TYPE = LogicalType>
-inline LogicalType CompatWithAlias(TYPE type, string alias) {
-	return CompatWithAliasImpl(std::move(type), std::move(alias), CompatHasWithAlias<TYPE>());
+// The entry point is CONCRETE, not `template <class TYPE = LogicalType>`: a
+// default template argument is inert because deduction wins, so
+//
+//     CompatWithAlias(LogicalType::VARCHAR, "md")
+//
+// would deduce TYPE = LogicalTypeId -- LogicalType::VARCHAR is a static
+// constexpr LogicalTypeId, not a LogicalType -- and hard-error inside the shim
+// on the PINNED build. A concrete parameter restores the implicit
+// LogicalTypeId -> LogicalType conversion at the call site.
+inline LogicalType CompatWithAlias(LogicalType type, string alias) {
+	return CompatWithAliasImpl(std::move(type), std::move(alias), CompatHasWithAlias<LogicalType>());
 }
 
 // --- Vector::ToUnifiedFormat ---------------------------------------------------
-// v2.0 dropped the count parameter (the old form is deprecated, not removed).
+// v1.5: ToUnifiedFormat(count, data)  -- the only overload
+// v2.0: ToUnifiedFormat(data)         -- plus the count form kept as [[deprecated]]
+//
+// PROBE FOR THE COUNT-FREE OVERLOAD, not the count-taking one. v2.0 did not
+// remove the count form, it deprecated it, so a probe for the count form is true
+// on BOTH versions and the shim would always take the deprecated path -- silently
+// never reaching the API it exists to call. Probe for what exists ONLY on v2.0.
 // Unused in this extension today; carried for fleet interchangeability.
 template <class T, class = void>
-struct CompatToUnifiedTakesCount : std::false_type {};
+struct CompatToUnifiedWithoutCount : std::false_type {};
 template <class T>
-struct CompatToUnifiedTakesCount<T, decltype(void(std::declval<T &>().ToUnifiedFormat(
-                                        idx_t(0), std::declval<UnifiedVectorFormat &>())))> : std::true_type {};
+struct CompatToUnifiedWithoutCount<T, decltype(void(std::declval<T &>().ToUnifiedFormat(
+                                          std::declval<UnifiedVectorFormat &>())))> : std::true_type {};
 
 template <class VEC>
-inline void CompatToUnifiedFormatImpl(VEC &vec, idx_t count, UnifiedVectorFormat &data, std::true_type) {
-	vec.ToUnifiedFormat(count, data);
+inline void CompatToUnifiedFormatImpl(VEC &vec, idx_t, UnifiedVectorFormat &data, std::true_type) {
+	vec.ToUnifiedFormat(data);
 }
 template <class VEC>
-inline void CompatToUnifiedFormatImpl(VEC &vec, idx_t, UnifiedVectorFormat &data, std::false_type) {
-	vec.ToUnifiedFormat(data);
+inline void CompatToUnifiedFormatImpl(VEC &vec, idx_t count, UnifiedVectorFormat &data, std::false_type) {
+	vec.ToUnifiedFormat(count, data);
 }
 template <class VEC = Vector>
 inline void CompatToUnifiedFormat(VEC &vec, idx_t count, UnifiedVectorFormat &data) {
-	CompatToUnifiedFormatImpl(vec, count, data, CompatToUnifiedTakesCount<VEC>());
+	CompatToUnifiedFormatImpl(vec, count, data, CompatToUnifiedWithoutCount<VEC>());
 }
 
-// --- FlatVector mutable data ---------------------------------------------------
+// --- Direct flat-vector writes ------------------------------------------------
 // v1.5: FlatVector::GetData<T>(vec)         returns T*
+//       FlatVector::Validity(vec)           returns ValidityMask&
 // v2.0: FlatVector::GetData<T>(vec)         returns const T*
 //       FlatVector::GetDataMutable<T>(vec)  returns T*
+//       FlatVector::Validity(vec)           returns const ValidityMask&
+//       FlatVector::ValidityMutable(vec)    returns ValidityMask&
 //
-// CompatGetDataMutable above already covers this repo's ~30 write sites with a
-// const_cast, which is well-defined here (the buffer is not really const) and is
-// left in place rather than churned. This is the fleet-standard spelling that
-// asks for mutability through the real v2.0 accessor.
+// A const_cast off the v2.0 READ accessor is NOT an equivalent -- it compiles and
+// then silently does the wrong thing. On v2.0 the two accessors reach the buffer
+// differently: GetData/Validity go through Vector::GetBufferRef()/Buffer(), while
+// GetDataMutable/ValidityMutable go through Vector::BufferMutable(), which
+// un-shares a copy-on-write buffer first. Writing through the const_cast can
+// therefore scribble into a buffer another vector still shares. These shims call
+// the real mutable accessor wherever it exists.
 template <class T, class = void>
 struct CompatHasFlatGetDataMutable : std::false_type {};
 template <class T>
@@ -305,6 +356,33 @@ inline VALUE *CompatFlatDataMutableImpl(Vector &vec, std::false_type) {
 template <class VALUE, class FV = FlatVector>
 inline VALUE *CompatFlatDataMutable(Vector &vec) {
 	return CompatFlatDataMutableImpl<VALUE, FV>(vec, CompatHasFlatGetDataMutable<FV>());
+}
+
+//! Long-standing spelling in this repo (~30 call sites); the fleet-standard name
+//! is CompatFlatDataMutable. Kept as a forwarder so the call sites do not churn.
+template <class T, class FV = FlatVector>
+inline T *CompatGetDataMutable(Vector &vec) {
+	return CompatFlatDataMutable<T, FV>(vec);
+}
+
+template <class T, class = void>
+struct CompatHasFlatValidityMutable : std::false_type {};
+template <class T>
+struct CompatHasFlatValidityMutable<T, decltype(void(T::ValidityMutable(std::declval<Vector &>())))> : std::true_type {
+};
+
+template <class FV>
+inline ValidityMask &CompatFlatValidityMutableImpl(Vector &vec, std::true_type) {
+	return FV::ValidityMutable(vec);
+}
+template <class FV>
+inline ValidityMask &CompatFlatValidityMutableImpl(Vector &vec, std::false_type) {
+	// Non-const already on v1.5, so this cast is a no-op there.
+	return const_cast<ValidityMask &>(FV::Validity(vec));
+}
+template <class FV = FlatVector>
+inline ValidityMask &CompatGetValidityMutable(Vector &vec) {
+	return CompatFlatValidityMutableImpl<FV>(vec, CompatHasFlatValidityMutable<FV>());
 }
 
 } // namespace duckdb
