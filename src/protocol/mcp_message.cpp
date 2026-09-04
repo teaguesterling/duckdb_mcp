@@ -1,4 +1,5 @@
 #include "protocol/mcp_message.hpp"
+#include "duckdb_compat.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/main/connection.hpp"
@@ -83,7 +84,7 @@ string MCPMessage::ToJSON() const {
 					if (params.type().id() == LogicalTypeId::STRUCT) {
 						auto &struct_values = StructValue::GetChildren(params);
 						for (size_t i = 0; i < struct_values.size(); i++) {
-							auto &key = StructType::GetChildName(params.type(), i);
+							auto key = CompatStructFieldName(params.type(), i);
 							if (key == "uri") {
 								JSONUtils::AddString(doc, params_obj, "uri", struct_values[i].ToString());
 								break;
@@ -98,7 +99,7 @@ string MCPMessage::ToJSON() const {
 						string tool_name;
 						auto &struct_values = StructValue::GetChildren(params);
 						for (size_t i = 0; i < struct_values.size(); i++) {
-							auto &key = StructType::GetChildName(params.type(), i);
+							auto key = CompatStructFieldName(params.type(), i);
 							if (key == "name") {
 								tool_name = struct_values[i].ToString();
 								JSONUtils::AddString(doc, params_obj, "name", tool_name);

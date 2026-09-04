@@ -188,7 +188,7 @@ yyjson_mut_val *JSONUtils::ValueToJSON(yyjson_mut_doc *doc, const Value &value) 
 		auto &struct_values = StructValue::GetChildren(value);
 		auto &struct_type = value.type();
 		for (size_t i = 0; i < struct_values.size(); i++) {
-			auto &key = StructType::GetChildName(struct_type, i);
+			auto key = CompatStructFieldName(struct_type, i);
 			yyjson_mut_val *child_val = ValueToJSON(doc, struct_values[i]);
 			yyjson_mut_obj_add(obj, yyjson_mut_strcpy(doc, key.c_str()), child_val);
 		}
@@ -245,10 +245,10 @@ yyjson_mut_val *JSONUtils::QueryResultToJSON(yyjson_mut_doc *doc, const unique_p
 		for (idx_t row = 0; row < chunk->size(); row++) {
 			yyjson_mut_val *json_row = CreateObject(doc);
 
-			for (idx_t col = 0; col < result->names.size(); col++) {
+			for (idx_t col = 0; col < CompatResultNames(*result).size(); col++) {
 				// QueryResult::names is a vector<Identifier> on v2.0; reading a column
 				// name back out as a string is an explicit act there.
-				const string column_name = CompatNameStr(result->names[col]);
+				const string column_name = CompatNameStr(CompatResultNames(*result)[col]);
 				Value cell_value = chunk->GetValue(col, row);
 
 				yyjson_mut_val *json_value = ValueToJSON(doc, cell_value);

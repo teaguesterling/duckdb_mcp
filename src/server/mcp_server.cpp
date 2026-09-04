@@ -1,4 +1,5 @@
 #include "server/mcp_server.hpp"
+#include "duckdb_compat.hpp"
 #include "server/resource_providers.hpp"
 #include "server/tool_handlers.hpp"
 #ifndef __EMSCRIPTEN__
@@ -620,7 +621,7 @@ MCPMessage MCPServer::HandleResourcesRead(const MCPMessage &request) {
 		// Params as STRUCT
 		auto &struct_values = StructValue::GetChildren(request.params);
 		for (size_t i = 0; i < struct_values.size(); i++) {
-			auto &key = StructType::GetChildName(request.params.type(), i);
+			auto key = CompatStructFieldName(request.params.type(), i);
 			if (key == "uri") {
 				uri = struct_values[i].ToString();
 				break;
@@ -683,8 +684,8 @@ MCPMessage MCPServer::HandleToolsList(const MCPMessage &request) {
 			JSONUtils::FreeDocument(doc);
 
 			// Create JSON-typed value for the schema
-			Value schema_json_val(schema_str);
-			schema_json_val.Reinterpret(LogicalType::JSON());
+			// v2.0 replaced the mutating Reinterpret with WithType, which returns a copy.
+			Value schema_json_val = CompatWithType(Value(schema_str), LogicalType::JSON());
 
 			Value tool = Value::STRUCT({{"name", Value(name)},
 			                            {"description", Value(handler->GetDescription())},
@@ -728,7 +729,7 @@ MCPMessage MCPServer::HandleToolsCall(const MCPMessage &request) {
 		// Params as STRUCT
 		auto &struct_values = StructValue::GetChildren(request.params);
 		for (size_t i = 0; i < struct_values.size(); i++) {
-			auto &key = StructType::GetChildName(request.params.type(), i);
+			auto key = CompatStructFieldName(request.params.type(), i);
 			if (key == "name") {
 				tool_name = struct_values[i].ToString();
 			} else if (key == "arguments") {
