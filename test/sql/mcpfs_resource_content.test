@@ -1,0 +1,107 @@
+# name: test/sql/mcpfs_resource_content.test
+# description: mcpfs must extract resource content by parsing JSON, not by scanning for "text":"
+# group: [sql]
+
+# Reproduce-first regression test for issue #67 (finding 1):
+# MCPFileHandle::LoadResourceContent() used to locate the resource body by
+# searching the resources/read result for the literal `"text":"` and then
+# hand-unescaping the bytes up to the next unescaped quote. That is wrong for
+# any payload where a *different* `text` key appears first, for responses with
+# more than one content part, and for binary (`blob`) content parts.
+#
+# The fixture is a local mock MCP server (test/mcpfs/mock_resource_server.sh)
+# spawned over stdio. It touches no network and returns fixed payloads.
+
+require duckdb_mcp
+
+require notwindows
+
+statement ok
+LOAD duckdb_mcp;
+
+statement ok
+SET allowed_mcp_commands='/bin/sh';
+
+statement ok
+ATTACH '' AS mockfs (TYPE mcp, COMMAND '/bin/sh', ARGS '["test/mcpfs/mock_resource_server.sh"]', TRANSPORT 'stdio');
+
+# =============================================================================
+# Baseline: a compact, single-text-part response (worked before, must keep working)
+# =============================================================================
+
+query I
+SELECT content FROM read_text('mcp://mockfs/case://plain');
+----
+PLAIN-OK
+
+# =============================================================================
+# CORE 1: a decoy `text` key earlier in the payload.
+# =============================================================================
+# `contents[0].annotations.text` precedes the real `contents[0].text`.
+# Pre-fix the scan returned the first match -> 'DECOY' (RED).
+# Post-fix the JSON parser walks contents[].text -> 'REAL-OK' (GREEN).
+
+query I
+SELECT content FROM read_text('mcp://mockfs/case://decoy');
+----
+REAL-OK
+
+# =============================================================================
+# CORE 2: multi-part content.
+# =============================================================================
+# Pre-fix only the first part was returned -> 'PART-ONE' (RED).
+# Post-fix every text part is concatenated, newline-separated (GREEN).
+
+query I
+SELECT replace(content, chr(10), '|') FROM read_text('mcp://mockfs/case://multi');
+----
+PART-ONE|PART-TWO
+
+# =============================================================================
+# CORE 3: a binary (base64 `blob`) content part.
+# =============================================================================
+# Pre-fix there was no `"text":"` to find, so the whole JSON-RPC result was
+# handed back as the file body (RED). Post-fix the base64 is decoded (GREEN).
+
+query I
+SELECT content FROM read_text('mcp://mockfs/case://blob');
+----
+BLOB-OK
+
+# =============================================================================
+# Escaping / formatting guards.
+# =============================================================================
+# These already passed before the fix (the transport re-serialises the JSON-RPC
+# result with yyjson, which normalises whitespace and \uXXXX escapes) but they
+# pin the behaviour so the new parser cannot regress it.
+
+query I
+SELECT content FROM read_text('mcp://mockfs/case://spaced');
+----
+SPACED-OK
+
+query I
+SELECT content FROM read_text('mcp://mockfs/case://unicode');
+----
+café-OK
+
+query I
+SELECT content FROM read_text('mcp://mockfs/case://escapes');
+----
+a/b"q"\z
+
+# =============================================================================
+# Unknown resources yield no rows rather than JSON error noise as content.
+# =============================================================================
+# NOTE: MCPFileSystem::Glob() swallows the lookup failure and returns an empty
+# match list, so a missing resource reads as zero rows rather than raising.
+# That is pre-existing behaviour and out of scope here; what this pins down is
+# that the resources/read *error* payload never leaks out as file content.
+
+query I
+SELECT count(*) FROM read_text('mcp://mockfs/case://missing');
+----
+0
+
+statement ok
+DETACH mockfs;
