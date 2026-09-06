@@ -1,4 +1,5 @@
 #include "protocol/mcp_template.hpp"
+#include "duckdb_compat.hpp"
 #include "protocol/mcp_message.hpp"
 #include "duckdb_mcp_logging.hpp"
 #include "duckdb/common/exception.hpp"
@@ -30,7 +31,7 @@ MCPTemplateArgument MCPTemplateArgument::FromValue(const Value &value) {
 
 	for (idx_t i = 0; i < struct_children.size(); i++) {
 		auto &child = struct_children[i];
-		auto field_name = StructType::GetChildName(value.type(), i);
+		auto field_name = CompatStructFieldName(value.type(), i);
 
 		if (field_name == "name" && child.type() == LogicalType::VARCHAR) {
 			name = child.ToString();
@@ -159,7 +160,7 @@ MCPTemplate MCPTemplate::FromValue(const Value &value) {
 
 	for (idx_t i = 0; i < struct_children.size(); i++) {
 		auto &child = struct_children[i];
-		auto field_name = StructType::GetChildName(value.type(), i);
+		auto field_name = CompatStructFieldName(value.type(), i);
 
 		if (field_name == "name" && child.type() == LogicalType::VARCHAR) {
 			name = child.ToString();
@@ -298,7 +299,7 @@ MCPMessage MCPTemplateManager::HandlePromptsGet(const MCPMessage &request) const
 	} else if (request.params.type().id() == LogicalTypeId::STRUCT) {
 		auto &struct_values = StructValue::GetChildren(request.params);
 		for (size_t i = 0; i < struct_values.size(); i++) {
-			auto &key = StructType::GetChildName(request.params.type(), i);
+			auto key = CompatStructFieldName(request.params.type(), i);
 			if (key == "name") {
 				name = struct_values[i].ToString();
 			} else if (key == "arguments") {

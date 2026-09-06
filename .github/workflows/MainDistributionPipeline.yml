@@ -8,7 +8,24 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || '' }}-${{ github.base_ref || '' }}-${{ github.ref != 'refs/heads/main' && github.sha || '' }}
+  # Two things this key gets wrong if you write the obvious version, both of
+  # which manufacture phantom red checks rather than real failures.
+  #
+  # 1. github.event_name is part of the key ON PURPOSE. Without it, a push to a
+  #    branch and a workflow_dispatch on that same branch collide: same ref,
+  #    same sha, both with empty head_ref/base_ref, so they hash to one group.
+  #    cancel-in-progress then kills the push run every single time the canary
+  #    is dispatched by hand -- and `gh pr checks` renders a CANCELLED job as
+  #    `fail`, so the PR dashboard shows a wall of failures that never happened.
+  #
+  # 2. github.sha is deliberately NOT in the key. Including it for non-main refs
+  #    (which is what this workflow used to do) gives every commit on a branch
+  #    its own group, so cancel-in-progress can never supersede anything: rapid
+  #    pushes pile up instead of replacing each other, and stale runs from
+  #    superseded commits go on competing for the same runner quota as the
+  #    current one. Leaving it out is what makes a new push cancel its own
+  #    predecessor, which is the behaviour cancel-in-progress is for.
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.head_ref || '' }}-${{ github.base_ref || '' }}
   cancel-in-progress: true
 
 jobs:

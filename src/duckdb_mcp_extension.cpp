@@ -2000,6 +2000,82 @@ static void PragmaMCPConfigEnd(ClientContext &context, const FunctionParameters 
 	MCPInstanceState::Get(db).config.config_mode = false;
 }
 
+//===--------------------------------------------------------------------===//
+// Scalar registration gate (DuckDB v2.0 change class 13)
+//===--------------------------------------------------------------------===//
+//
+// DuckDB v2.0 requires a scalar function that lets an EXECUTION error escape to
+// declare itself fallible. One that does not gets its error rewritten:
+//
+//   INTERNAL Error: Scalar function "f" threw an execution error, but the
+//   function is not marked as fallible - the function must call SetFallible().
+//
+// There is no compile signal and nothing in the API to grep for, so the only
+// protection is that the decision gets made deliberately, once per function.
+// That is what this gate is for: every ScalarFunction in this extension is
+// registered through RegisterScalar, and RegisterScalar cannot be called without
+// stating a verdict, so a new scalar function cannot be added without walking
+// past the audit below.
+//
+// WHAT COUNTS AS AN "EXECUTION ERROR" IS NARROWER THAN IT SOUNDS, and being
+// wrong about that in the conservative direction is what produced this file's
+// previous blanket marking of all 32. Enforcement runs through
+// Exception::IsExecutionError (duckdb/src/common/exception.cpp), which returns
+// true for exactly three types:
+//
+//     ExceptionType::INVALID_INPUT     (InvalidInputException)
+//     ExceptionType::OUT_OF_RANGE      (OutOfRangeException)
+//     ExceptionType::CONVERSION        (ConversionException)
+//
+// Everything else -- BinderException, IOException, InternalException,
+// OutOfMemoryException, std::bad_alloc -- makes ThrowNonFallibleFunctionError
+// take its `throw;` branch (duckdb/src/function/scalar_function.cpp:8-16) and
+// propagate UNCHANGED. Those types do not require SetFallible, and marking for
+// them is pure pessimisation: FunctionErrors is optimizer-visible on the pinned
+// v1.5 too (it feeds Expression::CanThrow(), which gates conjunct reordering,
+// filter pushdown and dictionary-expression caching), so an untrue CAN_THROW
+// makes the shipped planner needlessly conservative around that function.
+//
+// AUDIT RESULT FOR THIS EXTENSION: all 32 scalar functions are SWALLOWS_ALL, and
+// that is a property of how they are written rather than an accident. Each one
+// wraps its DuckDB-calling and MCP-calling work in `catch (const std::exception
+// &e)` and converts the failure into a value in the result vector ("ERROR: ...",
+// or a JSON-RPC error object) instead of throwing. That is deliberate -- see the
+// "return the error message instead of NULL" comments on the handlers -- and
+// test/sql/mcp_scalar_error_contract.test pins it so the property cannot be
+// dropped silently.
+//
+// The only exceptions that can escape one of these bodies come from the hoisted
+// preamble, and none of the three execution types is among them:
+//
+//   ExpressionState::GetContext()                    -> BinderException
+//   Vector::GetValue on an unimplemented vector type -> InternalException
+//   allocation inside a catch handler                -> OutOfMemoryException
+//
+// The GetValue<int32_t>() / GetValue<bool>() reads in mcp_server_start and
+// mcp_server_stop are the only value CONVERSIONS sitting outside a try, and they
+// are identity casts today because those arguments are registered as exactly
+// INTEGER and BOOLEAN. Widening either declared type would make them genuinely
+// fallible -- precisely the sort of change this gate exists to stop sliding past
+// unnoticed.
+enum class ScalarErrors : uint8_t {
+	//! Audited: no INVALID_INPUT / OUT_OF_RANGE / CONVERSION exception can leave
+	//! this function's body -- it converts failures into result values instead.
+	SWALLOWS_ALL,
+	//! An execution-class exception can escape. Must be declared, or v2.0
+	//! rewrites it as an InternalException naming SetFallible().
+	CAN_THROW
+};
+
+//! Register a scalar function, having stated whether it can raise an execution
+//! error. Use this rather than loader.RegisterFunction for every ScalarFunction.
+static void RegisterScalar(ExtensionLoader &loader, ScalarFunction function, ScalarErrors errors) {
+	if (errors == ScalarErrors::CAN_THROW) {
+		CompatSetFallible(function);
+	}
+	loader.RegisterFunction(function);
+}
+
 static void LoadInternal(ExtensionLoader &loader) {
 	auto &db = loader.GetDatabaseInstance();
 	auto &config = DBConfig::GetConfig(db);
@@ -2061,49 +2137,52 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                          Value(false), SetMCPConsoleLogging);
 
 #ifndef __EMSCRIPTEN__
+	// Every scalar function below goes through RegisterScalar, which requires a
+	// v2.0 change-class-13 verdict at the call site. See the audit above
+	// RegisterScalar for why all of them are SWALLOWS_ALL.
 	// Register client-side MCP functions (require MCPConnectionRegistry)
 	auto get_resource_func = ScalarFunction("mcp_get_resource", {LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                                        LogicalType::JSON(), MCPGetResourceFunction);
-	loader.RegisterFunction(get_resource_func);
+	RegisterScalar(loader, get_resource_func, ScalarErrors::SWALLOWS_ALL);
 
 	auto list_resources_func_simple =
 	    ScalarFunction("mcp_list_resources", {LogicalType::VARCHAR}, LogicalType::JSON(), MCPListResourcesFunction);
 	auto list_resources_func_cursor = ScalarFunction("mcp_list_resources", {LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                                                 LogicalType::JSON(), MCPListResourcesWithCursorFunction);
-	loader.RegisterFunction(list_resources_func_simple);
-	loader.RegisterFunction(list_resources_func_cursor);
+	RegisterScalar(loader, list_resources_func_simple, ScalarErrors::SWALLOWS_ALL);
+	RegisterScalar(loader, list_resources_func_cursor, ScalarErrors::SWALLOWS_ALL);
 
 	auto call_tool_func =
 	    ScalarFunction("mcp_call_tool", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                   LogicalType::JSON(), MCPCallToolFunction);
-	loader.RegisterFunction(call_tool_func);
+	RegisterScalar(loader, call_tool_func, ScalarErrors::SWALLOWS_ALL);
 
 	auto list_tools_func_simple =
 	    ScalarFunction("mcp_list_tools", {LogicalType::VARCHAR}, LogicalType::JSON(), MCPListToolsFunction);
 	auto list_tools_func_cursor = ScalarFunction("mcp_list_tools", {LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                                             LogicalType::JSON(), MCPListToolsWithCursorFunction);
-	loader.RegisterFunction(list_tools_func_simple);
-	loader.RegisterFunction(list_tools_func_cursor);
+	RegisterScalar(loader, list_tools_func_simple, ScalarErrors::SWALLOWS_ALL);
+	RegisterScalar(loader, list_tools_func_cursor, ScalarErrors::SWALLOWS_ALL);
 
 	auto list_prompts_func_simple =
 	    ScalarFunction("mcp_list_prompts", {LogicalType::VARCHAR}, LogicalType::JSON(), MCPListPromptsFunction);
 	auto list_prompts_func_cursor = ScalarFunction("mcp_list_prompts", {LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                                               LogicalType::JSON(), MCPListPromptsWithCursorFunction);
-	loader.RegisterFunction(list_prompts_func_simple);
-	loader.RegisterFunction(list_prompts_func_cursor);
+	RegisterScalar(loader, list_prompts_func_simple, ScalarErrors::SWALLOWS_ALL);
+	RegisterScalar(loader, list_prompts_func_cursor, ScalarErrors::SWALLOWS_ALL);
 
 	auto get_prompt_func =
 	    ScalarFunction("mcp_get_prompt", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                   LogicalType::JSON(), MCPGetPromptFunction);
-	loader.RegisterFunction(get_prompt_func);
+	RegisterScalar(loader, get_prompt_func, ScalarErrors::SWALLOWS_ALL);
 
 	auto reconnect_func = ScalarFunction("mcp_reconnect_server", {LogicalType::VARCHAR}, LogicalType::VARCHAR,
 	                                     MCPReconnectServerFunction);
-	loader.RegisterFunction(reconnect_func);
+	RegisterScalar(loader, reconnect_func, ScalarErrors::SWALLOWS_ALL);
 
 	auto health_func =
 	    ScalarFunction("mcp_server_health", {LogicalType::VARCHAR}, LogicalType::VARCHAR, MCPServerHealthFunction);
-	loader.RegisterFunction(health_func);
+	RegisterScalar(loader, health_func, ScalarErrors::SWALLOWS_ALL);
 #endif // !__EMSCRIPTEN__
 
 	// Server-side functions (work via memory transport in WASM)
@@ -2113,45 +2192,45 @@ static void LoadInternal(ExtensionLoader &loader) {
 	auto server_start_simple_func =
 	    ScalarFunction("mcp_server_start", {LogicalType::VARCHAR}, mcp_status_type, MCPServerStartSimpleFunction);
 	PreventStructConstantFolding(server_start_simple_func);
-	loader.RegisterFunction(server_start_simple_func);
+	RegisterScalar(loader, server_start_simple_func, ScalarErrors::SWALLOWS_ALL);
 
 	// mcp_server_start(transport, config_json) - with config for stdio
 	auto server_start_config_func = ScalarFunction("mcp_server_start", {LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                                               mcp_status_type, MCPServerStartConfigFunction);
 	PreventStructConstantFolding(server_start_config_func);
-	loader.RegisterFunction(server_start_config_func);
+	RegisterScalar(loader, server_start_config_func, ScalarErrors::SWALLOWS_ALL);
 
 	// mcp_server_start(transport, bind_address, port, config_json) - full form
 	auto server_start_func = ScalarFunction(
 	    "mcp_server_start", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::INTEGER, LogicalType::VARCHAR},
 	    mcp_status_type, MCPServerStartFunction);
 	PreventStructConstantFolding(server_start_func);
-	loader.RegisterFunction(server_start_func);
+	RegisterScalar(loader, server_start_func, ScalarErrors::SWALLOWS_ALL);
 
 	auto server_stop_func = ScalarFunction("mcp_server_stop", {}, mcp_status_type, MCPServerStopFunction);
 	PreventStructConstantFolding(server_stop_func);
-	loader.RegisterFunction(server_stop_func);
+	RegisterScalar(loader, server_stop_func, ScalarErrors::SWALLOWS_ALL);
 
 	// mcp_server_stop(force) - with force option for test setup/teardown
 	auto server_stop_force_func =
 	    ScalarFunction("mcp_server_stop", {LogicalType::BOOLEAN}, mcp_status_type, MCPServerStopForceFunction);
 	PreventStructConstantFolding(server_stop_force_func);
-	loader.RegisterFunction(server_stop_force_func);
+	RegisterScalar(loader, server_stop_force_func, ScalarErrors::SWALLOWS_ALL);
 
 	auto server_status_func = ScalarFunction("mcp_server_status", {}, mcp_status_type, MCPServerStatusFunction);
 	PreventStructConstantFolding(server_status_func);
-	loader.RegisterFunction(server_status_func);
+	RegisterScalar(loader, server_status_func, ScalarErrors::SWALLOWS_ALL);
 
 	// Register MCP server test function (for unit testing protocol handling)
 	auto server_test_func =
 	    ScalarFunction("mcp_server_test", {LogicalType::VARCHAR}, LogicalType::VARCHAR, MCPServerTestFunction);
-	loader.RegisterFunction(server_test_func);
+	RegisterScalar(loader, server_test_func, ScalarErrors::SWALLOWS_ALL);
 
 	// Register MCP server send request function - sends request to running server
 	// mcp_server_send_request(request_json) - requires server to be started first
 	auto send_request_func = ScalarFunction("mcp_server_send_request", {LogicalType::VARCHAR}, LogicalType::VARCHAR,
 	                                        MCPServerSendRequestFunction);
-	loader.RegisterFunction(send_request_func);
+	RegisterScalar(loader, send_request_func, ScalarErrors::SWALLOWS_ALL);
 
 	// Register resource publishing functions
 	// Note: We use SPECIAL_HANDLING to allow NULL uri/format parameters (which have defaults)
@@ -2159,13 +2238,13 @@ static void LoadInternal(ExtensionLoader &loader) {
 	    ScalarFunction("mcp_publish_table", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                   LogicalType::VARCHAR, MCPPublishTableFunction);
 	SetScalarFunctionNullHandling(publish_table_func, FunctionNullHandling::SPECIAL_HANDLING);
-	loader.RegisterFunction(publish_table_func);
+	RegisterScalar(loader, publish_table_func, ScalarErrors::SWALLOWS_ALL);
 
 	auto publish_query_func = ScalarFunction(
 	    "mcp_publish_query", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::INTEGER},
 	    LogicalType::VARCHAR, MCPPublishQueryFunction);
 	SetScalarFunctionNullHandling(publish_query_func, FunctionNullHandling::SPECIAL_HANDLING);
-	loader.RegisterFunction(publish_query_func);
+	RegisterScalar(loader, publish_query_func, ScalarErrors::SWALLOWS_ALL);
 
 	// mcp_publish_resource(uri, content, mime_type, description)
 	auto publish_resource_func =
@@ -2173,7 +2252,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                   {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                   LogicalType::VARCHAR, MCPPublishResourceFunction);
 	SetScalarFunctionNullHandling(publish_resource_func, FunctionNullHandling::SPECIAL_HANDLING);
-	loader.RegisterFunction(publish_resource_func);
+	RegisterScalar(loader, publish_resource_func, ScalarErrors::SWALLOWS_ALL);
 
 	// Register tool publishing functions
 	// mcp_publish_tool(name, description, sql_template, properties_json, required_json)
@@ -2182,7 +2261,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	    {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
 	    LogicalType::VARCHAR, MCPPublishToolFunction);
 	SetScalarFunctionNullHandling(publish_tool_func, FunctionNullHandling::SPECIAL_HANDLING);
-	loader.RegisterFunction(publish_tool_func);
+	RegisterScalar(loader, publish_tool_func, ScalarErrors::SWALLOWS_ALL);
 
 	// mcp_publish_tool(name, description, sql_template, properties_json, required_json, format)
 	auto publish_tool_format_func = ScalarFunction("mcp_publish_tool",
@@ -2190,7 +2269,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                                                LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                                               LogicalType::VARCHAR, MCPPublishToolWithFormatFunction);
 	SetScalarFunctionNullHandling(publish_tool_format_func, FunctionNullHandling::SPECIAL_HANDLING);
-	loader.RegisterFunction(publish_tool_format_func);
+	RegisterScalar(loader, publish_tool_format_func, ScalarErrors::SWALLOWS_ALL);
 
 	// Register execution tool publishing functions
 	// mcp_publish_execution_tool(name, description, sql_template, properties_json, required_json, bindings_json)
@@ -2199,7 +2278,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                                              LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                                             LogicalType::VARCHAR, MCPPublishExecutionToolFunction);
 	SetScalarFunctionNullHandling(publish_exec_tool_func, FunctionNullHandling::SPECIAL_HANDLING);
-	loader.RegisterFunction(publish_exec_tool_func);
+	RegisterScalar(loader, publish_exec_tool_func, ScalarErrors::SWALLOWS_ALL);
 
 	// mcp_publish_execution_tool(name, description, sql_template, properties_json, required_json, bindings_json,
 	// format)
@@ -2209,26 +2288,26 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                    LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
 	                   LogicalType::VARCHAR, MCPPublishExecutionToolWithFormatFunction);
 	SetScalarFunctionNullHandling(publish_exec_tool_format_func, FunctionNullHandling::SPECIAL_HANDLING);
-	loader.RegisterFunction(publish_exec_tool_format_func);
+	RegisterScalar(loader, publish_exec_tool_format_func, ScalarErrors::SWALLOWS_ALL);
 
 	// Register MCP template functions
 	auto register_prompt_template_func = ScalarFunction(
 	    "mcp_register_prompt_template", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
 	    LogicalType::VARCHAR, MCPRegisterPromptTemplateFunction);
-	loader.RegisterFunction(register_prompt_template_func);
+	RegisterScalar(loader, register_prompt_template_func, ScalarErrors::SWALLOWS_ALL);
 
 	auto list_prompt_templates_func =
 	    ScalarFunction("mcp_list_prompt_templates", {}, LogicalType::JSON(), MCPListPromptTemplatesFunction);
-	loader.RegisterFunction(list_prompt_templates_func);
+	RegisterScalar(loader, list_prompt_templates_func, ScalarErrors::SWALLOWS_ALL);
 
 	auto render_prompt_template_func =
 	    ScalarFunction("mcp_render_prompt_template", {LogicalType::VARCHAR, LogicalType::JSON()}, LogicalType::VARCHAR,
 	                   MCPRenderPromptTemplateFunction);
-	loader.RegisterFunction(render_prompt_template_func);
+	RegisterScalar(loader, render_prompt_template_func, ScalarErrors::SWALLOWS_ALL);
 
 	// Register MCP diagnostics functions
 	auto diagnostics_func = ScalarFunction("mcp_get_diagnostics", {}, LogicalType::JSON(), MCPGetDiagnosticsFunction);
-	loader.RegisterFunction(diagnostics_func);
+	RegisterScalar(loader, diagnostics_func, ScalarErrors::SWALLOWS_ALL);
 
 	// ========================================================================
 	// Register PRAGMA functions (side-effectful functions that produce no output)
@@ -2316,12 +2395,12 @@ static void LoadInternal(ExtensionLoader &loader) {
 
 	// mcp_webmcp_sync() - re-sync tools with navigator.modelContext after publishing new tools/resources
 	auto webmcp_sync_func = ScalarFunction("mcp_webmcp_sync", {}, LogicalType::VARCHAR, MCPWebMCPSyncFunction);
-	loader.RegisterFunction(webmcp_sync_func);
+	RegisterScalar(loader, webmcp_sync_func, ScalarErrors::SWALLOWS_ALL);
 
 	// webmcp_list_page_tools() - list tools registered by other page scripts
 	auto webmcp_list_page_tools_func =
 	    ScalarFunction("webmcp_list_page_tools", {}, LogicalType::JSON(), WebMCPListPageToolsFunction);
-	loader.RegisterFunction(webmcp_list_page_tools_func);
+	RegisterScalar(loader, webmcp_list_page_tools_func, ScalarErrors::SWALLOWS_ALL);
 #endif // __EMSCRIPTEN__
 }
 

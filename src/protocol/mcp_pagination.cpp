@@ -1,4 +1,5 @@
 #include "protocol/mcp_pagination.hpp"
+#include "duckdb_compat.hpp"
 #include "protocol/mcp_message.hpp"
 #ifndef __EMSCRIPTEN__
 #include "protocol/mcp_connection.hpp"
@@ -39,7 +40,7 @@ MCPPaginationResult MCPPaginationResult::FromValue(const Value &value) {
 	auto &struct_children = StructValue::GetChildren(value);
 
 	for (idx_t i = 0; i < struct_children.size(); i++) {
-		auto field_name = StructType::GetChildName(value.type(), i);
+		auto field_name = CompatStructFieldName(value.type(), i);
 		auto &child = struct_children[i];
 
 		if (field_name == "items" && child.type().id() == LogicalTypeId::LIST) {

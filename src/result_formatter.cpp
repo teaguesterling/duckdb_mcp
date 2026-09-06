@@ -1,4 +1,5 @@
 #include "result_formatter.hpp"
+#include "duckdb_compat.hpp"
 
 namespace duckdb {
 
@@ -130,8 +131,8 @@ string ResultFormatter::FormatAsJSON(QueryResult &result) {
 			for (idx_t col = 0; col < chunk->ColumnCount(); col++) {
 				if (col > 0)
 					json += ",";
-				json += "\"" + EscapeJsonString(result.names[col]) + "\":";
-				AppendJsonValue(json, chunk->GetValue(col, i), result.types[col]);
+				json += "\"" + EscapeJsonString(CompatNameStr(CompatResultNames(result)[col])) + "\":";
+				AppendJsonValue(json, chunk->GetValue(col, i), CompatResultTypes(result)[col]);
 			}
 			json += "}";
 		}
@@ -149,8 +150,8 @@ string ResultFormatter::FormatAsJSONL(QueryResult &result) {
 			for (idx_t col = 0; col < chunk->ColumnCount(); col++) {
 				if (col > 0)
 					jsonl += ",";
-				jsonl += "\"" + EscapeJsonString(result.names[col]) + "\":";
-				AppendJsonValue(jsonl, chunk->GetValue(col, i), result.types[col]);
+				jsonl += "\"" + EscapeJsonString(CompatNameStr(CompatResultNames(result)[col])) + "\":";
+				AppendJsonValue(jsonl, chunk->GetValue(col, i), CompatResultTypes(result)[col]);
 			}
 			jsonl += "}\n";
 		}
@@ -185,10 +186,10 @@ string ResultFormatter::FormatAsCSV(QueryResult &result) {
 	string csv;
 
 	// Header
-	for (idx_t col = 0; col < result.names.size(); col++) {
+	for (idx_t col = 0; col < CompatResultNames(result).size(); col++) {
 		if (col > 0)
 			csv += ",";
-		csv += QuoteCSVField(result.names[col]);
+		csv += QuoteCSVField(CompatNameStr(CompatResultNames(result)[col]));
 	}
 	csv += "\n";
 
@@ -221,7 +222,7 @@ string ResultFormatter::EscapeMarkdownCell(const string &input) {
 
 string ResultFormatter::FormatAsMarkdown(QueryResult &result) {
 	string md;
-	idx_t num_cols = result.names.size();
+	idx_t num_cols = CompatResultNames(result).size();
 
 	if (num_cols == 0) {
 		return "(empty result)";
@@ -230,14 +231,14 @@ string ResultFormatter::FormatAsMarkdown(QueryResult &result) {
 	// Header row
 	md += "|";
 	for (idx_t col = 0; col < num_cols; col++) {
-		md += " " + EscapeMarkdownCell(result.names[col]) + " |";
+		md += " " + EscapeMarkdownCell(CompatNameStr(CompatResultNames(result)[col])) + " |";
 	}
 	md += "\n";
 
 	// Separator row with alignment hints
 	md += "|";
 	for (idx_t col = 0; col < num_cols; col++) {
-		bool is_numeric = result.types[col].IsNumeric();
+		bool is_numeric = CompatResultTypes(result)[col].IsNumeric();
 		if (is_numeric) {
 			md += "---:|"; // Right-align numeric columns
 		} else {

@@ -1,4 +1,5 @@
 #include "client/mcp_storage_extension.hpp"
+#include "duckdb_compat.hpp"
 #include "mcp_instance_state.hpp"
 #include "protocol/mcp_connection.hpp"
 #include "protocol/mcp_transport.hpp"
@@ -91,7 +92,9 @@ shared_ptr<MCPConnection> MCPStorageExtension::CreateMCPConnection(DatabaseInsta
 	auto transport = make_uniq<StdioTransport>(transport_config);
 
 	// Create connection (registration happens in RegisterMCPConnection)
-	auto connection = make_shared_ptr<MCPConnection>(info.name, std::move(transport));
+	// AttachInfo::name is an Identifier on v2.0; reading it back out as a string
+	// is deliberate (MCPConnection stores the ATTACH alias verbatim).
+	auto connection = make_shared_ptr<MCPConnection>(CompatNameStr(info.name), std::move(transport));
 	return connection;
 }
 
