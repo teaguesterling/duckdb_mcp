@@ -93,6 +93,24 @@ SELECT mcp_call_tool('server', 'analyze', '{"dataset": "sales"}');
 | `export` | Export query results to files |
 | `execute` | Run DDL/DML statements (disabled by default) |
 
+Each is individually switchable in the server config, and `builtin_tools` turns
+the whole set off at once — for a server that should publish only its own
+curated tools:
+
+```sql
+-- Publish only what mcp_publish_tool registered; no query/export/describe/...
+PRAGMA mcp_server_start('stdio', 'localhost', 0, '{"builtin_tools": false}');
+
+-- Or keep just one of them
+PRAGMA mcp_server_start('stdio', 'localhost', 0,
+    '{"builtin_tools": false, "enable_query_tool": true}');
+```
+
+An explicit `enable_<tool>_tool` always wins over `builtin_tools`, whichever
+order they appear in. `builtin_tools: true` means the *default* set, so it never
+switches on `execute`. See
+[configuration reference](https://duckdb-mcp.readthedocs.io/reference/configuration/#tool-enabledisable-options).
+
 ## Publishing Custom Tools
 
 ```sql

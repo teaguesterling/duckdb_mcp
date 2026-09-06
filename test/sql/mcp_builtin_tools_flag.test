@@ -1,0 +1,295 @@
+# name: test/sql/mcp_builtin_tools_flag.test
+# description: builtin_tools flag suppresses the built-in tool set; explicit per-tool flags override it
+# group: [sql]
+
+# Reproduce-first test for issue #75. A server that publishes a curated tool
+# still advertised `query`/`export`/etc., and the reporter could not find the
+# per-tool `enable_*_tool` keys (they are real, but were documented only in
+# configuration.md and security.md). `builtin_tools` is a blanket alias over
+# those flags.
+#
+# Semantics under test:
+#   builtin_tools:false -> every built-in tool off
+#   builtin_tools:true  -> the DEFAULT built-in set, which does NOT include
+#                          `execute` (opt-in for safety)
+#   an explicit enable_*_tool key ALWAYS overrides the blanket flag, whichever
+#                          order the two appear in the JSON object
+#
+# Assertions look for `"name":"<tool>"` in tools/list rather than a bare
+# substring, so a description mentioning a tool cannot make a test pass.
+
+require duckdb_mcp
+
+statement ok
+LOAD duckdb_mcp;
+
+statement ok
+SELECT mcp_server_stop(true);
+
+statement ok
+CREATE TABLE never_meant_to_expose AS SELECT 1 AS id, 'secret' AS v;
+
+# =============================================================================
+# Baseline: with no flag, the default built-in set is advertised.
+# =============================================================================
+
+# NOTE: publications are queued and drained when the server starts, so the
+# curated tool is re-published before each start rather than once up front.
+
+statement ok
+SELECT mcp_publish_tool(
+    'curated_tool',
+    'The only tool this server means to publish',
+    'SELECT 42 AS answer',
+    '{}',
+    '[]',
+    'markdown'
+);
+
+statement ok
+SELECT mcp_server_start('memory');
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}') LIKE '%"name":"query"%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}') LIKE '%"name":"curated_tool"%';
+----
+true
+
+# `execute` is opt-in and must not be present by default.
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":3,"method":"tools/list","params":{}}') NOT LIKE '%"name":"execute"%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# CORE 1: builtin_tools:false leaves only the published tool.
+# =============================================================================
+# Pre-fix the key is ignored, so `query` is still advertised (RED).
+
+statement ok
+SELECT mcp_publish_tool(
+    'curated_tool',
+    'The only tool this server means to publish',
+    'SELECT 42 AS answer',
+    '{}',
+    '[]',
+    'markdown'
+);
+
+statement ok
+SELECT mcp_server_start('memory', 'localhost', 0, '{"builtin_tools": false}');
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":10,"method":"tools/list","params":{}}') NOT LIKE '%"name":"query"%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":11,"method":"tools/list","params":{}}') NOT LIKE '%"name":"export"%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":12,"method":"tools/list","params":{}}') NOT LIKE '%"name":"describe"%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":13,"method":"tools/list","params":{}}') NOT LIKE '%"name":"list_tables"%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":14,"method":"tools/list","params":{}}') NOT LIKE '%"name":"database_info"%';
+----
+true
+
+# The curated tool survives -- this is a suppression of built-ins, not of everything.
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":15,"method":"tools/list","params":{}}') LIKE '%"name":"curated_tool"%';
+----
+true
+
+# A client that skips tools/list and calls `query` directly is refused too.
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":16,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM never_meant_to_expose"}}}') LIKE '%Tool not found%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":17,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM never_meant_to_expose"}}}') NOT LIKE '%secret%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# CORE 2: an explicit enable_*_tool key overrides the blanket flag.
+# =============================================================================
+# "everything off except query" must not silently ignore the enable_query_tool
+# the user wrote. This is the combination a user hits and the one a naive
+# implementation gets wrong in silence.
+
+statement ok
+SELECT mcp_publish_tool(
+    'curated_tool',
+    'The only tool this server means to publish',
+    'SELECT 42 AS answer',
+    '{}',
+    '[]',
+    'markdown'
+);
+
+statement ok
+SELECT mcp_server_start('memory', 'localhost', 0, '{"builtin_tools": false, "enable_query_tool": true}');
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":20,"method":"tools/list","params":{}}') LIKE '%"name":"query"%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":21,"method":"tools/list","params":{}}') NOT LIKE '%"name":"export"%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":22,"method":"tools/list","params":{}}') NOT LIKE '%"name":"database_info"%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# CORE 3: precedence is independent of JSON key order.
+# =============================================================================
+# Same two keys, reversed. A blanket flag applied *after* the specific one
+# would clobber it and this would differ from CORE 2.
+
+statement ok
+SELECT mcp_publish_tool(
+    'curated_tool',
+    'The only tool this server means to publish',
+    'SELECT 42 AS answer',
+    '{}',
+    '[]',
+    'markdown'
+);
+
+statement ok
+SELECT mcp_server_start('memory', 'localhost', 0, '{"enable_query_tool": true, "builtin_tools": false}');
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":30,"method":"tools/list","params":{}}') LIKE '%"name":"query"%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":31,"method":"tools/list","params":{}}') NOT LIKE '%"name":"export"%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# CORE 4: builtin_tools:true restores the DEFAULT set, and never enables execute.
+# =============================================================================
+# `execute` runs DDL/DML and is deliberately opt-in. A blanket "true" must not
+# turn it on -- that would be a security regression hiding behind a convenience
+# flag.
+
+statement ok
+SELECT mcp_publish_tool(
+    'curated_tool',
+    'The only tool this server means to publish',
+    'SELECT 42 AS answer',
+    '{}',
+    '[]',
+    'markdown'
+);
+
+statement ok
+SELECT mcp_server_start('memory', 'localhost', 0, '{"builtin_tools": true}');
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":40,"method":"tools/list","params":{}}') LIKE '%"name":"query"%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":41,"method":"tools/list","params":{}}') NOT LIKE '%"name":"execute"%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# CORE 5: an explicit enable_execute_tool still wins over builtin_tools:false.
+# =============================================================================
+# Same precedence rule, applied to the opt-in tool: the blanket flag sets the
+# baseline, the specific key decides.
+
+statement ok
+SELECT mcp_publish_tool(
+    'curated_tool',
+    'The only tool this server means to publish',
+    'SELECT 42 AS answer',
+    '{}',
+    '[]',
+    'markdown'
+);
+
+statement ok
+SELECT mcp_server_start('memory', 'localhost', 0, '{"builtin_tools": false, "enable_execute_tool": true}');
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":50,"method":"tools/list","params":{}}') LIKE '%"name":"execute"%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":51,"method":"tools/list","params":{}}') NOT LIKE '%"name":"query"%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# =============================================================================
+# Non-boolean values are ignored, matching every other flag in this config.
+# =============================================================================
+
+statement ok
+SELECT mcp_publish_tool(
+    'curated_tool',
+    'The only tool this server means to publish',
+    'SELECT 42 AS answer',
+    '{}',
+    '[]',
+    'markdown'
+);
+
+statement ok
+SELECT mcp_server_start('memory', 'localhost', 0, '{"builtin_tools": "false"}');
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":60,"method":"tools/list","params":{}}') LIKE '%"name":"query"%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);
+
+statement ok
+DROP TABLE IF EXISTS never_meant_to_expose;

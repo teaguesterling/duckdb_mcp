@@ -20,12 +20,44 @@ Control which tools are exposed to MCP clients:
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
+| `builtin_tools` | boolean | `true` | Blanket switch for the whole built-in set (see below) |
 | `enable_query_tool` | boolean | `true` | Enable SQL SELECT queries |
 | `enable_describe_tool` | boolean | `true` | Enable schema description |
 | `enable_list_tables_tool` | boolean | `true` | Enable table listing |
 | `enable_database_info_tool` | boolean | `true` | Enable database info |
 | `enable_export_tool` | boolean | `true` | Enable data export |
 | `enable_execute_tool` | boolean | `false` | Enable DDL/DML execution |
+
+#### Publishing only your own tools
+
+A server that publishes a curated tool with `mcp_publish_tool()` usually does not
+want to also hand clients arbitrary SQL through `query`. `builtin_tools: false`
+turns the entire built-in set off in one key:
+
+```sql
+PRAGMA mcp_publish_tool('semantic_query', '...', '...', '...', '...', 'markdown');
+PRAGMA mcp_server_start('stdio', 'localhost', 0, '{"builtin_tools": false}');
+```
+
+`tools/list` then returns only `semantic_query`, and `tools/call` on a built-in
+name is refused with *Tool not found*.
+
+**Precedence.** `builtin_tools` sets the baseline; an explicitly written
+`enable_<tool>_tool` always overrides it. So "everything off except `query`" is:
+
+```sql
+PRAGMA mcp_server_start('stdio', 'localhost', 0,
+    '{"builtin_tools": false, "enable_query_tool": true}');
+```
+
+The two keys may appear in either order — JSON object key order does not affect
+the result.
+
+!!! note "`builtin_tools: true` means the *default* set"
+    It restores `query`, `describe`, `list_tables`, `database_info` and `export`
+    — but **not** `execute`, which runs DDL/DML and stays opt-in. Enabling
+    `execute` always takes an explicit `enable_execute_tool: true`, so a
+    convenience flag can never switch it on by accident.
 
 ### Execute Tool Granular Control
 

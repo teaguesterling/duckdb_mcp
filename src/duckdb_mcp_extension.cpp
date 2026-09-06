@@ -547,6 +547,31 @@ static Value MCPServerStartCore(ClientContext &context, const string &transport,
 				// Parse max_requests
 				server_config.max_requests = static_cast<uint32_t>(JSONUtils::GetInt(root, "max_requests", 0));
 
+				// Blanket built-in tool switch (issue #75). This is an alias over the
+				// individual enable_*_tool flags below, for the common "publish a
+				// curated tool and nothing else" case.
+				//
+				//   false -> every built-in tool off
+				//   true  -> the DEFAULT built-in set, which deliberately does NOT
+				//            include `execute`: it runs DDL/DML and stays opt-in, so
+				//            a convenience flag must never switch it on.
+				//
+				// Applied BEFORE the individual flags so that an explicitly written
+				// enable_*_tool key always wins over the blanket one, regardless of
+				// where the two sit in the JSON object. Order-independence matters:
+				// JSON object key order is not meaningful and must not change config.
+				yyjson_val *builtin_tools_val = yyjson_obj_get(root, "builtin_tools");
+				if (builtin_tools_val && yyjson_is_bool(builtin_tools_val)) {
+					const bool builtin_tools = yyjson_get_bool(builtin_tools_val);
+					server_config.enable_query_tool = builtin_tools;
+					server_config.enable_describe_tool = builtin_tools;
+					server_config.enable_export_tool = builtin_tools;
+					server_config.enable_list_tables_tool = builtin_tools;
+					server_config.enable_database_info_tool = builtin_tools;
+					// Not `builtin_tools`: `execute` is not part of the default set.
+					server_config.enable_execute_tool = false;
+				}
+
 				// Parse tool enable/disable flags
 				yyjson_val *val = yyjson_obj_get(root, "enable_query_tool");
 				if (val && yyjson_is_bool(val)) {
