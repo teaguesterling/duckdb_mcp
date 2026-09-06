@@ -135,4 +135,4 @@ PRAGMA mcp_publish_tool(
 
 ## License
 
-MIT License - see [LICENSE](https://github.com/teaguesterling/duckdb_mcp/blob/main/LICENSE) for details.
+Apache License 2.0 - see [LICENSE](https://github.com/teaguesterling/duckdb_mcp/blob/main/LICENSE) and [NOTICE](https://github.com/teaguesterling/duckdb_mcp/blob/main/NOTICE) for details.
