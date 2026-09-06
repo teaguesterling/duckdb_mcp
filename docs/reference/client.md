@@ -2,6 +2,14 @@
 
 These functions are used when DuckDB acts as an MCP client, connecting to external MCP servers.
 
+!!! warning "Platform support"
+    MCP **client** connections require spawning the server as a child process over
+    stdio, which is not implemented on Windows
+    ([#67](https://github.com/teaguesterling/duckdb_mcp/issues/67)); `stdio` is
+    currently the only client transport, so `ATTACH ... (TYPE mcp)` is unavailable
+    on Windows. Run DuckDB under WSL if you need to attach to an MCP server.
+    DuckDB-as-an-MCP-**server** (`mcp_server_start`) is unaffected.
+
 ## Connecting to MCP Servers
 
 ### ATTACH Statement

@@ -17,6 +17,23 @@
 
 namespace duckdb {
 
+#ifdef _WIN32
+namespace {
+
+//! Single source of truth for the "no MCP client on Windows" diagnostic.
+//! Kept deliberately concrete: the previous "not supported on Windows yet"
+//! left users guessing whether the extension, the transport, or their command
+//! was at fault, and offered no way forward. See issue #67.
+const char *WindowsStdioUnsupportedMessage() {
+	return "MCP client connections are not available on Windows: stdio is the only client transport and "
+	       "spawning a child MCP server process is not implemented (see "
+	       "https://github.com/teaguesterling/duckdb_mcp/issues/67). Run DuckDB under WSL to attach to an "
+	       "MCP server. Server mode (mcp_server_start) is unaffected and works on Windows.";
+}
+
+} // namespace
+#endif
+
 StdioTransport::StdioTransport(const StdioConfig &config)
     : config(config), connected(false), process_pid(-1), process_reaped(false), stdin_fd(-1), stdout_fd(-1),
       stderr_fd(-1) {
@@ -150,8 +167,11 @@ string StdioTransport::GetConnectionInfo() const {
 
 bool StdioTransport::StartProcess() {
 #ifdef _WIN32
-	// Windows process creation not implemented yet
-	throw NotImplementedException("Stdio transport not supported on Windows yet");
+	// Windows child-process creation is not implemented. Doing it properly needs
+	// CreateProcess + named pipes with overlapped I/O (anonymous pipes cannot be
+	// polled with a timeout), a Job Object so orphaned servers die with DuckDB,
+	// and Windows-specific argv quoting -- see issue #67.
+	throw NotImplementedException(WindowsStdioUnsupportedMessage());
 #else
 	int stdin_pipe[2], stdout_pipe[2], stderr_pipe[2];
 
@@ -349,7 +369,8 @@ bool StdioTransport::StartProcess() {
 
 void StdioTransport::StopProcess() {
 #ifdef _WIN32
-	// Windows process termination not implemented yet
+	// Unreachable: StartProcess() throws on Windows, so there is never a child
+	// process to stop. See issue #67.
 #else
 	int pid = process_pid.load();
 	if (pid > 0) {
@@ -392,7 +413,7 @@ void StdioTransport::StopProcess() {
 
 bool StdioTransport::IsProcessRunning() const {
 #ifdef _WIN32
-	return false; // Windows process checking not implemented yet
+	return false; // Unreachable: no child process is ever started on Windows (issue #67)
 #else
 	int pid = process_pid.load();
 	if (pid <= 0 || process_reaped.load()) {
@@ -419,7 +440,7 @@ bool StdioTransport::IsProcessRunning() const {
 
 void StdioTransport::WriteToProcess(const string &data) {
 #ifdef _WIN32
-	throw NotImplementedException("Stdio transport not supported on Windows yet");
+	throw NotImplementedException(WindowsStdioUnsupportedMessage());
 #else
 	if (stdin_fd < 0) {
 		throw IOException("Process stdin not available");
@@ -443,7 +464,7 @@ void StdioTransport::WriteToProcess(const string &data) {
 
 string StdioTransport::ReadFromProcess() {
 #ifdef _WIN32
-	throw NotImplementedException("Stdio transport not supported on Windows yet");
+	throw NotImplementedException(WindowsStdioUnsupportedMessage());
 #else
 	if (stdout_fd < 0) {
 		throw IOException("Process stdout not available");
@@ -498,7 +519,7 @@ string StdioTransport::ReadFromProcess() {
 
 bool StdioTransport::WaitForData(int timeout_ms) {
 #ifdef _WIN32
-	return false; // Windows polling not implemented yet
+	return false; // Unreachable: no child process is ever started on Windows (issue #67)
 #else
 	struct pollfd pfd;
 	pfd.fd = stdout_fd;

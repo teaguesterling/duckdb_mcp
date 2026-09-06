@@ -69,6 +69,11 @@ curl -X POST http://localhost:8080/mcp \
 
 ### As an MCP Client
 
+> **Windows:** MCP client connections are not available — attaching to a server
+> means spawning it over stdio, which is not implemented on Windows
+> ([#67](https://github.com/teaguesterling/duckdb_mcp/issues/67)). Use WSL.
+> Running DuckDB *as* an MCP server works on Windows.
+
 ```sql
 LOAD 'duckdb_mcp';
 
@@ -203,4 +208,4 @@ make test
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+Apache License 2.0 - see [LICENSE](LICENSE) and [NOTICE](NOTICE) for details.

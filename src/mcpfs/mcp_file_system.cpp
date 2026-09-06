@@ -6,8 +6,84 @@
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/common/open_file_info.hpp"
 #include "duckdb/common/types/timestamp.hpp"
+#include "duckdb/common/types/blob.hpp"
+#include "json_utils.hpp"
 
 namespace duckdb {
+
+namespace {
+
+//! Extract the file body from the JSON result of an MCP `resources/read` call.
+//!
+//! Per the MCP spec the result is `{"contents": [ ... ]}` where each entry is
+//! either a text content part (`"text"`) or a binary one (`"blob"`, base64).
+//! Every part is concatenated in order, newline-separated when a part does not
+//! already end in one, so line-oriented payloads (csv/jsonl) survive chunking.
+//!
+//! Returns false if the payload is not a recognisable `resources/read` result;
+//! the caller then falls back to exposing the raw JSON, as before.
+bool ExtractResourceContents(const string &json_result, string &out) {
+	yyjson_doc *doc = yyjson_read(json_result.c_str(), json_result.length(), 0);
+	if (!doc) {
+		return false;
+	}
+	DocGuard guard {doc};
+
+	yyjson_val *root = yyjson_doc_get_root(doc);
+	if (!root || !yyjson_is_obj(root)) {
+		return false;
+	}
+
+	yyjson_val *contents = yyjson_obj_get(root, "contents");
+	if (!contents || !yyjson_is_arr(contents)) {
+		return false;
+	}
+
+	string result;
+	bool found_any = false;
+
+	yyjson_arr_iter iter;
+	yyjson_arr_iter_init(contents, &iter);
+	yyjson_val *item;
+	while ((item = yyjson_arr_iter_next(&iter))) {
+		if (!yyjson_is_obj(item)) {
+			continue;
+		}
+
+		string part;
+		yyjson_val *text_val = yyjson_obj_get(item, "text");
+		if (text_val && yyjson_is_str(text_val)) {
+			part = string(yyjson_get_str(text_val), yyjson_get_len(text_val));
+		} else {
+			yyjson_val *blob_val = yyjson_obj_get(item, "blob");
+			if (!blob_val || !yyjson_is_str(blob_val)) {
+				continue;
+			}
+			string encoded(yyjson_get_str(blob_val), yyjson_get_len(blob_val));
+			try {
+				part = Blob::FromBase64(string_t(encoded));
+			} catch (const std::exception &) {
+				// Malformed base64: not a payload we can meaningfully decode.
+				return false;
+			}
+		}
+
+		if (found_any && !result.empty() && result.back() != '\n') {
+			result += '\n';
+		}
+		result += part;
+		found_any = true;
+	}
+
+	if (!found_any) {
+		return false;
+	}
+
+	out = std::move(result);
+	return true;
+}
+
+} // namespace
 
 // MCPFileHandle implementation
 
@@ -33,72 +109,14 @@ void MCPFileHandle::LoadResourceContent() {
 	try {
 		auto resource = connection->ReadResource(parsed_path.resource_uri);
 
-		// Extract the actual text content from the MCP JSON response
-		string json_response = resource.content;
+		// Extract the file body from the MCP `resources/read` result. If the
+		// payload is not a recognisable result, expose the raw JSON unchanged
+		// so callers still see *something* rather than an empty file.
 		string extracted_content;
-
-		// Look for pattern: "text":"..."
-		auto text_pos = json_response.find("\"text\":\"");
-		if (text_pos != string::npos) {
-			text_pos += 8; // len("\"text\":\"")
-			auto text_end = text_pos;
-
-			// Find the end of the text field, handling escaped quotes
-			bool escaped = false;
-			for (size_t i = text_pos; i < json_response.length(); i++) {
-				char c = json_response[i];
-				if (escaped) {
-					escaped = false;
-					continue;
-				}
-				if (c == '\\') {
-					escaped = true;
-					continue;
-				}
-				if (c == '"') {
-					text_end = i;
-					break;
-				}
-			}
-
-			if (text_end > text_pos) {
-				string escaped_text = json_response.substr(text_pos, text_end - text_pos);
-
-				// Unescape the content (handle \n, \t, \\, \")
-				for (size_t i = 0; i < escaped_text.length(); i++) {
-					if (escaped_text[i] == '\\' && i + 1 < escaped_text.length()) {
-						char next = escaped_text[i + 1];
-						if (next == 'n') {
-							extracted_content += '\n';
-							i++; // Skip the next character
-						} else if (next == 't') {
-							extracted_content += '\t';
-							i++; // Skip the next character
-						} else if (next == 'r') {
-							extracted_content += '\r';
-							i++; // Skip the next character
-						} else if (next == '\\') {
-							extracted_content += '\\';
-							i++; // Skip the next character
-						} else if (next == '"') {
-							extracted_content += '"';
-							i++; // Skip the next character
-						} else {
-							extracted_content += escaped_text[i];
-						}
-					} else {
-						extracted_content += escaped_text[i];
-					}
-				}
-
-				resource_content = extracted_content;
-			} else {
-				// Fallback: use the entire JSON response
-				resource_content = json_response;
-			}
+		if (ExtractResourceContents(resource.content, extracted_content)) {
+			resource_content = std::move(extracted_content);
 		} else {
-			// Fallback: use the entire JSON response
-			resource_content = json_response;
+			resource_content = resource.content;
 		}
 
 		content_loaded = true;
