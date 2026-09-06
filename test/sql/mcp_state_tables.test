@@ -114,6 +114,40 @@ SELECT uri, status FROM mcp_resources() ORDER BY uri;
 data://products	pending
 data://readme	pending
 
+# Per-vector size tracking (DuckDB v2.0 change class 18).
+#
+# These scans fill their output with DataChunk::SetValue, which writes AT AN
+# INDEX and does not advance a vector's size. On v2.0 DataChunk::SetCardinality
+# no longer sizes the child vectors either, so a scan that used it directly would
+# leave every column at size 0. CompatSetOutputCardinality forwards to
+# SetChildCardinality, which is what actually sizes them.
+#
+# The failure that shim prevents is SILENT, and this is the only assertion in the
+# suite that can see it. Readers that go through the CHUNK count -- count(*), the
+# printer, every other query in this file -- stay correct, so nothing else would
+# notice. IS NULL iterates the VECTOR's size, finds zero rows, writes nothing,
+# and the result buffer keeps its default `false`. The bug's signature is a
+# column that PRINTS as NULL while `IS NULL` on it returns false, in the same
+# result set.
+#
+# Two things about the shape of this query are load-bearing:
+#
+#   NO WHERE CLAUSE. A pushed-down filter routes through SelectFilteredRows,
+#   whose Reference/Slice sizes the vectors correctly on the way out -- so the
+#   filtered form passes with the bug still present. (The `WHERE name = ...`
+#   check on sql_template further up this file is exactly that shape, and guards
+#   nothing.) `rowsort` orders the rows client-side so the SQL stays a bare scan.
+#
+#   BOTH DIRECTIONS OF NULLNESS, ALONGSIDE A VALUE IN THE SAME ROW. Asserting
+#   only `IS NULL` -> true would be indistinguishable from a stuck `false` on the
+#   rows where the true answer happens to be false. Row 1 has NULL
+#   description/mime_type with a non-NULL format; row 2 has the reverse.
+query TIITIT rowsort
+SELECT uri, description IS NULL, mime_type IS NULL, source, format IS NULL, status FROM mcp_resources();
+----
+data://products	true	true	test_products	false	pending
+data://readme	false	false	Hello World	true	pending
+
 # =============================================================================
 # SECTION 4: After server start — tools become active
 # =============================================================================
