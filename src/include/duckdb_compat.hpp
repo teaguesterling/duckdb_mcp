@@ -9,87 +9,143 @@
 
 // duckdb_compat.hpp — fleet-standard cross-version shim for DuckDB extensions.
 //
-// Pattern established by @bendrucker in teaguesterling/duckdb_webbed#76 (May 2026):
-// detect the new API via __has_include of headers that moved in the same DuckDB
-// refactor ([duckdb/duckdb#22377](https://github.com/duckdb/duckdb/pull/22377) —
-// "mandatory per-vector size tracking" landed alongside the vector-buffer header
-// reshuffle), then dispatch via a single #ifdef block.
-//
 // Cross-version coverage:
-//   - duckdb v1.4.x / v1.5.x: old API everywhere
-//   - duckdb main / v1.6.x:   new API everywhere
+//   - duckdb v1.5.x (this extension's pin): old API everywhere
+//   - duckdb main / v2.0-cyanoptera:        new API everywhere
 //
-// See teaguesterling/duckdb_markdown's docs/DUCKDB_API_MIGRATION.md for the
-// long-form rationale + upgrade checklist for other extensions.
-
-#if __has_include("duckdb/common/vector/list_vector.hpp")
-#define DUCKDB_HAS_NEW_VECTOR_HEADERS 1
-#include "duckdb/common/vector/list_vector.hpp"
-#include "duckdb/common/vector/struct_vector.hpp"
-#endif
-
-namespace duckdb {
-
-#ifdef DUCKDB_HAS_NEW_VECTOR_HEADERS
-
-// --- Output chunk finalization ---
-// DuckDB main mandates per-vector Size() tracking; DataChunk::SetCardinality only
-// updates chunk.count. SetChildCardinality additionally calls FlatVector::SetSize
-// on every column so query operators reading vec.Size() see the right value.
-// Without this, VariadicExecutor (and similar) reports:
-//   "Mismatch in input vector sizes ... expected 0 rows but got N"
-inline void CompatSetOutputCardinality(DataChunk &chunk, idx_t count) {
-	chunk.SetChildCardinality(count);
-}
-
-// --- ScalarFunction property setters (fields are now private) ---
-inline void SetScalarFunctionNullHandling(ScalarFunction &func, FunctionNullHandling handling) {
-	func.SetNullHandling(handling);
-}
-
-// --- Constant folding workaround (from duckdb_webbed PR #76) ---
-// DuckDB main's VectorStructBuffer::SetVectorType throws InternalException when
-// the optimizer constant-folds functions returning STRUCT-containing types
-// (LIST(STRUCT), STRUCT, MAP) due to child size mismatches. Marking them
-// VOLATILE skips constant folding. Semantically correct for mcp_server_*
-// functions anyway — they have side effects (start/stop server, status).
-inline void PreventStructConstantFolding(ScalarFunction &func) {
-	func.SetStability(FunctionStability::VOLATILE);
-}
-
-#else // Old API (v1.4.x / v1.5.x)
-
-inline void CompatSetOutputCardinality(DataChunk &chunk, idx_t count) {
-	chunk.SetCardinality(count);
-}
-
-inline void SetScalarFunctionNullHandling(ScalarFunction &func, FunctionNullHandling handling) {
-	func.null_handling = handling;
-}
-
-// No-op on old API — constant folding works fine for complex types
-inline void PreventStructConstantFolding(ScalarFunction &) {
-}
-
-#endif
-
-//===--------------------------------------------------------------------===//
-// DuckDB v2.0 (main / v2.0-cyanoptera) shims
-//===--------------------------------------------------------------------===//
+// DETECT FEATURES, NOT VERSIONS -- AND NOT PROXY HEADERS EITHER.
 //
-// Everything below is detected by PROBING FOR THE THING ITSELF rather than by a
-// version macro or a proxy header, and each change is probed SEPARATELY. Tying
-// several changes to one macro silently picks the wrong branch the moment they
-// land in different releases -- which, as the CompatName note below records, has
-// already happened once on the v1.5 line.
+// An earlier revision of this header followed the shape established by
+// duckdb_webbed#76: `__has_include("duckdb/common/vector/list_vector.hpp")`,
+// then one `#ifdef` gating every shim at once. That is two mistakes compounded.
 //
-// The probes are written as tag dispatch rather than `if constexpr` so that this
+//  1. A header's PRESENCE is not the change you care about. DuckDB backports
+//     headers to the stable branch without the signature changes that shipped
+//     alongside them on main -- identifier.hpp did exactly that on
+//     v1.5-variegata -- so the probe flips to "new API" on a DuckDB that still
+//     has the old one, and every shim in the file picks the wrong branch at once.
+//  2. One macro for many changes assumes they always land together. They do not
+//     have to, and when they come apart the single #ifdef is guaranteed to be
+//     wrong about all but one of them.
+//
+// So: `#if __has_include(...)` appears below ONLY to decide whether a header can
+// be included, never to decide what an API looks like. Every behavioural shim is
+// selected by probing for the member or the type that actually changed, and each
+// change is probed SEPARATELY.
+//
+// The probes are written as tag dispatch rather than `if constexpr` so this
 // header also compiles at C++11: several extensions in this fleet build their
 // TUs at C++11 on purpose (forcing C++17 on the extension but not on libduckdb
 // gives static-const members in duckdb's headers implicit inline linkage in one
 // set of TUs and not the other, which produces multiple-definition link errors).
 // Tag dispatch has the property that matters here -- only the selected overload
 // is instantiated, so the branch naming an absent member is never compiled.
+//
+// See teaguesterling/duckdb_markdown's docs/duckdb_v2_migration.md for the
+// long-form rationale + upgrade checklist for other extensions.
+
+// v2.0 split the per-vector accessor classes out of
+// duckdb/common/types/vector.hpp into one header each under
+// duckdb/common/vector/, and duckdb.hpp no longer pulls them in transitively.
+// Included (not probed-on) so that TUs naming ListVector/StructVector at
+// namespace scope keep compiling; the absence of these headers is not used to
+// infer anything about any API.
+#if __has_include("duckdb/common/vector/list_vector.hpp")
+#include "duckdb/common/vector/list_vector.hpp"
+#endif
+#if __has_include("duckdb/common/vector/struct_vector.hpp")
+#include "duckdb/common/vector/struct_vector.hpp"
+#endif
+
+namespace duckdb {
+
+// --- Output chunk finalization (change class 18) ------------------------------
+// v2.0 gives every Vector its own size, and DataChunk::SetCardinality no longer
+// sets it -- it updates only the chunk's count. Vector::SetValue writes AT AN
+// INDEX and never advances a vector's size, so a table function that fills its
+// output with SetValue and then calls SetCardinality leaves every child vector
+// at size 0.
+//
+// The failure is SILENT, which is what makes it worth a shim rather than a fix
+// at the call site. Readers that go through the chunk count -- the printer,
+// scalar functions -- are correct, so casual testing passes. `IS NULL` iterates
+// the VECTOR's size, finds zero rows, writes nothing, and the result buffer
+// keeps its default `false`. So `SELECT c` prints NULL while `SELECT c IS NULL`
+// returns false, in the same result set, with no exception and a green build.
+//
+// SetChildCardinality is the call that sizes the children, and for an
+// index-writing caller it is REQUIRED, not merely safe. (It would be a no-op for
+// a caller that filled the chunk with Vector::Append, which advances v_size as
+// it goes -- this extension has no such caller: `grep -rn '\.Append(\|AppendValue' src/`
+// is empty, and every table-function scan here writes with DataChunk::SetValue.)
+//
+// Probed on the member itself. The header probe this replaced keyed off
+// list_vector.hpp, which shipped in the same upstream PR as per-vector size
+// tracking -- true today, and an assumption with no reason to keep holding.
+template <class T, class = void>
+struct CompatHasSetChildCardinality : std::false_type {};
+template <class T>
+struct CompatHasSetChildCardinality<T, decltype(void(std::declval<T &>().SetChildCardinality(idx_t(0))))>
+    : std::true_type {};
+
+// The Impl overloads MUST be templates. Tag dispatch only defers compilation of
+// the unselected branch when that branch is a template -- a non-template
+// overload naming an absent member is a hard error at declaration time,
+// whichever tag is passed. (Observed: "class duckdb::DataChunk has no member
+// named SetChildCardinality" on the pinned build, from the branch that is never
+// called there.)
+template <class CHUNK>
+inline void CompatSetOutputCardinalityImpl(CHUNK &chunk, idx_t count, std::true_type) {
+	chunk.SetChildCardinality(count);
+}
+template <class CHUNK>
+inline void CompatSetOutputCardinalityImpl(CHUNK &chunk, idx_t count, std::false_type) {
+	chunk.SetCardinality(count);
+}
+//! Finalise a table function's output chunk. Use this rather than
+//! DataChunk::SetCardinality anywhere the chunk was filled with SetValue.
+inline void CompatSetOutputCardinality(DataChunk &chunk, idx_t count) {
+	CompatSetOutputCardinalityImpl(chunk, count, CompatHasSetChildCardinality<DataChunk>());
+}
+
+// --- ScalarFunction property setters ------------------------------------------
+// v2.0 made BaseScalarFunction's property fields private behind accessors. The
+// accessors (SetNullHandling, SetStability, SetFallible, ...) are ALSO present
+// on the pinned v1.5 -- verified at function.hpp:192-217 of the pin -- so there
+// is nothing to branch on: call the accessor on both lines. Reaching for
+// `func.null_handling = ...` on v1.5 only creates a v2.0 compile error for no
+// benefit.
+inline void SetScalarFunctionNullHandling(ScalarFunction &func, FunctionNullHandling handling) {
+	func.SetNullHandling(handling);
+}
+
+// --- Constant folding workaround (from duckdb_webbed PR #76) ------------------
+// DuckDB main's VectorStructBuffer::SetVectorType throws InternalException when
+// the optimizer constant-folds a function returning a STRUCT-containing type
+// (LIST(STRUCT), STRUCT, MAP), because of the child-size mismatch described
+// above. Marking such a function VOLATILE skips constant folding.
+//
+// Deliberately still conditional, and deliberately NOT applied on the pinned
+// line: VOLATILE is optimizer-visible, and this shim exists to avoid a v2.0
+// crash rather than to restate a property. (An argument exists that mcp_server_*
+// should be VOLATILE on both lines on its own merits -- they start and stop a
+// server -- but that is a behaviour change to the shipped binary and belongs in
+// its own commit with its own measurement, not smuggled in under a compat shim.)
+//
+// Gated on the per-vector-size-tracking probe above rather than on a header,
+// because that IS the upstream change that produces the child-size mismatch.
+inline void PreventStructConstantFoldingImpl(ScalarFunction &func, std::true_type) {
+	func.SetStability(FunctionStability::VOLATILE);
+}
+inline void PreventStructConstantFoldingImpl(ScalarFunction &, std::false_type) {
+}
+inline void PreventStructConstantFolding(ScalarFunction &func) {
+	PreventStructConstantFoldingImpl(func, CompatHasSetChildCardinality<DataChunk>());
+}
+
+//===--------------------------------------------------------------------===//
+// DuckDB v2.0 (main / v2.0-cyanoptera) shims
+//===--------------------------------------------------------------------===//
 
 // --- Detection: does this DuckDB have duckdb::Identifier? --------------------
 // Needed only so that CompatNameStr can accept one. It is NOT used to decide
@@ -116,14 +172,34 @@ inline void PreventStructConstantFolding(ScalarFunction &) {
 //   main (v2.0):                         HAS identifier.hpp,  bind: vector<Identifier>
 //
 // So on the next submodule bump a header probe starts reporting "v2.0 names" on
-// a v1.5 that still wants strings, and every bind signature stops compiling. The
-// probe below cannot drift: CompatName is *defined as* whatever element type this
-// DuckDB's own bind input uses for column names.
+// a v1.5 that still wants strings, and every bind signature stops compiling.
+//
+// AND BE PRECISE ABOUT *WHICH* DECLARATION YOU DERIVE FROM. "Some container of
+// names in the same header" is the right kind of answer aimed at the wrong
+// thing. Three separate upstream declarations all flipped string -> Identifier
+// in v2.0 and they agree TODAY, but they are independent and can be changed,
+// backported or reverted one at a time:
+//
+//   table_function_bind_t's 4th parameter   <- the bind-name boundary (THIS one)
+//   TableFunctionBindInput::input_table_names <- names of INPUT TABLES to a
+//                                                table-in/table-out function
+//   child_list_t<T>'s key                   <- STRUCT FIELD names
+//
+// An earlier revision of this header read the type off `input_table_names`,
+// which is a sibling that happens to move in step. The thing this alias exists
+// to describe is the out-parameter every bind callback in this extension has to
+// declare, so derive it from the typedef of that callback itself. Then there is
+// no "happens to" left: the type named IS the type that changed, and every bind
+// signature follows automatically.
+template <class T>
+struct CompatBindNamesOf;
+template <class R, class A, class B, class C, class D>
+struct CompatBindNamesOf<R (*)(A, B, C, D)> {
+	using type = typename std::remove_reference<D>::type::value_type;
+};
 //! The type DuckDB uses for column names in bind signatures: `string` on v1.5,
-//! `Identifier` on v2.0. Read off the container's own value_type so it does not
-//! depend on duckdb::vector's template parameter list either.
-using CompatName = std::remove_reference<decltype(std::declval<TableFunctionBindInput &>()
-                                                      .input_table_names)>::type::value_type;
+//! `Identifier` on v2.0.
+using CompatName = CompatBindNamesOf<table_function_bind_t>::type;
 
 //! Read a name back out as a plain string. Both overloads exist wherever both
 //! types do; on v2.0 Identifier -> string is explicit, so this is the opt-in.
@@ -131,10 +207,21 @@ inline string CompatNameStr(const string &name) {
 	return name;
 }
 #ifdef DUCKDB_HAS_IDENTIFIER
+// Declares the Identifier overload only; it does NOT decide what CompatName is.
+// Both overloads coexist happily on a DuckDB that has Identifier but still binds
+// with strings -- which is exactly the v1.5 branch tip.
 inline string CompatNameStr(const Identifier &name) {
 	return name.GetIdentifierName();
 }
 #endif
+
+// PIN THE DERIVATION. Deriving CompatName fixes the type but leaves a second
+// failure mode open: CompatName could resolve to Identifier on a DuckDB whose
+// identifier.hpp this header did not find, so the overload above was never
+// declared -- and then CompatNameStr either fails to match or silently picks a
+// worse conversion. Assert the coupling rather than assuming it.
+static_assert(std::is_same<decltype(CompatNameStr(std::declval<const CompatName &>())), string>::value,
+              "CompatNameStr must accept the derived CompatName on every DuckDB line");
 
 //! Promote a RUNTIME string to a bind name. Literals need no helper --
 //! `names.emplace_back("file_path")` compiles unchanged on both versions,
@@ -226,18 +313,48 @@ struct CompatHasResultGetNames : std::false_type {};
 template <class T>
 struct CompatHasResultGetNames<T, decltype(void(std::declval<const T &>().GetNames()))> : std::true_type {};
 
+// DELIBERATELY NOT `vector<CompatName>`. Result column names and table-function
+// bind names are two DIFFERENT upstream declarations (change class 17 vs class
+// 2) that both flipped string -> Identifier in v2.0. They agree today, which is
+// exactly what makes writing `vector<CompatName>` here feel harmless -- and it
+// is the same mistake as probing identifier.hpp: it silently binds this shim's
+// correctness to a change it does not describe. Read the container type off the
+// result itself so the two can diverge without breaking either.
+//
+// A class-template specialisation rather than an overload pair: only the
+// selected specialisation is instantiated, so the v1.5 branch naming the (on
+// v2.0 private) `names` member is never compiled there, and there is no
+// overload-resolution substitution to reason about.
+template <class RESULT, bool HAS_ACCESSOR>
+struct CompatResultNamesTypeImpl;
 template <class RESULT>
-inline const vector<CompatName> &CompatResultNamesImpl(const RESULT &result, std::true_type) {
+struct CompatResultNamesTypeImpl<RESULT, true> {
+	using type = typename std::remove_const<
+	    typename std::remove_reference<decltype(std::declval<const RESULT &>().GetNames())>::type>::type;
+};
+template <class RESULT>
+struct CompatResultNamesTypeImpl<RESULT, false> {
+	using type = typename std::remove_const<
+	    typename std::remove_reference<decltype(std::declval<const RESULT &>().names)>::type>::type;
+};
+//! The container a query result stores its column names in: vector<string> on
+//! v1.5, vector<Identifier> on v2.0.
+template <class RESULT>
+struct CompatResultNamesType : CompatResultNamesTypeImpl<RESULT, CompatHasResultGetNames<RESULT>::value> {};
+
+template <class RESULT>
+inline const typename CompatResultNamesType<RESULT>::type &CompatResultNamesImpl(const RESULT &result, std::true_type) {
 	return result.GetNames();
 }
 template <class RESULT>
-inline const vector<CompatName> &CompatResultNamesImpl(const RESULT &result, std::false_type) {
+inline const typename CompatResultNamesType<RESULT>::type &CompatResultNamesImpl(const RESULT &result,
+                                                                                 std::false_type) {
 	return result.names;
 }
-//! The column names of a query result. Elements are CompatName -- run one through
-//! CompatNameStr to use it as a string.
+//! The column names of a query result. Run an element through CompatNameStr to
+//! use it as a string.
 template <class RESULT>
-inline const vector<CompatName> &CompatResultNames(const RESULT &result) {
+inline const typename CompatResultNamesType<RESULT>::type &CompatResultNames(const RESULT &result) {
 	return CompatResultNamesImpl(result, CompatHasResultGetNames<RESULT>());
 }
 
@@ -324,9 +441,8 @@ struct CompatHasNamedParamMapAccessor<T, decltype(void(std::declval<const T &>()
 //! The map type PreparedStatement::Execute accepts for named parameters.
 #ifdef DUCKDB_HAS_IDENTIFIER
 template <class VALUE>
-using CompatNamedParamMap =
-    typename std::conditional<CompatHasNamedParamMapAccessor<PreparedStatement>::value, identifier_map_t<VALUE>,
-                              case_insensitive_map_t<VALUE>>::type;
+using CompatNamedParamMap = typename std::conditional<CompatHasNamedParamMapAccessor<PreparedStatement>::value,
+                                                      identifier_map_t<VALUE>, case_insensitive_map_t<VALUE>>::type;
 #else
 template <class VALUE>
 using CompatNamedParamMap = case_insensitive_map_t<VALUE>;

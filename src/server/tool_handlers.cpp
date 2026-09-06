@@ -669,8 +669,7 @@ SQLToolHandler::SQLToolHandler(const string &name, const string &description, co
       db_instance(db), result_format(result_format) {
 }
 
-CompatNamedParamMap<BoundParameterData>
-SQLToolHandler::BuildNamedParameters(const JSONArgumentParser &parser) const {
+CompatNamedParamMap<BoundParameterData> SQLToolHandler::BuildNamedParameters(const JSONArgumentParser &parser) const {
 	CompatNamedParamMap<BoundParameterData> named_params;
 
 	// Build typed values for all schema properties

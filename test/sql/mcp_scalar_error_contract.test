@@ -1,0 +1,185 @@
+# name: test/sql/mcp_scalar_error_contract.test
+# description: MCP scalar functions report failures as VALUES, never as thrown errors
+# group: [sql]
+
+# WHY THIS TEST EXISTS (DuckDB v2.0 change class 13).
+#
+# Every scalar function in this extension wraps its work in
+# `catch (const std::exception &e)` and turns the failure into a value in the
+# result vector rather than throwing. That is a deliberate design, and it is also
+# the reason none of them is registered as CAN_THROW in RegisterScalar
+# (src/duckdb_mcp_extension.cpp): a function that cannot let an INVALID_INPUT /
+# OUT_OF_RANGE / CONVERSION exception escape does not need SetFallible(), and
+# declaring one that does not need it makes the planner needlessly conservative
+# around it on the pinned v1.5 line as well as on v2.0.
+#
+# That reasoning is only as good as the invariant it rests on, and the invariant
+# is invisible: deleting a try/catch, or hoisting a throwing call above one,
+# compiles fine and breaks nothing that any other test looks at. On DuckDB v2.0
+# the symptom would be a user-facing
+#
+#   INTERNAL Error: Scalar function "..." threw an execution error, but the
+#   function is not marked as fallible - the function must call SetFallible().
+#
+# So each assertion below is `query`, never `statement error`: the whole point is
+# that the statement SUCCEEDS and the error arrives as a string. If one of these
+# starts raising instead, this test fails on BOTH DuckDB lines, at the commit
+# that broke it, rather than silently on someone's v2.0 build.
+#
+# If you make one of these functions genuinely throw, that is allowed -- change
+# its verdict to ScalarErrors::CAN_THROW and change the assertion here to match.
+
+# The ::VARCHAR casts are load-bearing: several of these return LogicalType::JSON(),
+# and the unittest binary does not have the json extension loaded, so JSON has no
+# implicit cast to VARCHAR there and `LIKE` fails to bind. The cast keeps the
+# assertion about the VALUE rather than about which extensions happen to be loaded.
+
+require duckdb_mcp
+
+statement ok
+LOAD duckdb_mcp;
+
+# ---- Client-side functions against a server that was never attached ----
+# registry.GetConnection() returns null, the body throws InvalidInputException
+# (an EXECUTION-class type -- exactly the kind v2.0 polices), and the handler
+# converts it to a string. Nothing escapes.
+
+query I
+SELECT mcp_get_resource('no_such_server', 'file:///x')::VARCHAR LIKE 'ERROR:%not attached%';
+----
+true
+
+query I
+SELECT mcp_list_resources('no_such_server')::VARCHAR LIKE 'ERROR:%not attached%';
+----
+true
+
+query I
+SELECT mcp_list_tools('no_such_server')::VARCHAR LIKE 'ERROR:%not attached%';
+----
+true
+
+query I
+SELECT mcp_list_prompts('no_such_server')::VARCHAR LIKE 'ERROR:%not attached%';
+----
+true
+
+query I
+SELECT mcp_call_tool('no_such_server', 'some_tool', '{}')::VARCHAR LIKE 'ERROR:%not attached%';
+----
+true
+
+query I
+SELECT mcp_get_prompt('no_such_server', 'some_prompt', '{}')::VARCHAR LIKE 'ERROR:%not attached%';
+----
+true
+
+# The cursor overloads are separate implementations with their own handlers, and
+# they format the swallowed error as a JSON object rather than an ERROR: string.
+query I
+SELECT mcp_list_resources('no_such_server', 'cursor123')::VARCHAR LIKE '%not attached%';
+----
+true
+
+query I
+SELECT mcp_list_tools('no_such_server', 'cursor123')::VARCHAR LIKE '%not attached%';
+----
+true
+
+query I
+SELECT mcp_list_prompts('no_such_server', 'cursor123')::VARCHAR LIKE '%not attached%';
+----
+true
+
+query I
+SELECT mcp_reconnect_server('no_such_server') LIKE 'ERROR:%';
+----
+true
+
+# ---- Prompt templates: an unknown name is reported, not raised ----
+
+query I
+SELECT mcp_render_prompt_template('no_such_template', '{}') LIKE 'Error:%';
+----
+true
+
+# ---- An InvalidInputException raised internally must not escape ----
+# This is the sharpest assertion in the file for change class 13. Parsing
+# '{"bogus":' raises an InvalidInputException -- ExceptionType::INVALID_INPUT,
+# one of the exact three types Exception::IsExecutionError() recognises -- deep
+# inside the request handler. The handler catches it and renders it as a JSON-RPC
+# error object. If that catch ever went away, this is the function v2.0 would
+# rewrite into "not marked as fallible", and this assertion is what notices.
+
+query I
+SELECT mcp_server_test('{"bogus":') LIKE '%Failed to parse JSON%';
+----
+true
+
+# ---- Publishing with an unusable argument ----
+# The format string is validated inside the try, so an invalid one comes back as
+# a value rather than as a raised error.
+
+query I
+SELECT mcp_publish_tool(
+    'contract_bad_format',
+    'Should be reported, not raised',
+    'SELECT 1',
+    '{}',
+    '[]',
+    'not_a_real_format'
+) LIKE 'ERROR:%Unsupported format%';
+----
+true
+
+query I
+SELECT mcp_publish_table('no_such_table_xyz', 'mcp://x', 'json') LIKE 'ERROR:%not found%';
+----
+true
+
+query I
+SELECT mcp_server_health('no_such_server') LIKE 'ERROR:%';
+----
+true
+
+# ---- Server lifecycle functions return a status STRUCT, never an exception ----
+# These are the four functions with no try in the body at all; their work is done
+# inside MCPServerStartCore / MCPServerStopCore, which are wrapped end to end.
+
+query I
+SELECT (mcp_server_start('no_such_transport')).success;
+----
+false
+
+query I
+SELECT (mcp_server_start('no_such_transport', '{}')).success;
+----
+false
+
+query I
+SELECT (mcp_server_stop()).success IS NOT NULL;
+----
+true
+
+query I
+SELECT (mcp_server_stop(true)).success;
+----
+true
+
+query I
+SELECT (mcp_server_status()).success IS NOT NULL;
+----
+true
+
+# ---- Multi-row: the handlers live inside the per-row loop ----
+# A single bad row must not take out the whole vector, and the good rows must
+# still be produced. This is the shape that would break first if a try were
+# hoisted out of the loop.
+
+query I
+SELECT count(*) FROM (
+    SELECT mcp_get_resource(s, 'file:///x')::VARCHAR AS r
+    FROM (VALUES ('no_such_server'), ('also_missing'), ('third_missing')) t(s)
+) WHERE r LIKE 'ERROR:%';
+----
+3
