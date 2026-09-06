@@ -96,11 +96,24 @@ PRAGMA mcp_publish_tool(
     '[]'
 );
 
--- Start the server with the general query tool disabled
-PRAGMA mcp_server_start('stdio', '{
-    "enable_query_tool": false
+-- Start the server with every built-in tool suppressed, so `get_public_stats`
+-- is the entire published surface.
+PRAGMA mcp_server_start('stdio', 'localhost', 0, '{
+    "builtin_tools": false
 }');
 ```
+
+!!! warning "Disable the whole set, not just `query`"
+    Turning off `enable_query_tool` alone still leaves `export` — which also
+    takes an arbitrary SQL `query` argument — and `describe`, `list_tables` and
+    `database_info`, which disclose schema. `builtin_tools: false` closes all of
+    them in one key. If you do want to keep one, name it explicitly; the
+    specific flag overrides the blanket one:
+
+    ```sql
+    PRAGMA mcp_server_start('stdio', 'localhost', 0,
+        '{"builtin_tools": false, "enable_describe_tool": true}');
+    ```
 
 ### Validate and Sanitize Inputs
 
