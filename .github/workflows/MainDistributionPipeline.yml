@@ -97,3 +97,11 @@ jobs:
         run: |
           chmod +x test/http/test_http_transport.sh
           ./test/http/test_http_transport.sh
+
+      # Guards the stdio protocol stream against stray writes to fd 1 (issue #74).
+      # The failure this catches is silent — a successful response is dropped by the
+      # peer rather than an error being raised — so it has to be asserted explicitly.
+      - name: Run stdio stdout hygiene tests
+        run: |
+          chmod +x test/stdio/test_stdio_stdout_hygiene.sh
+          ./test/stdio/test_stdio_stdout_hygiene.sh
