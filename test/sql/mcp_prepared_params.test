@@ -368,6 +368,118 @@ SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":60,"method":"tools/call","
 true
 
 # =============================================================================
+# PREP-12: Table function arguments — the shape reported in issue #71
+#
+# The report claimed $param "is not replaced" in a table function argument, on the
+# theory that "table functions are resolved at parse time, not execution time".
+# That is not how DuckDB binds them: a statement whose table function arguments
+# contain unresolved parameters is re-bound at execution time with the supplied
+# values. PREP-07 and PREP-08 pin the simple positional and named-argument cases;
+# this section pins the harder shapes the report actually used, so the claim
+# cannot quietly become true again:
+#
+#   - the parameter in a NON-FIRST positional slot, flanked by CAST'd constants
+#   - the parameter as the first argument of an OVERLOADED table function, where
+#     the overload cannot be chosen until the value is known
+#   - a scalar EXPRESSION (not a literal) in the first argument slot, with both a
+#     hardcoded and a parameterized named argument alongside
+# =============================================================================
+
+statement ok
+COPY (SELECT * FROM (VALUES (1, 'iota'), (2, 'kappa')) t(id, label)) TO '__TEST_DIR__/tf71.csv' (HEADER);
+
+# --- parameter in a middle positional slot -----------------------------------
+
+query I
+SELECT mcp_publish_tool(
+    'tf71_middle_slot',
+    'Parameter in a non-first positional argument, between CAST constants',
+    'SELECT * FROM range(CAST(0 AS BIGINT), $n, CAST(1 AS BIGINT))',
+    '{"n": {"type": "integer", "description": "Exclusive upper bound"}}',
+    '["n"]'
+) LIKE 'SUCCESS%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":100,"method":"tools/call","params":{"name":"tf71_middle_slot","arguments":{"n":3}}}') LIKE '%\"range\":2%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":101,"method":"tools/call","params":{"name":"tf71_middle_slot","arguments":{"n":3}}}') NOT LIKE '%\"range\":3%';
+----
+true
+
+# A different value must re-bind rather than reuse the first call's plan
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":102,"method":"tools/call","params":{"name":"tf71_middle_slot","arguments":{"n":6}}}') LIKE '%\"range\":5%';
+----
+true
+
+# --- parameter as the first argument of an overloaded table function ---------
+# read_csv is a function SET: read_csv(VARCHAR, ...) and read_csv(VARCHAR[], ...).
+# The overload cannot be picked from an unresolved parameter, so this is the case
+# the report's "resolved at parse time" theory would have broken.
+
+query I
+SELECT mcp_publish_tool(
+    'tf71_overloaded_path',
+    'Parameter as the first argument of an overloaded table function',
+    'SELECT * FROM read_csv($path, header := true)',
+    '{"path": {"type": "string", "description": "CSV path"}}',
+    '["path"]'
+) LIKE 'SUCCESS%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":110,"method":"tools/call","params":{"name":"tf71_overloaded_path","arguments":{"path":"__TEST_DIR__/tf71.csv"}}}') LIKE '%kappa%';
+----
+true
+
+# --- scalar expression in the argument slot, hardcoded + parameterized named args
+# The reported template composed its first argument with getenv() and hardcoded
+# several named arguments while parameterizing others. getenv() needs an
+# environment this test cannot set, so concat() stands in for it: what matters is
+# that the slot holds an expression to fold rather than a literal.
+
+query I
+SELECT mcp_publish_tool(
+    'tf71_expr_and_named',
+    'Expression in the path slot, one hardcoded and one bound named argument',
+    'SELECT * FROM read_csv(concat(''__TEST_DIR__'', ''/tf71.csv''), header := true, all_varchar := $av)',
+    '{"av": {"type": "boolean", "description": "Read every column as VARCHAR"}}',
+    '["av"]'
+) LIKE 'SUCCESS%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":120,"method":"tools/call","params":{"name":"tf71_expr_and_named","arguments":{"av":true}}}') LIKE '%iota%';
+----
+true
+
+# all_varchar := true → the id column comes back quoted
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":121,"method":"tools/call","params":{"name":"tf71_expr_and_named","arguments":{"av":true}}}') LIKE '%\"id\":\"1\"%';
+----
+true
+
+# all_varchar := false → the same column comes back as a number. The two calls
+# differ only in the bound value, so this pins that the value reached the table
+# function's named argument rather than being ignored or left as a literal.
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":122,"method":"tools/call","params":{"name":"tf71_expr_and_named","arguments":{"av":false}}}') LIKE '%\"id\":1%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":123,"method":"tools/call","params":{"name":"tf71_expr_and_named","arguments":{"av":false}}}') NOT LIKE '%\"id\":\"1\"%';
+----
+true
+
+# =============================================================================
 # CLEANUP
 # =============================================================================
 
