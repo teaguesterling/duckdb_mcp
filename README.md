@@ -1,7 +1,7 @@
 # DuckDB MCP Extension
 
 [![Documentation](https://img.shields.io/badge/docs-readthedocs-blue)](https://duckdb-mcp.readthedocs.io/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
 A [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) extension for DuckDB that enables seamless integration between SQL databases and AI assistants like Claude.
 
