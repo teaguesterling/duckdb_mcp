@@ -433,8 +433,16 @@ SELECT mcp_publish_tool(
 ----
 true
 
+# __TEST_DIR__ expands to a NATIVE path, so on Windows it contains backslashes.
+# A backslash inside a JSON string literal starts an escape sequence, so splicing
+# the raw path into the request body yields invalid JSON ("...tempdir\7128/..." —
+# \7 is not an escape) and the peer rejects the whole request. Every other test in
+# this suite that embeds __TEST_DIR__ in JSON avoids the problem with
+# `require notwindows`; that would cost this file its sixty other assertions on
+# Windows, so normalise the separator instead. read_csv accepts forward slashes on
+# every platform.
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":110,"method":"tools/call","params":{"name":"tf71_overloaded_path","arguments":{"path":"__TEST_DIR__/tf71.csv"}}}') LIKE '%kappa%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":110,"method":"tools/call","params":{"name":"tf71_overloaded_path","arguments":{"path":"' || replace('__TEST_DIR__/tf71.csv', '\', '/') || '"}}}') LIKE '%kappa%';
 ----
 true
 
