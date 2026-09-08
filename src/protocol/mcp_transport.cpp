@@ -38,6 +38,23 @@ string DescribeId(const Value &id) {
 	return id.IsNull() ? string("<null>") : id.ToString();
 }
 
+//! True for an error answer that carries no id to correlate against.
+//!
+//! JSON-RPC 2.0 section 5: "If there was an error in detecting the id in the
+//! Request object (e.g. Parse error/Invalid Request), it MUST be Null." A peer
+//! that could not parse our request has no id to echo, so id matching can never
+//! accept such an answer -- and `MCPMessage::FromJSON` renders a JSON null id as
+//! an empty VARCHAR rather than a NULL Value, so both forms have to be checked.
+//!
+//! Only one request is ever outstanding on this transport (SendAndReceive holds
+//! io_mutex for the whole round trip), so an uncorrelated error is unambiguously
+//! the answer to ours. Discarding it would replace the peer's own diagnosis with
+//! a read timeout thirty seconds later, which is exactly the kind of silent
+//! substitution the correlation loop exists to prevent.
+bool IsUncorrelatedError(const MCPMessage &msg) {
+	return msg.has_error && (msg.id.IsNull() || msg.id.ToString().empty());
+}
+
 //! How many unrelated messages to step over before giving up on a response.
 //! Notifications are unbounded in principle, so this is a liveness backstop,
 //! not a protocol limit.
@@ -192,11 +209,11 @@ MCPMessage StdioTransport::SendAndReceive(const MCPMessage &message) {
 			if (parsed.type != MCPMessageType::RESPONSE) {
 				MCP_LOG_DEBUG("TRANSPORT", "Skipping server-initiated '%s' while awaiting response to id %s",
 				              parsed.method.c_str(), DescribeId(message.id).c_str());
-			} else if (!MessageIdMatches(message.id, parsed.id)) {
+			} else if (MessageIdMatches(message.id, parsed.id) || IsUncorrelatedError(parsed)) {
+				return parsed;
+			} else {
 				MCP_LOG_WARN("TRANSPORT", "Discarding stale response for id %s while awaiting id %s",
 				             DescribeId(parsed.id).c_str(), DescribeId(message.id).c_str());
-			} else {
-				return parsed;
 			}
 
 			if (skipped >= MAX_UNRELATED_MESSAGES) {

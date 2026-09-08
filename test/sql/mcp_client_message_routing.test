@@ -99,3 +99,30 @@ yes
 
 statement ok
 DETACH noisy;
+
+# =============================================================================
+# ROUTE-04: an error answer that carries no id is still ours
+# =============================================================================
+# JSON-RPC 2.0 section 5 requires a peer that could not determine the id of the
+# request it is answering -- a parse error, an invalid request -- to answer with
+# `"id": null`. Id correlation must not throw that away: only one request is ever
+# outstanding on this transport, so the answer is unambiguously ours. Discarding
+# it replaces the peer's own diagnosis with a read timeout, which is the same
+# class of silent substitution the correlation loop was added to prevent.
+#
+# The mock answers every tools/list this way and keeps serving, so the assertion
+# is idempotent. TIMEOUT 1 keeps the *failing* direction quick: a client that
+# discards the answer finds nothing else on the pipe and surfaces
+# "ERROR: Request failed after retries" in a few seconds rather than after the
+# thirty-second default read timeout.
+
+statement ok
+ATTACH '' AS nullid (TYPE mcp, COMMAND '/bin/sh', ARGS '["test/mcpfs/mock_noisy_server.sh","nullid"]', TRANSPORT 'stdio', TIMEOUT 1);
+
+query I
+SELECT mcp_list_tools('nullid') LIKE 'MCP_ERROR:%Parse error from mock%';
+----
+true
+
+statement ok
+DETACH nullid;

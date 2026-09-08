@@ -21,6 +21,15 @@ chatter() {
     printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/message","params":{"level":"info","logger":"mock","data":"working on it"}}'
 }
 
+# Optional mode argument. `nullid` makes the server answer every tools/list with a
+# JSON-RPC error carrying `"id": null` -- what a peer MUST send when it could not
+# determine the id of the request it is answering (JSON-RPC 2.0 section 5). It
+# keeps serving afterwards, so the answer is the same however many times the
+# caller asks; the test pairs it with a short ATTACH timeout so that a client
+# which wrongly discards the answer fails in seconds rather than after the
+# thirty-second default read timeout.
+MODE="${1:-normal}"
+
 INIT_RESULT='{"protocolVersion":"2024-11-05","capabilities":{"resources":{},"tools":{},"prompts":{}},"serverInfo":{"name":"noisy-mock","version":"1.0"}}'
 TOOLS_RESULT='{"tools":[{"name":"noisy_tool","description":"a tool"}]}'
 RESOURCES_RESULT='{"resources":[{"uri":"res://noisy","name":"noisy","mimeType":"text/plain"}]}'
@@ -45,6 +54,10 @@ while IFS= read -r line; do
         ;;
     tools/list)
         chatter
+        if [ "$MODE" = nullid ]; then
+            printf '%s\n' '{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"Parse error from mock"}}'
+            continue
+        fi
         respond "$id" "$TOOLS_RESULT"
         ;;
     resources/list)
