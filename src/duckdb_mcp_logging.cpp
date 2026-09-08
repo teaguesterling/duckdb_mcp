@@ -77,13 +77,16 @@ void MCPLogger::LogMessage(MCPLogLevel level, const string &component, const str
 
 	string formatted_message = FormatLogEntry(level, component, message);
 
-	// Write to console if enabled
+	// Write to console if enabled.
+	//
+	// Diagnostics go to stderr at EVERY level, never stdout. When a stdio MCP server is
+	// running, stdout carries the JSON-RPC frame stream and a diagnostic line written
+	// there desynchronises the channel for the peer (issue #74). The stdio transport
+	// additionally takes fd 1 away for the duration of a session, but this logger must
+	// not be aiming at stdout in the first place: the `mcp_console_logging` option has
+	// always been documented as "Enable MCP logging to console/stderr".
 	if (console_logging) {
-		if (level >= MCPLogLevel::ERROR) {
-			std::cerr << formatted_message << std::endl;
-		} else {
-			std::cout << formatted_message << std::endl;
-		}
+		std::cerr << formatted_message << std::endl;
 	}
 
 #ifndef __EMSCRIPTEN__

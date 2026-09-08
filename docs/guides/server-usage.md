@@ -24,6 +24,31 @@ PRAGMA mcp_server_start('stdio');
 
 The server blocks and waits for requests on stdin, responding on stdout.
 
+!!! note "stdout belongs to the protocol"
+    While a stdio server is running, the extension takes exclusive ownership of the
+    process's stdout: it keeps a private handle for the JSON-RPC stream and points
+    file descriptor 1 at **stderr**. Anything else that would have written to stdout —
+    a DuckDB warning surfaced by the CLI's logger, `SET logging_storage='stdout'`, a
+    progress bar, a `printf` from another extension — is diverted to stderr instead of
+    landing inside a protocol frame. Nothing is suppressed, so a supervisor or
+    container still collects it; it just cannot desynchronise the channel. stdout is
+    restored when the session ends.
+
+    That covers the *running* server. Statements that execute **before**
+    `mcp_server_start` still render through the CLI, which prints a `Success` block per
+    statement on stdout — a strict client reading from process start will choke on
+    those. Silence the setup phase in your init script:
+
+    ```sql
+    .mode list
+    .headers off
+    LOAD duckdb_mcp;
+    PRAGMA mcp_publish_tool(...);
+    PRAGMA mcp_server_start('stdio');
+    ```
+
+    Prefer `PRAGMA` over `SELECT` for the publishing calls for the same reason.
+
 ### Server with Configuration
 
 ```sql

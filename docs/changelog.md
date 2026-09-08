@@ -4,6 +4,40 @@ All notable changes to the DuckDB MCP Extension.
 
 ---
 
+## Unreleased
+
+### Fixed
+
+- **stdio transport: stdout now carries nothing but JSON-RPC** (#74). JSON-RPC over
+  stdio requires file descriptor 1 to hold framed protocol messages and nothing else,
+  but several writers reach it without going through the transport. The DuckDB CLI
+  installs its own log storage globally and prints every `DUCKDB_LOG_WARNING` to
+  stdout wrapped in ANSI colour codes, so a warning raised *inside* a query the client
+  triggered via `tools/call` — a deprecated `->` lambda, an extension warning on an
+  unreadable file — landed mid-stream and its trailing `\033[00m` reset prefixed the
+  next response line. A strict client then dropped a *successful* response, silently.
+  `SET logging_storage='stdout'`, the terminal progress bar and any third-party
+  `printf` did the same.
+
+  Rather than filter an open-ended set of writers, the stdio transport now takes the
+  descriptor away from them: on connect it duplicates stdout to a private handle that
+  only the transport writes to, and points fd 1 at stderr for the duration of the
+  session. Stray output is diverted, not suppressed — it still reaches stderr, which
+  is the channel a supervisor collects. stdout is restored when the session ends.
+
+- MCP console logging (`SET mcp_console_logging = true`) now writes every level to
+  stderr. Non-error levels went to stdout, which corrupted the protocol stream of a
+  running stdio server. The option has always been documented as
+  "Enable MCP logging to console/stderr".
+
+### Documentation
+
+- Server usage guide: document stdout ownership under the stdio transport, and how to
+  silence the CLI's per-statement `Success` rendering during the init-script setup
+  phase, which happens before the server starts and is outside the transport's reach.
+
+---
+
 ## v2.1.2
 
 ### Fixed
