@@ -1,0 +1,158 @@
+# name: test/sql/mcp_argument_fidelity.test
+# description: tool and prompt arguments must survive JSON -> binding without losing precision or type
+# group: [sql]
+
+# Reproduce-first regression test for two server-side argument defects.
+#
+# (1) `JSONUtils::GetValueAsString` -- the only accessor used to read tool call
+#     arguments before binding them -- rendered JSON reals with
+#     `std::to_string`, which is "%f": six digits after the decimal point.
+#     `0.0000001` became the string "0.000000", which `std::stod` then parsed
+#     cleanly as 0.0 and bound as a perfectly valid parameter. The
+#     full-string-consumed guard that protects against injection cannot see
+#     this, because the truncated text parses without trailing characters. The
+#     tool call succeeds and returns the wrong rows.
+#
+# (2) Prompt template arguments were accepted only when the JSON value was a
+#     string (`yyjson_is_str`). A client following an integer-typed argument
+#     schema sends a JSON number, which was dropped -- and `MCPTemplate::Render`
+#     substitutes an unbound *optional* variable with the empty string, so the
+#     mangled prompt came back as a successful `prompts/get`.
+#
+# Everything here runs against the in-process memory server, so no child
+# process and no network are involved.
+
+require duckdb_mcp
+
+statement ok
+LOAD duckdb_mcp;
+
+statement ok
+SELECT mcp_server_stop(true);
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# =============================================================================
+# ARG-01: a small double must not be truncated to zero
+# =============================================================================
+
+statement ok
+SELECT mcp_publish_tool(
+    'threshold_probe',
+    'Reports whether the bound threshold survived',
+    'SELECT CASE WHEN $threshold = 0.0 THEN ''TRUNCATED-TO-ZERO'' ELSE ''PRECISE'' END AS verdict',
+    '{"threshold": {"type": "number", "description": "a threshold"}}',
+    '["threshold"]'
+);
+
+# Pre-fix: "0.0000001" -> "0.000000" -> 0.0 -> TRUNCATED-TO-ZERO, reported as a
+# successful tool call.
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"threshold_probe","arguments":{"threshold":0.0000001}}}') LIKE '%PRECISE%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"threshold_probe","arguments":{"threshold":0.0000001}}}') LIKE '%TRUNCATED-TO-ZERO%';
+----
+false
+
+# A value that is already representable in six decimals must keep working.
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"threshold_probe","arguments":{"threshold":0.5}}}') LIKE '%PRECISE%';
+----
+true
+
+# Zero really is zero.
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"threshold_probe","arguments":{"threshold":0}}}') LIKE '%TRUNCATED-TO-ZERO%';
+----
+true
+
+# =============================================================================
+# ARG-02: a double must not silently lose its low digits
+# =============================================================================
+
+statement ok
+SELECT mcp_publish_tool(
+    'exact_probe',
+    'Reports whether the bound value is bit-exact',
+    'SELECT CASE WHEN $v = 1.23456789 THEN ''EXACT'' ELSE ''ROUNDED'' END AS verdict',
+    '{"v": {"type": "number", "description": "a value"}}',
+    '["v"]'
+);
+
+# Pre-fix: bound as 1.234568.
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"exact_probe","arguments":{"v":1.23456789}}}') LIKE '%EXACT%';
+----
+true
+
+# =============================================================================
+# ARG-03: integers still bind exactly
+# =============================================================================
+
+statement ok
+SELECT mcp_publish_tool(
+    'int_probe',
+    'Echoes a bound integer',
+    'SELECT $n AS n',
+    '{"n": {"type": "integer", "description": "a number"}}',
+    '["n"]'
+);
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"int_probe","arguments":{"n":9007199254740993}}}') LIKE '%9007199254740993%';
+----
+true
+
+# =============================================================================
+# ARG-04: a numeric prompt argument must render, not vanish
+# =============================================================================
+
+statement ok
+SELECT mcp_register_prompt_template('rowcount', 'Top-N prompt', 'Top {limit} rows of {table}');
+
+# Pre-fix: 'Top  rows of sales' -- `limit` was dropped for not being a JSON
+# string, and an unbound optional variable renders as the empty string.
+
+query I
+SELECT mcp_render_prompt_template('rowcount', '{"limit": 10, "table": "sales"}');
+----
+Top 10 rows of sales
+
+# Booleans too.
+
+statement ok
+SELECT mcp_register_prompt_template('flagged', 'Flag prompt', 'verbose={verbose}');
+
+query I
+SELECT mcp_render_prompt_template('flagged', '{"verbose": true}');
+----
+verbose=true
+
+# Strings keep working.
+
+query I
+SELECT mcp_render_prompt_template('rowcount', '{"limit": "all", "table": "sales"}');
+----
+Top all rows of sales
+
+# =============================================================================
+# ARG-05: the same, over the prompts/get wire path
+# =============================================================================
+# This exercises the separate copy of the argument loop that reads params
+# arriving as a JSON string rather than as a STRUCT.
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":7,"method":"prompts/get","params":{"name":"rowcount","arguments":{"limit":10,"table":"sales"}}}') LIKE '%Top 10 rows of sales%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);

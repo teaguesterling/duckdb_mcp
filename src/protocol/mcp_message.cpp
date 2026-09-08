@@ -92,7 +92,14 @@ string MCPMessage::ToJSON() const {
 						}
 					}
 
-				} else if (method == "tools/call") {
+				} else if (method == "tools/call" || method == "prompts/get") {
+					// `tools/call` and `prompts/get` take the same params shape: a
+					// `name` plus an `arguments` object. `prompts/get` used to fall
+					// through to the catch-all at the bottom of this chain, which
+					// replaced the whole struct with `{}`. The prompt name and
+					// every argument were dropped on the wire, and the peer
+					// answered "Missing prompt name" -- which reads like a missing
+					// prompt rather than a client that corrupted its own request.
 					// Extract tool name and arguments from params struct
 					params_obj = JSONUtils::CreateObject(doc);
 					if (params.type().id() == LogicalTypeId::STRUCT) {
@@ -152,8 +159,14 @@ string MCPMessage::ToJSON() const {
 					if (!params_obj) {
 						params_obj = JSONUtils::CreateObject(doc);
 					}
+				} else if (params.type().id() == LogicalTypeId::STRUCT) {
+					// Any other method carrying a STRUCT: serialise it faithfully.
+					// The comment on the branch below claimed to cover only
+					// "non-STRUCT" types, but a STRUCT for an unlisted method
+					// landed there too and was silently replaced with `{}`.
+					params_obj = JSONUtils::ValueToJSON(doc, params);
 				} else {
-					// Default empty params object for non-VARCHAR, non-STRUCT types
+					// Default empty params object for the remaining types
 					params_obj = JSONUtils::CreateObject(doc);
 				}
 

@@ -286,6 +286,48 @@ string JSONUtils::GetString(yyjson_val *obj, const char *key, const string &defa
 	return str ? string(str) : default_value;
 }
 
+bool JSONUtils::ScalarAsString(yyjson_val *val, string &out) {
+	if (!val) {
+		return false;
+	}
+
+	if (yyjson_is_str(val)) {
+		const char *str = yyjson_get_str(val);
+		if (!str) {
+			return false;
+		}
+		out = string(str, yyjson_get_len(val));
+		return true;
+	}
+
+	if (yyjson_is_bool(val)) {
+		out = yyjson_get_bool(val) ? "true" : "false";
+		return true;
+	}
+
+	if (yyjson_is_int(val)) {
+		out = std::to_string(yyjson_get_sint(val));
+		return true;
+	}
+
+	if (yyjson_is_real(val)) {
+		// NOT std::to_string: that formats with "%f" -- six digits after the
+		// decimal point -- so 1e-7 becomes "0.000000" and 1.23456789 becomes
+		// "1.234568". Both parse cleanly with std::stod, so the truncation is
+		// invisible to every caller downstream. yyjson writes the shortest text
+		// that reads back to the same double.
+		char *num_str = yyjson_val_write(val, 0, nullptr);
+		if (!num_str) {
+			return false;
+		}
+		out = string(num_str);
+		free(num_str);
+		return true;
+	}
+
+	return false; // null, object, array: no meaningful scalar form
+}
+
 string JSONUtils::GetValueAsString(yyjson_val *obj, const char *key, const string &default_value) {
 	if (!obj || !key) {
 		return default_value;
@@ -296,26 +338,21 @@ string JSONUtils::GetValueAsString(yyjson_val *obj, const char *key, const strin
 		return default_value;
 	}
 
-	// Handle different JSON types
-	if (yyjson_is_str(val)) {
-		const char *str = yyjson_get_str(val);
-		return str ? string(str) : default_value;
-	} else if (yyjson_is_int(val)) {
-		return std::to_string(yyjson_get_sint(val));
-	} else if (yyjson_is_real(val)) {
-		return std::to_string(yyjson_get_real(val));
-	} else if (yyjson_is_bool(val)) {
-		return yyjson_get_bool(val) ? "true" : "false";
-	} else if (yyjson_is_null(val)) {
+	string scalar;
+	if (ScalarAsString(val, scalar)) {
+		return scalar;
+	}
+
+	if (yyjson_is_null(val)) {
 		return "null";
-	} else {
-		// For objects/arrays, return JSON representation
-		char *json_str = yyjson_val_write(val, 0, nullptr);
-		if (json_str) {
-			string result(json_str);
-			free(json_str);
-			return result;
-		}
+	}
+
+	// For objects/arrays, return JSON representation
+	char *json_str = yyjson_val_write(val, 0, nullptr);
+	if (json_str) {
+		string result(json_str);
+		free(json_str);
+		return result;
 	}
 
 	return default_value;
