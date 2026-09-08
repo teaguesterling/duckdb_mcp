@@ -89,9 +89,9 @@ bool IsReadOnlyStatementType(StatementType type) {
 // those are documented residual risks.
 static bool ReferencesFileAccessFunction(const string &sql, string &matched_out) {
 	static const char *const kDeniedFns[] = {
-	    "read_text",        "read_blob",     "read_csv",        "read_csv_auto", "read_json",
-	    "read_json_auto",   "read_json_objects", "read_ndjson",  "read_ndjson_auto", "read_parquet",
-	    "parquet_scan",     "read_xlsx",     "read_arrow",      "sniff_csv",     "glob"};
+	    "read_text",      "read_blob",         "read_csv",    "read_csv_auto",    "read_json",
+	    "read_json_auto", "read_json_objects", "read_ndjson", "read_ndjson_auto", "read_parquet",
+	    "parquet_scan",   "read_xlsx",         "read_arrow",  "sniff_csv",        "glob"};
 	string lower = StringUtil::Lower(sql);
 	for (const char *fn : kDeniedFns) {
 		string needle(fn);
