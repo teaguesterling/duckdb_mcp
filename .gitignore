@@ -15,3 +15,7 @@ venv/
 !.lq/hooks/
 !.lq/config.toml
 !.lq/commands.toml
+
+# scratch dir created by test/format/test_format_safety.sh (must live inside the
+# project so clang-format finds .clang-format by parent-directory search)
+.format-safety-test.*

@@ -29,6 +29,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Formatting-tooling regression tests (issues #82, #85). Deliberately cheap and
+  # deliberately FIRST: both bugs it guards are silent -- clang-format exits 0 in
+  # each case -- so nothing downstream would ever notice them.
+  #
+  # `submodules` is intentionally left at the default (not checked out). That is
+  # precisely the #85 scenario: with `.clang-format` a symlink into the duckdb
+  # submodule, the config dangles here and clang-format falls back to LLVM
+  # defaults without complaint. This job only passes because the config is now a
+  # real file in the repo.
+  format-safety:
+    name: Formatting safety (#82, #85)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      # Pinned to the version DuckDB formats with; a different major version
+      # would report drift that `make format-fix` locally would not reproduce.
+      - name: Install clang-format 11
+        run: pip install 'clang_format==11.0.1'
+      - name: Run formatting safety tests
+        run: |
+          chmod +x test/format/test_format_safety.sh
+          ./test/format/test_format_safety.sh
+
   duckdb-next-build:
     name: Canary — build against DuckDB main (advisory)
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
