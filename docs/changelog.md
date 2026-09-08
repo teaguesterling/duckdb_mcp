@@ -8,6 +8,47 @@ All notable changes to the DuckDB MCP Extension.
 
 ### Fixed
 
+- **A failed registration no longer reports a successful server start** (#84).
+  `ApplyRegistrationsTo()` returned `void`, `StartServer()` ignored what happened
+  inside it, and the pending queue was cleared either way. A queued tool or
+  resource that threw when it was applied — malformed `properties_json`, for
+  instance, which is only parsed at that point — was logged and then forgotten:
+  `mcp_server_start()` reported success, the server came up, and the tool simply
+  was not there. The operator saw a clean startup, the client saw a missing tool,
+  and nothing anywhere said it had failed to register.
+
+  Registrations are now built before any of them is applied, so the outcome is
+  all-or-nothing. If any of them cannot be built, none are registered, the queue
+  is left intact, the server is stopped again and the status struct comes back
+  with `success`/`running` false and a message naming each failure. Publishing a
+  name that is already queued now replaces that entry rather than appending a
+  duplicate, matching what happens against a running server and giving a way to
+  correct a bad queued registration. An unknown pending resource type, previously
+  skipped in silence, is reported like any other failure.
+
+- **`mcp://` globs are globs, span every page, and raise on error** (#84).
+  `MCPFileSystem::Glob()` called `resources/list` once and never followed
+  `nextCursor`, so only the first page of a paginated server was ever considered;
+  it matched with `StringUtil::Contains()` rather than glob semantics, so `*.csv`
+  matched nothing at all while a wildcard-free pattern naming no resource could
+  match plenty; and the whole body sat inside `catch (...) {}`, so a missing
+  attachment, a dead transport or a JSON-RPC error came back as an empty match
+  list. Three ways to get a short or wrong file list, none of which raised.
+
+  Matching now uses DuckDB's glob semantics over every page of `resources/list`,
+  a wildcard-free pattern names exactly one resource, and errors propagate.
+  `MCPConnection` gained `ListResourcesPage()` and `ListAllResources()`; the
+  existing `ListResources()` still returns a single page.
+
+- **Markdown cells can no longer add rows or columns** (#84).
+  `EscapeMarkdownCell()` escaped only `|`. A cell holding a newline split one
+  result row into several rendered table rows, and a backslash immediately before
+  a pipe produced `\\|` — an escaped backslash followed by a live pipe — which
+  split the row into extra cells. Anything parsing the markdown back, which is
+  the point of formatting it, saw rows and columns that were never in the result
+  set, and row counts changed silently. Backslashes are now escaped, and CR, LF
+  and CRLF become a single `<br>` inside the cell.
+
 - **stdio transport: stdout now carries nothing but JSON-RPC** (#74). JSON-RPC over
   stdio requires file descriptor 1 to hold framed protocol messages and nothing else,
   but several writers reach it without going through the transport. The DuckDB CLI

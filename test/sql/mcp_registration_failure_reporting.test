@@ -1,0 +1,145 @@
+# name: test/sql/mcp_registration_failure_reporting.test
+# description: a queued registration that fails at server start must be reported, not swallowed
+# group: [sql]
+
+# Reproduce-first regression test for issue #84 (item 1).
+#
+# MCPServerManager::ApplyRegistrationsTo() returned void, StartServer() ignored
+# whatever happened inside it, and pending_tools/pending_resources were cleared
+# regardless. A queued registration that threw at start was written to the log
+# and then forgotten: mcp_server_start() reported success, the server came up,
+# and the tool simply was not there. The operator saw a clean startup; the
+# client saw a missing tool; nothing anywhere said it had failed to register.
+#
+# A tool queued while the server is stopped is NOT schema-checked at publish
+# time -- ParseToolInputSchema() runs at apply time, inside ApplyRegistrationsTo.
+# So malformed properties JSON is accepted as QUEUED and blows up at start.
+# That is the reproduction.
+
+require duckdb_mcp
+
+statement ok
+LOAD duckdb_mcp;
+
+statement ok
+SELECT mcp_server_stop(true);
+
+statement ok
+CREATE TABLE IF NOT EXISTS reg_items AS SELECT 1 AS id, 'Widget' AS name;
+
+# =============================================================================
+# SETUP: one sound registration and one that cannot be applied
+# =============================================================================
+
+statement ok
+PRAGMA mcp_publish_tool('sound_tool', 'Lists items', 'SELECT * FROM reg_items', '{}', '[]');
+
+# Malformed properties JSON. Accepted while the server is stopped, because the
+# schema is only parsed when the registration is applied.
+statement ok
+PRAGMA mcp_publish_tool('broken_tool', 'Broken schema', 'SELECT * FROM reg_items', '{not valid json', '[]');
+
+query I
+SELECT count(*) FROM mcp_tools() WHERE status = 'pending';
+----
+2
+
+# =============================================================================
+# CORE 1: the start must NOT report success
+# =============================================================================
+# Pre-fix all three of these are the opposite: success true, running true, and
+# a message that says the server started on the memory transport.
+
+# The status struct is materialised once: `(mcp_server_start(...)).field`
+# evaluates the scalar twice, and the second call reports "already running".
+
+statement ok
+CREATE OR REPLACE TABLE start_attempt AS SELECT mcp_server_start('memory') AS s;
+
+query I
+SELECT (s).success FROM start_attempt;
+----
+false
+
+query I
+SELECT (s).running FROM start_attempt;
+----
+false
+
+# CORE 2: the message must name the registration that failed.
+
+query I
+SELECT (s).message LIKE '%broken_tool%' FROM start_attempt;
+----
+true
+
+# =============================================================================
+# CORE 3: nothing is half-applied and nothing is silently discarded
+# =============================================================================
+# Registrations are validated before any of them is applied, so a failure
+# leaves the server down and the queue intact -- rather than a running server
+# holding some of what was asked for and no record of the rest.
+
+query I
+SELECT count(*) FROM mcp_tools() WHERE status = 'pending';
+----
+2
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}') LIKE '%No MCP server running%';
+----
+true
+
+# =============================================================================
+# CORE 4: correcting the registration makes the start succeed
+# =============================================================================
+# Re-publishing a queued name replaces the queued entry, exactly as
+# re-publishing against a running server replaces the live one. Without that
+# there would be no way back from a bad queued registration.
+
+statement ok
+PRAGMA mcp_publish_tool('broken_tool', 'Fixed schema', 'SELECT * FROM reg_items', '{"id":{"type":"integer"}}', '[]');
+
+query I
+SELECT count(*) FROM mcp_tools() WHERE status = 'pending';
+----
+2
+
+statement ok
+CREATE OR REPLACE TABLE start_retry AS SELECT mcp_server_start('memory') AS s;
+
+query I
+SELECT (s).success FROM start_retry;
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}') LIKE '%sound_tool%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":3,"method":"tools/list","params":{}}') LIKE '%broken_tool%';
+----
+true
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"sound_tool","arguments":{}}}') LIKE '%Widget%';
+----
+true
+
+# =============================================================================
+# Cleanup
+# =============================================================================
+
+statement ok
+SELECT mcp_server_stop(true);
+
+statement ok
+DROP TABLE IF EXISTS reg_items;
+
+statement ok
+DROP TABLE IF EXISTS start_attempt;
+
+statement ok
+DROP TABLE IF EXISTS start_retry;

@@ -512,6 +512,17 @@ static Value CreateMCPStatus(bool success, bool running, const string &message, 
 	return Value::STRUCT(values);
 }
 
+// Message for a StartServer() that returned false. A queued tool or resource
+// that could not be applied is named here rather than logged and forgotten --
+// otherwise the caller sees a start that simply did not happen, with no reason.
+static string StartFailureMessage(const vector<RegistrationFailure> &failures) {
+	string detail = DescribeRegistrationFailures(failures);
+	if (detail.empty()) {
+		return "Failed to start MCP server";
+	}
+	return "MCP server not started: " + detail;
+}
+
 // Core implementation for starting MCP server - returns MCPStatus struct
 static Value MCPServerStartCore(ClientContext &context, const string &transport, const string &bind_address, int port,
                                 const string &config_json) {
@@ -695,21 +706,27 @@ static Value MCPServerStartCore(ClientContext &context, const string &transport,
 			// Memory transport is always background mode (for testing with mcp_server_send_request)
 			// The server doesn't do I/O - it just waits for requests via ProcessRequest()
 			server_config.background = true;
-			if (server_manager.StartServer(server_config)) {
+			vector<RegistrationFailure> reg_failures;
+			if (server_manager.StartServer(server_config, &reg_failures)) {
 				return CreateMCPStatus(true, true, "MCP server started on memory transport (background mode)",
 				                       transport, bind_address, port, true);
 			} else {
-				return CreateMCPStatus(false, false, "Failed to start MCP server", transport, bind_address, port, true);
+				return CreateMCPStatus(false, false, StartFailureMessage(reg_failures), transport, bind_address, port,
+				                       true);
 			}
 		}
 #ifdef __EMSCRIPTEN__
 		else if (transport == "webmcp") {
 			// WebMCP transport: register tools with navigator.modelContext (WASM only)
 			server_config.background = true;
-			if (server_manager.StartServer(server_config)) {
+			vector<RegistrationFailure> reg_failures;
+			if (server_manager.StartServer(server_config, &reg_failures)) {
 				return CreateMCPStatus(true, true,
 				                       "MCP server started on WebMCP transport (browser navigator.modelContext)",
 				                       transport, bind_address, port, true);
+			} else if (!reg_failures.empty()) {
+				return CreateMCPStatus(false, false, StartFailureMessage(reg_failures), transport, bind_address, port,
+				                       true);
 			} else {
 				return CreateMCPStatus(false, false,
 				                       "Failed to start MCP server on WebMCP transport. "
@@ -722,12 +739,13 @@ static Value MCPServerStartCore(ClientContext &context, const string &transport,
 		else if (transport == "stdio") {
 			if (server_config.background) {
 				// Background mode: use server manager (non-blocking, starts thread)
-				if (server_manager.StartServer(server_config)) {
+				vector<RegistrationFailure> reg_failures;
+				if (server_manager.StartServer(server_config, &reg_failures)) {
 					return CreateMCPStatus(true, true, "MCP server started on stdio (background mode)", transport,
 					                       bind_address, port, true);
 				} else {
-					return CreateMCPStatus(false, false, "Failed to start MCP server", transport, bind_address, port,
-					                       true);
+					return CreateMCPStatus(false, false, StartFailureMessage(reg_failures), transport, bind_address,
+					                       port, true);
 				}
 			} else {
 				// Foreground mode (default): handle connection directly without background thread
@@ -737,7 +755,12 @@ static Value MCPServerStartCore(ClientContext &context, const string &transport,
 					                       port, false);
 				}
 				// Apply any pending tool/resource registrations from server_manager
-				server_manager.ApplyPendingRegistrationsTo(&server);
+				vector<RegistrationFailure> reg_failures;
+				if (!server_manager.ApplyPendingRegistrationsTo(&server, &reg_failures)) {
+					server.Stop();
+					return CreateMCPStatus(false, false, StartFailureMessage(reg_failures), transport, bind_address,
+					                       port, false);
+				}
 				try {
 					server.RunMainLoop(); // Blocks until max_requests or shutdown
 					return CreateMCPStatus(true, false, "MCP server completed", transport, bind_address, port, false,
@@ -769,12 +792,13 @@ static Value MCPServerStartCore(ClientContext &context, const string &transport,
 			// HTTP/HTTPS transport
 			if (server_config.background) {
 				// Background mode: use server manager (non-blocking, starts thread)
-				if (server_manager.StartServer(server_config)) {
+				vector<RegistrationFailure> reg_failures;
+				if (server_manager.StartServer(server_config, &reg_failures)) {
 					return CreateMCPStatus(true, true, "MCP server started on " + transport + " (background mode)",
 					                       transport, bind_address, port, true);
 				} else {
-					return CreateMCPStatus(false, false, "Failed to start MCP server", transport, bind_address, port,
-					                       true);
+					return CreateMCPStatus(false, false, StartFailureMessage(reg_failures), transport, bind_address,
+					                       port, true);
 				}
 			} else {
 				// Foreground mode: handle HTTP in calling thread (blocking)
@@ -784,7 +808,12 @@ static Value MCPServerStartCore(ClientContext &context, const string &transport,
 					                       port, false);
 				}
 				// Apply any pending tool/resource registrations from server_manager
-				server_manager.ApplyPendingRegistrationsTo(&server);
+				vector<RegistrationFailure> reg_failures;
+				if (!server_manager.ApplyPendingRegistrationsTo(&server, &reg_failures)) {
+					server.Stop();
+					return CreateMCPStatus(false, false, StartFailureMessage(reg_failures), transport, bind_address,
+					                       port, false);
+				}
 				try {
 					server.RunHTTPLoop(); // Blocks until Stop() is called or server shuts down
 					return CreateMCPStatus(true, false, "MCP server completed", transport, bind_address, port, false,
@@ -805,11 +834,13 @@ static Value MCPServerStartCore(ClientContext &context, const string &transport,
 			                       transport, bind_address, port, false);
 #else
 			// For other transports (TCP/WebSocket), use background thread
-			if (server_manager.StartServer(server_config)) {
+			vector<RegistrationFailure> reg_failures;
+			if (server_manager.StartServer(server_config, &reg_failures)) {
 				return CreateMCPStatus(true, true, "MCP server started on " + transport, transport, bind_address, port,
 				                       true);
 			} else {
-				return CreateMCPStatus(false, false, "Failed to start MCP server", transport, bind_address, port, true);
+				return CreateMCPStatus(false, false, StartFailureMessage(reg_failures), transport, bind_address, port,
+				                       true);
 			}
 #endif
 		}

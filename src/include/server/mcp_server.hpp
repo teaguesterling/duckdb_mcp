@@ -279,13 +279,31 @@ struct ResourceMetadataEntry {
 	string status; // "pending" or "active"
 };
 
+// One queued registration that could not be applied when the server started.
+struct RegistrationFailure {
+	string kind; // "tool" or "resource"
+	string name; // tool name or resource URI
+	string error;
+};
+
+// Rendered as a single human-readable sentence for mcp_server_start()'s status
+// message. Empty input yields an empty string.
+string DescribeRegistrationFailures(const vector<RegistrationFailure> &failures);
+
 // Per-instance server management
 class MCPServerManager {
 public:
 	MCPServerManager() = default;
 	~MCPServerManager();
 
-	bool StartServer(const MCPServerConfig &config);
+	// Starts the server and applies every queued tool/resource registration.
+	//
+	// Registrations are validated before any of them is applied, so the outcome
+	// is all-or-nothing: if any queued registration cannot be applied, nothing
+	// is registered, the queue is left intact, the server is stopped again, the
+	// failures are reported through `out_failures` and this returns false. A
+	// registration failure is never swallowed into a successful start.
+	bool StartServer(const MCPServerConfig &config, vector<RegistrationFailure> *out_failures = nullptr);
 	void StopServer();
 	bool IsServerRunning() const;
 
@@ -315,8 +333,10 @@ public:
 	size_t GetPendingToolCount() const;
 	size_t GetPendingResourceCount() const;
 
-	// Apply pending registrations to an external server (for foreground mode)
-	void ApplyPendingRegistrationsTo(MCPServer *external_server);
+	// Apply pending registrations to an external server (for foreground mode).
+	// Same all-or-nothing contract as StartServer(); returns false and leaves
+	// the queue intact if any registration could not be applied.
+	bool ApplyPendingRegistrationsTo(MCPServer *external_server, vector<RegistrationFailure> *out_failures = nullptr);
 
 	// State introspection snapshots (for table functions)
 	vector<ToolMetadataEntry> GetToolSnapshot() const;
@@ -333,9 +353,11 @@ private:
 	vector<PendingResourceRegistration> pending_resources;
 
 	// Apply pending registrations to server
-	void ApplyPendingRegistrations();
-	// Shared implementation: apply and clear pending registrations to a target server
-	void ApplyRegistrationsTo(MCPServer *target);
+	bool ApplyPendingRegistrations(vector<RegistrationFailure> *out_failures);
+	// Shared implementation: validate every pending registration, then apply and
+	// clear them only if all of them can be built. Returns false (leaving the
+	// queue untouched) as soon as any of them cannot.
+	bool ApplyRegistrationsTo(MCPServer *target, vector<RegistrationFailure> *out_failures);
 };
 
 } // namespace duckdb

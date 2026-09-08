@@ -162,6 +162,24 @@ SELECT * FROM read_parquet('mcp://server_name/file:///data/table.parquet');
 SELECT * FROM read_json('mcp://server_name/file:///api/response.json');
 ```
 
+#### Glob patterns
+
+A pattern containing `*`, `?` or `[...]` is matched against the resource URIs
+the server advertises via `resources/list`, following `nextCursor` so that every
+page is searched. Matching uses DuckDB's own glob semantics — `*` spans any run
+of characters including `/`, and brace alternation (`{a,b}`) is **not**
+supported.
+
+```sql
+-- Every CSV resource on the server, across all pages of resources/list
+SELECT * FROM glob('mcp://server_name/data://*.csv');
+```
+
+A pattern with no wildcard names exactly one resource: it matches that resource
+or nothing. It is not a substring search. Failures reaching the server — no such
+attachment, a dead transport, a JSON-RPC error — are raised rather than reported
+as an empty match list.
+
 ---
 
 ## Tool Functions

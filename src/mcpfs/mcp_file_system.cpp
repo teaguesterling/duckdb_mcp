@@ -7,6 +7,7 @@
 #include "duckdb/common/open_file_info.hpp"
 #include "duckdb/common/types/timestamp.hpp"
 #include "duckdb/common/types/blob.hpp"
+#include "duckdb/function/scalar/string_common.hpp"
 #include "json_utils.hpp"
 
 namespace duckdb {
@@ -293,39 +294,43 @@ bool MCPFileSystem::ListFiles(const string &directory, const std::function<void(
 }
 
 vector<OpenFileInfo> MCPFileSystem::Glob(const string &path, FileOpener *opener) {
+	// Errors are deliberately NOT swallowed here. This used to be wrapped in
+	// `catch (...) {}`, which turned a missing server, a dead transport or a
+	// JSON-RPC error into an empty match list -- indistinguishable from "the
+	// server holds no matching resources".
 	vector<OpenFileInfo> results;
 
-	try {
-		auto parsed_path = ValidateAndParsePath(path);
-		auto connection = GetConnection(parsed_path.server_name);
+	auto parsed_path = ValidateAndParsePath(path);
+	auto connection = GetConnection(parsed_path.server_name);
 
-		if (!connection || !connection->IsInitialized()) {
-			return results;
-		}
+	if (!connection->IsInitialized()) {
+		throw IOException("MCP connection for server '" + parsed_path.server_name + "' is not initialized");
+	}
 
-		// For exact path matching, first check if the specific resource exists
+	// A pattern with no wildcard names one resource. Ask for it directly rather
+	// than listing every resource on the server.
+	if (!FileSystem::HasGlob(parsed_path.resource_uri)) {
 		if (connection->ResourceExists(parsed_path.resource_uri)) {
-			OpenFileInfo info(path); // Use the original path as requested
-			results.push_back(info);
-		} else {
-			// List all resources and filter by pattern
-			auto resources = connection->ListResources();
-
-			for (const auto &resource : resources) {
-				string full_path = MCPPathParser::ConstructPath(parsed_path.server_name, resource.uri);
-
-				// Simple pattern matching - would implement proper glob matching
-				if (StringUtil::Contains(resource.uri, parsed_path.resource_uri) ||
-				    StringUtil::Contains(full_path, path)) {
-					OpenFileInfo info(full_path);
-					// Note: OpenFileInfo doesn't have a size field
-					// Size information would need to be stored in extended_info if needed
-					results.push_back(info);
-				}
-			}
+			results.emplace_back(path); // Use the original path as requested
 		}
-	} catch (...) {
-		// Return empty results on error
+		return results;
+	}
+
+	// Otherwise walk EVERY page of resources/list -- a server that paginates
+	// would otherwise only ever be matched against its first page -- and match
+	// with real glob semantics. Substring matching was both too loose (`*.csv`
+	// matching `a.csv.bak`) and too tight (`*.csv` matching nothing at all,
+	// since no URI contains the literal asterisk).
+	auto resources = connection->ListAllResources();
+
+	for (const auto &resource : resources) {
+		if (!duckdb::Glob(resource.uri.c_str(), resource.uri.size(), parsed_path.resource_uri.c_str(),
+		                  parsed_path.resource_uri.size())) {
+			continue;
+		}
+		results.emplace_back(MCPPathParser::ConstructPath(parsed_path.server_name, resource.uri));
+		// Note: OpenFileInfo doesn't have a size field
+		// Size information would need to be stored in extended_info if needed
 	}
 
 	return results;

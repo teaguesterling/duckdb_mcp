@@ -844,7 +844,7 @@ MCPServerManager::~MCPServerManager() {
 	StopServer();
 }
 
-bool MCPServerManager::StartServer(const MCPServerConfig &config) {
+bool MCPServerManager::StartServer(const MCPServerConfig &config, vector<RegistrationFailure> *out_failures) {
 	lock_guard<mutex> lock(manager_mutex);
 
 	if (server && server->IsRunning()) {
@@ -855,8 +855,14 @@ bool MCPServerManager::StartServer(const MCPServerConfig &config) {
 	bool started = server->Start();
 
 	if (started) {
-		// Apply any pending registrations
-		ApplyPendingRegistrations();
+		// Apply any pending registrations. If any of them cannot be applied the
+		// start fails: a server that is missing capabilities the operator asked
+		// for must not be reported as a clean startup.
+		if (!ApplyPendingRegistrations(out_failures)) {
+			server->Stop();
+			server.reset();
+			return false;
+		}
 	}
 
 	return started;
@@ -925,11 +931,27 @@ MCPServerManager::ServerStats MCPServerManager::GetServerStats() const {
 
 void MCPServerManager::QueueToolRegistration(PendingToolRegistration registration) {
 	lock_guard<mutex> lock(manager_mutex);
+	// Re-publishing a name replaces the queued entry, matching what happens when
+	// the server is running (ToolRegistry keys tools by name). It also means a
+	// queued registration that turns out to be unapplyable can be corrected.
+	for (auto &existing : pending_tools) {
+		if (existing.name == registration.name) {
+			existing = std::move(registration);
+			return;
+		}
+	}
 	pending_tools.push_back(std::move(registration));
 }
 
 void MCPServerManager::QueueResourceRegistration(PendingResourceRegistration registration) {
 	lock_guard<mutex> lock(manager_mutex);
+	// Same replace-by-key rule as tools; ResourceRegistry keys resources by URI.
+	for (auto &existing : pending_resources) {
+		if (existing.uri == registration.uri) {
+			existing = std::move(registration);
+			return;
+		}
+	}
 	pending_resources.push_back(std::move(registration));
 }
 
@@ -943,25 +965,48 @@ size_t MCPServerManager::GetPendingResourceCount() const {
 	return pending_resources.size();
 }
 
-void MCPServerManager::ApplyPendingRegistrations() {
+string DescribeRegistrationFailures(const vector<RegistrationFailure> &failures) {
+	if (failures.empty()) {
+		return "";
+	}
+	string msg = std::to_string(failures.size()) + " queued registration(s) could not be applied: ";
+	for (idx_t i = 0; i < failures.size(); i++) {
+		if (i > 0) {
+			msg += "; ";
+		}
+		msg += failures[i].kind + " '" + failures[i].name + "': " + failures[i].error;
+	}
+	return msg;
+}
+
+bool MCPServerManager::ApplyPendingRegistrations(vector<RegistrationFailure> *out_failures) {
 	// Note: This is called from StartServer which already holds the lock
 	if (!server) {
-		return;
+		return true;
 	}
-	ApplyRegistrationsTo(server.get());
+	return ApplyRegistrationsTo(server.get(), out_failures);
 }
 
-void MCPServerManager::ApplyPendingRegistrationsTo(MCPServer *external_server) {
+bool MCPServerManager::ApplyPendingRegistrationsTo(MCPServer *external_server,
+                                                   vector<RegistrationFailure> *out_failures) {
 	lock_guard<mutex> lock(manager_mutex);
 	if (!external_server) {
-		return;
+		return true;
 	}
-	ApplyRegistrationsTo(external_server);
+	return ApplyRegistrationsTo(external_server, out_failures);
 }
 
-void MCPServerManager::ApplyRegistrationsTo(MCPServer *target) {
-	// Apply pending tool registrations
-	idx_t tool_failures = 0;
+bool MCPServerManager::ApplyRegistrationsTo(MCPServer *target, vector<RegistrationFailure> *out_failures) {
+	// Two phases. Everything that can throw -- schema parsing, handler and
+	// provider construction -- happens first, into local vectors. Only if every
+	// queued registration builds do we touch the target's registries and clear
+	// the queue. A failure therefore leaves the server exactly as it was and the
+	// queue intact, so the caller can report it and the operator can correct the
+	// offending publish and try again.
+	vector<RegistrationFailure> failures;
+
+	vector<std::pair<string, shared_ptr<ToolHandler>>> built_tools;
+	built_tools.reserve(pending_tools.size());
 	for (auto &reg : pending_tools) {
 		try {
 			ToolInputSchema input_schema = ParseToolInputSchema(reg.properties_json, reg.required_json);
@@ -974,43 +1019,55 @@ void MCPServerManager::ApplyRegistrationsTo(MCPServer *target) {
 				handler = make_shared_ptr<SQLToolHandler>(reg.name, reg.description, reg.sql_template, input_schema,
 				                                          *reg.db_instance, reg.format);
 			}
-			target->RegisterTool(reg.name, std::move(handler));
+			built_tools.emplace_back(reg.name, std::move(handler));
 		} catch (const std::exception &e) {
-			tool_failures++;
+			failures.push_back(RegistrationFailure {"tool", reg.name, string(e.what())});
 			MCP_LOG_ERROR("SERVER", "Failed to register pending tool '%s': %s", reg.name.c_str(), e.what());
 		}
 	}
-	if (tool_failures > 0) {
-		MCP_LOG_WARN("SERVER", "%" PRIu64 " of %" PRIu64 " pending tool registration(s) failed", tool_failures,
-		             static_cast<uint64_t>(pending_tools.size()));
-	}
-	pending_tools.clear();
 
-	// Apply pending resource registrations
-	idx_t resource_failures = 0;
+	vector<std::pair<string, shared_ptr<ResourceProvider>>> built_resources;
+	built_resources.reserve(pending_resources.size());
 	for (auto &reg : pending_resources) {
 		try {
+			shared_ptr<ResourceProvider> provider;
 			if (reg.type == "table") {
-				auto provider = make_shared_ptr<TableResourceProvider>(reg.source, reg.format, *reg.db_instance);
-				target->PublishResource(reg.uri, std::move(provider));
+				provider = make_shared_ptr<TableResourceProvider>(reg.source, reg.format, *reg.db_instance);
 			} else if (reg.type == "query") {
-				auto provider = make_shared_ptr<QueryResourceProvider>(reg.source, reg.format, *reg.db_instance,
-				                                                       reg.refresh_seconds);
-				target->PublishResource(reg.uri, std::move(provider));
+				provider = make_shared_ptr<QueryResourceProvider>(reg.source, reg.format, *reg.db_instance,
+				                                                  reg.refresh_seconds);
 			} else if (reg.type == "resource") {
-				auto provider = make_shared_ptr<StaticResourceProvider>(reg.source, reg.mime_type, reg.description);
-				target->PublishResource(reg.uri, std::move(provider));
+				provider = make_shared_ptr<StaticResourceProvider>(reg.source, reg.mime_type, reg.description);
+			} else {
+				// Previously skipped in silence, which published nothing and said
+				// nothing. An unknown type is a failure like any other.
+				throw InvalidInputException("Unknown pending resource type '" + reg.type + "'");
 			}
+			built_resources.emplace_back(reg.uri, std::move(provider));
 		} catch (const std::exception &e) {
-			resource_failures++;
+			failures.push_back(RegistrationFailure {"resource", reg.uri, string(e.what())});
 			MCP_LOG_ERROR("SERVER", "Failed to register pending resource '%s': %s", reg.uri.c_str(), e.what());
 		}
 	}
-	if (resource_failures > 0) {
-		MCP_LOG_WARN("SERVER", "%" PRIu64 " of %" PRIu64 " pending resource registration(s) failed", resource_failures,
-		             static_cast<uint64_t>(pending_resources.size()));
+
+	if (!failures.empty()) {
+		MCP_LOG_WARN("SERVER", "%" PRIu64 " queued registration(s) could not be applied; none were applied",
+		             static_cast<uint64_t>(failures.size()));
+		if (out_failures) {
+			*out_failures = std::move(failures);
+		}
+		return false;
 	}
+
+	for (auto &entry : built_tools) {
+		target->RegisterTool(entry.first, std::move(entry.second));
+	}
+	for (auto &entry : built_resources) {
+		target->PublishResource(entry.first, std::move(entry.second));
+	}
+	pending_tools.clear();
 	pending_resources.clear();
+	return true;
 }
 
 //===--------------------------------------------------------------------===//

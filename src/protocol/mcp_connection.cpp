@@ -6,6 +6,7 @@
 #include <ctime>
 #include <thread>
 #include <chrono>
+#include <iterator>
 
 namespace duckdb {
 
@@ -105,9 +106,16 @@ bool MCPConnection::Initialize() {
 }
 
 vector<MCPResource> MCPConnection::ListResources(const string &cursor) {
+	string next_cursor;
+	return ListResourcesPage(cursor, next_cursor);
+}
+
+vector<MCPResource> MCPConnection::ListResourcesPage(const string &cursor, string &next_cursor) {
 	if (!IsInitialized()) {
 		throw InvalidInputException("Connection not initialized");
 	}
+
+	next_cursor.clear();
 
 	Value params;
 	if (!cursor.empty()) {
@@ -146,9 +154,32 @@ vector<MCPResource> MCPConnection::ListResources(const string &cursor) {
 		} else {
 			MCP_LOG_WARN("CONNECTION", "ListResources response missing 'resources' array");
 		}
+
+		if (yyjson_is_obj(root)) {
+			next_cursor = JSONUtils::GetString(root, "nextCursor");
+		}
 	}
 
 	return resources;
+}
+
+vector<MCPResource> MCPConnection::ListAllResources(idx_t max_pages) {
+	vector<MCPResource> all;
+	string cursor;
+	for (idx_t page = 0; page < max_pages; page++) {
+		string next_cursor;
+		auto page_resources = ListResourcesPage(cursor, next_cursor);
+		all.insert(all.end(), std::make_move_iterator(page_resources.begin()),
+		           std::make_move_iterator(page_resources.end()));
+		if (next_cursor.empty() || next_cursor == cursor) {
+			// No further page, or a server that keeps handing back the same
+			// cursor. Stop rather than loop forever.
+			return all;
+		}
+		cursor = std::move(next_cursor);
+	}
+	throw IOException("MCP server '" + server_name + "' returned more than " + std::to_string(max_pages) +
+	                  " pages of resources; refusing to keep paging");
 }
 
 MCPResource MCPConnection::ReadResource(const string &uri) {
