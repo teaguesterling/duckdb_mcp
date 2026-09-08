@@ -832,7 +832,11 @@ static string FormatArgumentValue(const string &key, const JSONArgumentParser &p
 				if (pos != value.size()) {
 					throw std::invalid_argument("trailing characters");
 				}
-				return std::to_string(numeric_val);
+				// Re-render the *parsed* double rather than echoing the input so
+				// the injection guard above still holds -- but render it with
+				// DuckDB's shortest round-trip formatting, not std::to_string,
+				// which is "%f" and would emit 1e-7 as the literal 0.000000.
+				return Value::DOUBLE(numeric_val).ToString();
 			}
 		} catch (const std::exception &) {
 			throw InvalidInputException("Parameter '" + key + "' must be a valid " + param_type + ", got: " + value);

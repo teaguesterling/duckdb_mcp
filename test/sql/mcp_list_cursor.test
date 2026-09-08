@@ -1,0 +1,131 @@
+# name: test/sql/mcp_list_cursor.test
+# description: the two-argument mcp_list_* functions must page with the MCP list method, not a tools/call
+# group: [sql]
+
+# Reproduce-first regression test.
+#
+# `mcp_list_resources(server, cursor)`, `mcp_list_tools(server, cursor)` and
+# `mcp_list_prompts(server, cursor)` are the cursor-aware overloads, and
+# docs/guides/client-usage.md documents them as *the* way to walk a paginated
+# server:
+#
+#     SELECT mcp_list_resources('data_server', '') as first_page;
+#     ... mcp_list_resources('data_server', json_extract_string(result, '$.nextCursor'))
+#
+# They did not send `resources/list` with a `cursor` param at all. They sent
+# `tools/call` for a tool named `list_resources_paginated` (and the tools /
+# prompts equivalents). No such tool exists in the MCP specification, so on any
+# standards-compliant server every one of these calls came back an error --
+# swallowed into a `{"error": ...}` JSON value, which `json_extract_string`
+# then reads as NULL. The user sees no page 1, no page 2, and no exception.
+#
+# The fixture is a local mock MCP server (test/mcpfs/mock_pagination_server.sh)
+# spawned over stdio: it pages all three list methods and, like a real server,
+# answers tools/call for those invented tool names with a JSON-RPC error.
+
+require duckdb_mcp
+
+require json
+
+require notwindows
+
+statement ok
+LOAD duckdb_mcp;
+
+statement ok
+LOAD json;
+
+statement ok
+SET allowed_mcp_commands='/bin/sh';
+
+statement ok
+ATTACH '' AS pager (TYPE mcp, COMMAND '/bin/sh', ARGS '["test/mcpfs/mock_pagination_server.sh"]', TRANSPORT 'stdio');
+
+# =============================================================================
+# resources: first page, cursor, second page
+# =============================================================================
+# Pre-fix all three of these are NULL: the result value is
+# {"error": "MCP list resources failed: Unknown tool: list_resources_paginated"}.
+
+query I
+SELECT json_extract_string(mcp_list_resources('pager', ''), '$.resources[0].uri');
+----
+res://page1
+
+query I
+SELECT json_extract_string(mcp_list_resources('pager', ''), '$.nextCursor');
+----
+CURSOR-2
+
+query I
+SELECT json_extract_string(mcp_list_resources('pager', 'CURSOR-2'), '$.resources[0].uri');
+----
+res://page2
+
+# The empty-cursor two-arg form must agree with the one-arg form.
+
+query I
+SELECT json_extract_string(mcp_list_resources('pager'), '$.resources[0].uri')
+     = json_extract_string(mcp_list_resources('pager', ''), '$.resources[0].uri');
+----
+true
+
+# A NULL cursor propagates to NULL, per ordinary DuckDB scalar semantics -- it
+# does not silently mean "first page". Pinned here because the documented paging
+# recipe below relies on it: the walk stops when `$.nextCursor` is absent, and
+# would otherwise loop back to page 1 forever.
+
+query I
+SELECT mcp_list_resources('pager', NULL) IS NULL;
+----
+true
+
+# =============================================================================
+# tools: same contract
+# =============================================================================
+
+query I
+SELECT json_extract_string(mcp_list_tools('pager', ''), '$.tools[0].name');
+----
+tool_page1
+
+query I
+SELECT json_extract_string(mcp_list_tools('pager', 'CURSOR-2'), '$.tools[0].name');
+----
+tool_page2
+
+# =============================================================================
+# prompts: same contract
+# =============================================================================
+
+query I
+SELECT json_extract_string(mcp_list_prompts('pager', ''), '$.prompts[0].name');
+----
+prompt_page1
+
+query I
+SELECT json_extract_string(mcp_list_prompts('pager', 'CURSOR-2'), '$.prompts[0].name');
+----
+prompt_page2
+
+# =============================================================================
+# The documented recursive-CTE walk reaches both pages.
+# =============================================================================
+# This is the recipe in docs/guides/client-usage.md. Pre-fix it terminates
+# immediately with a single error row.
+
+query I
+WITH RECURSIVE pages AS (
+    SELECT 1 AS page_num, mcp_list_resources('pager', '') AS result
+    UNION ALL
+    SELECT page_num + 1, mcp_list_resources('pager', json_extract_string(result, '$.nextCursor'))
+    FROM pages
+    WHERE json_extract_string(result, '$.nextCursor') IS NOT NULL
+      AND page_num < 5
+)
+SELECT string_agg(json_extract_string(result, '$.resources[0].uri'), ',' ORDER BY page_num) FROM pages;
+----
+res://page1,res://page2
+
+statement ok
+DETACH pager;

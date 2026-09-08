@@ -81,6 +81,16 @@ public:
 	//! Get any value as string representation (works for int, bool, string, etc.)
 	static string GetValueAsString(yyjson_val *obj, const char *key, const string &default_value = "");
 
+	//! Render a JSON *scalar* (string, number, boolean) as the plain text a
+	//! caller should bind or substitute; returns false for null, objects and
+	//! arrays, which have no meaningful scalar form.
+	//!
+	//! Numbers are written by yyjson, which emits the shortest representation
+	//! that reads back to the same double. Do not use std::to_string here: it
+	//! formats with "%f" and silently truncates, so 1e-7 becomes "0.000000",
+	//! which std::stod then parses cleanly as 0.0.
+	static bool ScalarAsString(yyjson_val *val, string &out);
+
 	//! Get int value from JSON object
 	static int64_t GetInt(yyjson_val *obj, const char *key, int64_t default_value = 0);
 

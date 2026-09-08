@@ -1567,8 +1567,17 @@ static void SetMCPDisableServing(ClientContext &context, SetScope scope, Value &
 
 // MCP-Compliant Pagination Functions
 
-// List resources with optional cursor (MCP-compliant)
-static void MCPListResourcesWithCursorFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+//! Shared body for the cursor-aware `mcp_list_*` overloads.
+//!
+//! MCP paginates `resources/list`, `tools/list` and `prompts/list` with an
+//! opaque `cursor` parameter on the list method itself. These overloads used to
+//! send `tools/call` for an invented tool name (`list_resources_paginated` and
+//! friends) instead. No MCP server exposes those tools, so every call came back
+//! a JSON-RPC error, which the catch below turned into a `{"error": ...}` value
+//! -- a NULL to the `json_extract_string` in the documented paging recipe, with
+//! no exception anywhere. See test/sql/mcp_list_cursor.test.
+static void MCPListWithCursorFunction(DataChunk &args, ExpressionState &state, Vector &result, const char *list_method,
+                                      const char *what) {
 	auto &server_vector = args.data[0];
 	auto &cursor_vector = args.data[1];
 
@@ -1591,121 +1600,54 @@ static void MCPListResourcesWithCursorFunction(DataChunk &args, ExpressionState 
 				throw InvalidInputException("MCP server not attached: " + server_name);
 			}
 
-			// Use tool call for pagination instead of modifying standard MCP methods
-			Value call_params = Value::STRUCT(
-			    {{"name", Value("list_resources_paginated")},
-			     {"arguments",
-			      Value(cursor.empty() ? "{}"
-			                           : "{\"cursor\": \"" + ResultFormatter::EscapeJsonString(cursor) + "\"}")}});
-
-			// Send MCP tool call for pagination
-			auto response = connection->SendRequest(MCPMethods::TOOLS_CALL, call_params);
-
-			if (response.IsError()) {
-				throw IOException("MCP list resources failed: " + response.error.message);
+			if (!connection->IsInitialized()) {
+				if (!connection->Initialize()) {
+					throw IOException("Failed to initialize MCP connection: " + connection->GetLastError());
+				}
 			}
 
-			// Return raw JSON response (same as existing functions)
+			// An empty cursor means "give me the first page". Send no cursor at
+			// all in that case -- an empty cursor is not a valid opaque token and
+			// servers are entitled to reject it.
+			Value params;
+			if (cursor.empty()) {
+				params = Value::STRUCT({});
+			} else {
+				params = Value("{\"cursor\": \"" + ResultFormatter::EscapeJsonString(cursor) + "\"}");
+			}
+
+			auto response = connection->SendRequest(list_method, params);
+
+			if (response.IsError()) {
+				throw IOException("MCP list " + string(what) + " failed: " + response.error.message);
+			}
+
+			// Return the raw JSON result, `nextCursor` included, so the caller can
+			// feed it straight back in for the next page.
 			result_data[i] = StringVector::AddString(result, response.result.ToString());
 
 		} catch (const std::exception &e) {
-			result_data[i] = StringVector::AddString(result, "{\"error\": \"" + string(e.what()) + "\"}");
+			// Escaped: an error message containing a quote or a backslash would
+			// otherwise emit a malformed value into a JSON-typed column.
+			result_data[i] =
+			    StringVector::AddString(result, "{\"error\": \"" + ResultFormatter::EscapeJsonString(e.what()) + "\"}");
 		}
 	}
+}
+
+// List resources with optional cursor (MCP-compliant)
+static void MCPListResourcesWithCursorFunction(DataChunk &args, ExpressionState &state, Vector &result) {
+	MCPListWithCursorFunction(args, state, result, MCPMethods::RESOURCES_LIST, "resources");
 }
 
 // List tools with optional cursor (MCP-compliant)
 static void MCPListToolsWithCursorFunction(DataChunk &args, ExpressionState &state, Vector &result) {
-	auto &server_vector = args.data[0];
-	auto &cursor_vector = args.data[1];
-
-	result.SetVectorType(VectorType::FLAT_VECTOR);
-	auto result_data = CompatGetDataMutable<string_t>(result);
-	auto &registry = MCPInstanceState::Get(state.GetContext()).connection_registry;
-
-	for (idx_t i = 0; i < args.size(); i++) {
-		if (server_vector.GetValue(i).IsNull()) {
-			result_data[i] = StringVector::AddString(result, "null");
-			continue;
-		}
-
-		string server_name = server_vector.GetValue(i).ToString();
-		string cursor = cursor_vector.GetValue(i).IsNull() ? "" : cursor_vector.GetValue(i).ToString();
-
-		try {
-			auto connection = registry.GetConnection(server_name);
-			if (!connection) {
-				throw InvalidInputException("MCP server not attached: " + server_name);
-			}
-
-			// Use tool call for pagination
-			Value call_params = Value::STRUCT(
-			    {{"name", Value("list_tools_paginated")},
-			     {"arguments",
-			      Value(cursor.empty() ? "{}"
-			                           : "{\"cursor\": \"" + ResultFormatter::EscapeJsonString(cursor) + "\"}")}});
-
-			// Send MCP tool call for pagination
-			auto response = connection->SendRequest(MCPMethods::TOOLS_CALL, call_params);
-
-			if (response.IsError()) {
-				throw IOException("MCP list tools failed: " + response.error.message);
-			}
-
-			// Return raw JSON response (same as existing functions)
-			result_data[i] = StringVector::AddString(result, response.result.ToString());
-
-		} catch (const std::exception &e) {
-			result_data[i] = StringVector::AddString(result, "{\"error\": \"" + string(e.what()) + "\"}");
-		}
-	}
+	MCPListWithCursorFunction(args, state, result, MCPMethods::TOOLS_LIST, "tools");
 }
 
 // List prompts with optional cursor (MCP-compliant)
 static void MCPListPromptsWithCursorFunction(DataChunk &args, ExpressionState &state, Vector &result) {
-	auto &server_vector = args.data[0];
-	auto &cursor_vector = args.data[1];
-
-	result.SetVectorType(VectorType::FLAT_VECTOR);
-	auto result_data = CompatGetDataMutable<string_t>(result);
-	auto &registry = MCPInstanceState::Get(state.GetContext()).connection_registry;
-
-	for (idx_t i = 0; i < args.size(); i++) {
-		if (server_vector.GetValue(i).IsNull()) {
-			result_data[i] = StringVector::AddString(result, "null");
-			continue;
-		}
-
-		string server_name = server_vector.GetValue(i).ToString();
-		string cursor = cursor_vector.GetValue(i).IsNull() ? "" : cursor_vector.GetValue(i).ToString();
-
-		try {
-			auto connection = registry.GetConnection(server_name);
-			if (!connection) {
-				throw InvalidInputException("MCP server not attached: " + server_name);
-			}
-
-			// Use tool call for pagination
-			Value call_params = Value::STRUCT(
-			    {{"name", Value("list_prompts_paginated")},
-			     {"arguments",
-			      Value(cursor.empty() ? "{}"
-			                           : "{\"cursor\": \"" + ResultFormatter::EscapeJsonString(cursor) + "\"}")}});
-
-			// Send MCP tool call for pagination
-			auto response = connection->SendRequest(MCPMethods::TOOLS_CALL, call_params);
-
-			if (response.IsError()) {
-				throw IOException("MCP list prompts failed: " + response.error.message);
-			}
-
-			// Return raw JSON response (same as existing functions)
-			result_data[i] = StringVector::AddString(result, response.result.ToString());
-
-		} catch (const std::exception &e) {
-			result_data[i] = StringVector::AddString(result, "{\"error\": \"" + string(e.what()) + "\"}");
-		}
-	}
+	MCPListWithCursorFunction(args, state, result, MCPMethods::PROMPTS_LIST, "prompts");
 }
 
 #endif // !__EMSCRIPTEN__
@@ -1824,8 +1766,12 @@ static void MCPRenderPromptTemplateFunction(DataChunk &args, ExpressionState &st
 					yyjson_val *key, *val;
 					while ((key = yyjson_obj_iter_next(&iter))) {
 						val = yyjson_obj_iter_get_val(key);
-						if (yyjson_is_str(val)) {
-							template_args[yyjson_get_str(key)] = yyjson_get_str(val);
+						// Numbers and booleans are legitimate argument values;
+						// skipping them left the variable unbound and Render()
+						// substituted an optional one with the empty string.
+						string arg_str;
+						if (JSONUtils::ScalarAsString(val, arg_str)) {
+							template_args[yyjson_get_str(key)] = arg_str;
 						}
 					}
 				}

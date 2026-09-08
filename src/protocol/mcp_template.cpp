@@ -1,4 +1,5 @@
 #include "protocol/mcp_template.hpp"
+#include "json_utils.hpp"
 #include "duckdb_compat.hpp"
 #include "protocol/mcp_message.hpp"
 #include "duckdb_mcp_logging.hpp"
@@ -289,8 +290,14 @@ MCPMessage MCPTemplateManager::HandlePromptsGet(const MCPMessage &request) const
 				yyjson_val *key;
 				while ((key = yyjson_obj_iter_next(&iter))) {
 					yyjson_val *val = yyjson_obj_iter_get_val(key);
-					if (yyjson_is_str(val)) {
-						args[yyjson_get_str(key)] = yyjson_get_str(val);
+					// Accept numbers and booleans, not only strings. A client
+					// following an integer-typed argument schema sends a JSON
+					// number; dropping it here left the variable unbound, and
+					// Render() then substituted an optional variable with the
+					// empty string -- a mangled prompt returned as success.
+					string arg_str;
+					if (JSONUtils::ScalarAsString(val, arg_str)) {
+						args[yyjson_get_str(key)] = arg_str;
 					}
 				}
 			}
@@ -316,8 +323,11 @@ MCPMessage MCPTemplateManager::HandlePromptsGet(const MCPMessage &request) const
 						yyjson_val *akey;
 						while ((akey = yyjson_obj_iter_next(&iter))) {
 							yyjson_val *val = yyjson_obj_iter_get_val(akey);
-							if (yyjson_is_str(val)) {
-								args[yyjson_get_str(akey)] = yyjson_get_str(val);
+							// Same as the wire path above: numbers and booleans
+							// are legitimate argument values.
+							string arg_str;
+							if (JSONUtils::ScalarAsString(val, arg_str)) {
+								args[yyjson_get_str(akey)] = arg_str;
 							}
 						}
 					}

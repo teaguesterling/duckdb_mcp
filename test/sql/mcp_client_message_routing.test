@@ -1,0 +1,101 @@
+# name: test/sql/mcp_client_message_routing.test
+# description: a stdio client must answer from its own response, not from whatever line is next on the pipe
+# group: [sql]
+
+# Reproduce-first regression test for two client-side wire defects.
+#
+# (1) `StdioTransport::SendAndReceive` wrote the request and then returned
+#     `MCPMessage::FromJSON(ReadFromProcess())` -- the next line off the pipe,
+#     whatever it was. Nothing in the tree ever compared the response id to the
+#     request id. MCP servers legally interleave notifications
+#     (`notifications/message`, `notifications/progress`, ...), which have no id
+#     and no result, so:
+#       - the notification was returned as "the response", whose NULL result
+#         reads as an empty list or the literal string "NULL"; and
+#       - the real response stayed in `read_buffer`, so the *next* call returned
+#         the previous call's answer. A permanent, well-formed, silent offset.
+#
+# (2) `MCPMessage::ToJSON` dispatched on method name and only knew `initialize`,
+#     `resources/read` and `tools/call`. A STRUCT params value for any other
+#     method fell through to the catch-all and was replaced with `{}`.
+#     `mcp_get_prompt()` builds exactly such a STRUCT, so the prompt name and
+#     every argument were dropped on the wire.
+#
+# The fixture is a local mock MCP server (test/mcpfs/mock_noisy_server.sh)
+# spawned over stdio. It emits a notification before every non-handshake
+# response and echoes back what it received for prompts/get.
+
+require duckdb_mcp
+
+require json
+
+require notwindows
+
+statement ok
+LOAD duckdb_mcp;
+
+statement ok
+LOAD json;
+
+statement ok
+SET allowed_mcp_commands='/bin/sh';
+
+statement ok
+ATTACH '' AS noisy (TYPE mcp, COMMAND '/bin/sh', ARGS '["test/mcpfs/mock_noisy_server.sh"]', TRANSPORT 'stdio');
+
+# =============================================================================
+# ROUTE-01: a notification before the response must not be mistaken for it
+# =============================================================================
+# Pre-fix this is NULL: the notification is returned as the response, its result
+# is a NULL Value, and `Value::ToString()` on it yields the string "NULL".
+
+query I
+SELECT json_extract_string(mcp_list_tools('noisy'), '$.tools[0].name');
+----
+noisy_tool
+
+# =============================================================================
+# ROUTE-02: consecutive calls must not be off by one
+# =============================================================================
+# Pre-fix the tools/list response left over from ROUTE-01 is handed to this
+# resources/list call, so the resource list is NULL while the *tool* list
+# reappears under the wrong function.
+
+query I
+SELECT json_extract_string(mcp_list_resources('noisy'), '$.resources[0].uri');
+----
+res://noisy
+
+query I
+SELECT json_extract_string(mcp_list_resources('noisy'), '$.tools[0].name') IS NULL;
+----
+true
+
+# Repeat both, interleaved: every call must answer its own question.
+
+query II
+SELECT json_extract_string(mcp_list_tools('noisy'), '$.tools[0].name'),
+       json_extract_string(mcp_list_resources('noisy'), '$.resources[0].uri');
+----
+noisy_tool	res://noisy
+
+# =============================================================================
+# ROUTE-03: prompts/get params must reach the peer
+# =============================================================================
+# The mock reports back the `name` and the `arguments` it actually received.
+# Pre-fix both are empty because the client serialised `"params":{}`.
+
+query I
+SELECT json_extract_string(
+    mcp_get_prompt('noisy', 'greeting', '{"table": "sales"}'), '$.got_name');
+----
+greeting
+
+query I
+SELECT json_extract_string(
+    mcp_get_prompt('noisy', 'greeting', '{"table": "sales"}'), '$.got_args');
+----
+yes
+
+statement ok
+DETACH noisy;

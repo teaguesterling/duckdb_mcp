@@ -17,6 +17,34 @@
 
 namespace duckdb {
 
+namespace {
+
+//! Compare two JSON-RPC ids by their textual form.
+//!
+//! A peer is free to echo a numeric id back as a number or as a string, and
+//! `MCPMessage::FromJSON` parses those into a BIGINT and a VARCHAR Value
+//! respectively; both mean the same request, so compare the rendered text.
+bool MessageIdMatches(const Value &expected, const Value &actual) {
+	if (expected.IsNull()) {
+		return true; // nothing to match against
+	}
+	if (actual.IsNull()) {
+		return false;
+	}
+	return expected.ToString() == actual.ToString();
+}
+
+string DescribeId(const Value &id) {
+	return id.IsNull() ? string("<null>") : id.ToString();
+}
+
+//! How many unrelated messages to step over before giving up on a response.
+//! Notifications are unbounded in principle, so this is a liveness backstop,
+//! not a protocol limit.
+constexpr int MAX_UNRELATED_MESSAGES = 64;
+
+} // namespace
+
 #ifdef _WIN32
 namespace {
 
@@ -55,6 +83,11 @@ bool StdioTransport::Connect() {
 
 	MCP_LOG_INFO("TRANSPORT", "Connecting to MCP server: %s", config.command_path);
 
+	// Never carry a previous process's trailing bytes into the new one: after a
+	// reconnect they would be handed to the new process's first read as if they
+	// were its answer.
+	read_buffer.clear();
+
 	if (!StartProcess()) {
 		MCP_LOG_ERROR("TRANSPORT", "Failed to start MCP server process: %s", config.command_path);
 		return false;
@@ -76,6 +109,7 @@ void StdioTransport::Disconnect() {
 
 	MCP_LOG_INFO("TRANSPORT", "Disconnecting from MCP server: %s", config.command_path);
 	StopProcess();
+	read_buffer.clear();
 	connected = false;
 	MCP_LOG_DEBUG("TRANSPORT", "Disconnected from MCP server: %s", config.command_path);
 }
@@ -138,9 +172,39 @@ MCPMessage StdioTransport::SendAndReceive(const MCPMessage &message) {
 		MCP_LOG_PROTOCOL(true, config.command_path, json);
 		WriteToProcess(json + "\n");
 
-		string response = ReadFromProcess();
-		MCP_LOG_PROTOCOL(false, config.command_path, response);
-		return MCPMessage::FromJSON(response);
+		// Read until the peer's answer to *this* request arrives.
+		//
+		// A single ReadFromProcess() returns whatever line is next on the pipe,
+		// which is not necessarily our response. MCP servers may interleave
+		// notifications (notifications/message, notifications/progress,
+		// notifications/tools/list_changed) and may send requests of their own,
+		// and a late answer to a request we already timed out on can still be
+		// sitting in the buffer. Returning any of those as "the response" is
+		// silent corruption: a notification carries a NULL result, which callers
+		// read as an empty resource/tool list or as the string "NULL", and the
+		// real response then stays buffered so every later call answers the
+		// previous question -- a permanent, well-formed, entirely wrong offset.
+		for (int skipped = 0;; skipped++) {
+			string response = ReadFromProcess();
+			MCP_LOG_PROTOCOL(false, config.command_path, response);
+			auto parsed = MCPMessage::FromJSON(response);
+
+			if (parsed.type != MCPMessageType::RESPONSE) {
+				MCP_LOG_DEBUG("TRANSPORT", "Skipping server-initiated '%s' while awaiting response to id %s",
+				              parsed.method.c_str(), DescribeId(message.id).c_str());
+			} else if (!MessageIdMatches(message.id, parsed.id)) {
+				MCP_LOG_WARN("TRANSPORT", "Discarding stale response for id %s while awaiting id %s",
+				             DescribeId(parsed.id).c_str(), DescribeId(message.id).c_str());
+			} else {
+				return parsed;
+			}
+
+			if (skipped >= MAX_UNRELATED_MESSAGES) {
+				throw IOException("No response to request id " + DescribeId(message.id) + " after " +
+				                  std::to_string(MAX_UNRELATED_MESSAGES) + " unrelated messages from " +
+				                  config.command_path);
+			}
+		}
 	} catch (const std::exception &e) {
 		MCP_LOG_ERROR("TRANSPORT", "SendAndReceive failed for %s: %s", config.command_path, e.what());
 		throw;
