@@ -108,9 +108,15 @@ CTRL_CODE_HITS="$(grep '!= =' "$UNGUARDED" | grep -cv '^\s*//' || true)"
 if [ "$CTRL_CODE_HITS" -gt 0 ]; then
 	pass "without the guard, clang-format produces $CTRL_CODE_HITS occurrence(s) of '!= =' (exit 0, no error)"
 else
-	warn "the '!== -> != =' corruption no longer reproduces with this clang-format."
-	echo "        Test 3 below is therefore not proving anything. Re-check issue #82"
-	echo "        before concluding the guard can be dropped."
+	# fail, not warn. If this control stops reproducing, assertion 3 below is
+	# passing vacuously -- the exact "guard has become decorative" state this
+	# control exists to detect. A warning here would be discovered by nobody:
+	# the job would stay green and the guard would silently stop meaning
+	# anything. Verified to reproduce on clang-format 11.0.1 (the pinned
+	# version) and 18.1.8, so this failing is real news, not version drift.
+	fail "the '!== -> != =' corruption no longer reproduces with this clang-format."
+	echo "        Assertion 3 below is therefore not proving anything. Re-check issue"
+	echo "        #82 and this control before concluding the guard can be dropped."
 fi
 echo
 
