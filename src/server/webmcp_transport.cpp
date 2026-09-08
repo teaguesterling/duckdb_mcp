@@ -33,6 +33,18 @@ void SetActiveWebMCPTransport(WebMCPTransport *transport) {
 // EM_JS functions — JS interop for navigator.modelContext
 //===--------------------------------------------------------------------===//
 
+// clang-format off
+//
+// DO NOT REMOVE THIS GUARD. The bodies below are JavaScript, not C++, but they
+// reach clang-format as ordinary macro arguments and are reformatted as C++.
+// The concrete damage is the strict-inequality operator: `!==` is not a C++
+// operator, so it is reparsed as `!=` followed by `=` and respaced to `!= =`,
+// which is a JavaScript syntax error. These bodies are compiled into the WASM
+// build only, so native builds and the native test suite cannot see the break --
+// `make format-fix` would corrupt WASM silently. See issue #82.
+//
+// test/format/test_format_safety.sh asserts this guard still holds.
+
 // Check if navigator.modelContext is available
 EM_JS(int, webmcp_check_available, (), {
 	if (typeof navigator !== 'undefined' && navigator.modelContext) {
@@ -125,6 +137,8 @@ EM_JS(const char *, webmcp_list_page_tools_js, (), {
 	}
 	return stringToNewUTF8("[]");
 });
+
+// clang-format on
 
 //===--------------------------------------------------------------------===//
 // Extern "C" callback — JS execute handler calls this
