@@ -756,8 +756,8 @@ static Value MCPServerStartCore(ClientContext &context, const string &transport,
 			// no authentication. Loopback binds (localhost/127.x/::1) remain allowed.
 			{
 				string addr = StringUtil::Lower(bind_address);
-				bool is_loopback = (addr == "localhost" || addr == "127.0.0.1" || addr == "::1" ||
-				                    addr == "[::1]" || StringUtil::StartsWith(addr, "127."));
+				bool is_loopback = (addr == "localhost" || addr == "127.0.0.1" || addr == "::1" || addr == "[::1]" ||
+				                    StringUtil::StartsWith(addr, "127."));
 				if (!is_loopback && server_config.auth_token.empty()) {
 					return CreateMCPStatus(false, false,
 					                       "Refusing to start MCP server: bind_address '" + bind_address +
