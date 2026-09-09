@@ -12,6 +12,7 @@ This folder contains example configurations for running DuckDB as an MCP (Model 
 | [04-security](./04-security/) | Security features | Query restrictions, disabled tools |
 | [05-custom-tools](./05-custom-tools/) | Custom tools | DuckDB macros as domain tools |
 | [06-comprehensive](./06-comprehensive/) | Full featured | All features combined |
+| [12-zim-lookup](./12-zim-lookup/) | ZIM article search | Wikipedia lookup with `zim` extension |
 
 ## Quick Start
 
