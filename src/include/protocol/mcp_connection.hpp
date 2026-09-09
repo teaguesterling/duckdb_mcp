@@ -56,7 +56,14 @@ public:
 	}
 
 	// Resource operations
+	//
+	// ListResources() returns a single page and discards the server's
+	// `nextCursor`. A caller that must see every resource has to use
+	// ListAllResources(), or ListResourcesPage() and follow the cursor itself --
+	// otherwise a paginated server looks like it holds only its first page.
 	vector<MCPResource> ListResources(const string &cursor = "");
+	vector<MCPResource> ListResourcesPage(const string &cursor, string &next_cursor);
+	vector<MCPResource> ListAllResources(idx_t max_pages = 1000);
 	MCPResource ReadResource(const string &uri);
 	bool ResourceExists(const string &uri);
 

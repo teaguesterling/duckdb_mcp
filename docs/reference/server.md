@@ -56,6 +56,18 @@ PRAGMA mcp_server_start('http', 'localhost', 8080, '{"auth_token": "secret"}');
 SELECT mcp_server_start('memory');
 ```
 
+!!! warning "Queued registrations are applied all-or-nothing"
+    Tools and resources published before the server starts are queued, and every
+    queued registration is applied when it does. If any of them cannot be applied
+    — malformed `properties_json` for a tool, say, which is only parsed at this
+    point — none of them are: the server is stopped again, the queue is left
+    intact, and the status struct comes back with `success` and `running` false
+    and a `message` naming each registration that failed and why.
+
+    A start that reports success therefore holds every capability that was asked
+    for. Correct the offending `mcp_publish_*` call — re-publishing a name
+    replaces the queued entry — and start again.
+
 ---
 
 ### mcp_server_stop

@@ -1,0 +1,116 @@
+# name: test/sql/mcp_markdown_cell_row_integrity.test
+# description: a markdown cell must never introduce a row or column boundary (issue #84 item 2)
+# group: [sql]
+
+# Reproduce-first regression test for issue #84 (item 2).
+#
+# ResultFormatter::EscapeMarkdownCell() escaped only `|`. A cell containing a
+# newline therefore split one result row into several rendered table rows, and
+# a cell containing a backslash immediately before a pipe produced `\\|` --
+# an escaped backslash followed by a live pipe, which splits the row into two
+# cells. Anything parsing the markdown back (which is the point of formatting
+# it) saw rows and columns that were never in the result set. Row counts
+# changed silently.
+#
+# The assertions below count structure rather than eyeball the rendering. In
+# the JSON-RPC response every markdown newline is the two-character sequence
+# backslash-n, so counting those counts rendered table lines.
+
+require duckdb_mcp
+
+statement ok
+LOAD duckdb_mcp;
+
+statement ok
+SELECT mcp_server_stop(true);
+
+statement ok
+SELECT mcp_server_start('memory');
+
+# =============================================================================
+# CORE 1: a newline inside a cell does not add a table row
+# =============================================================================
+# One row, one column. A well-formed table is exactly three lines: header,
+# alignment separator, and the single data row.
+#
+# Pre-fix the cell's newline is emitted verbatim, so the rendering has FOUR
+# lines and a markdown reader counts two data rows where the result set had one.
+
+query I
+SELECT CAST((length(r) - length(replace(r, chr(92) || 'n', ''))) / 2 AS BIGINT) FROM (
+  SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT ''a'' || chr(10) || ''b'' AS val","format":"markdown"}}}') AS r
+);
+----
+3
+
+# The line break is preserved as a cell-local break rather than dropped.
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT ''a'' || chr(10) || ''b'' AS val","format":"markdown"}}}')
+  LIKE '%a<br>b%';
+----
+true
+
+# Carriage returns and CRLF pairs collapse the same way -- one break, one row.
+
+query I
+SELECT CAST((length(r) - length(replace(r, chr(92) || 'n', ''))) / 2 AS BIGINT) FROM (
+  SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT ''a'' || chr(13) || chr(10) || ''b'' AS val","format":"markdown"}}}') AS r
+);
+----
+3
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT ''a'' || chr(13) || chr(10) || ''b'' AS val","format":"markdown"}}}')
+  LIKE '%a<br>b%';
+----
+true
+
+# A newline in a COLUMN NAME must not break the header row either. The newline
+# is written as a JSON \n escape so the request itself stays valid JSON; the
+# JSON parser turns it back into a real newline inside the quoted identifier.
+
+query I
+SELECT CAST((length(r) - length(replace(r, chr(92) || 'n', ''))) / 2 AS BIGINT) FROM (
+  SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 1 AS \"one' || chr(92) || 'ntwo\"","format":"markdown"}}}') AS r
+);
+----
+3
+
+# Multi-row results still render one line per row.
+
+query I
+SELECT CAST((length(r) - length(replace(r, chr(92) || 'n', ''))) / 2 AS BIGINT) FROM (
+  SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT * FROM (VALUES (''x'' || chr(10) || ''y''), (''z'')) t(val)","format":"markdown"}}}') AS r
+);
+----
+4
+
+# =============================================================================
+# CORE 2: a backslash before a pipe does not add a table column
+# =============================================================================
+# Cell content is the four characters  a \ | b .
+#
+# Pre-fix only the pipe was escaped, giving the markdown  a\\|b : the reader
+# sees an escaped backslash and then a LIVE pipe, so the one-column row becomes
+# two columns.
+#
+# Post-fix the backslash is escaped too, giving  a\\\|b  -- six backslashes in
+# the JSON-RPC response, where each markdown backslash is doubled again.
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT ''a'' || chr(92) || chr(124) || ''b'' AS val","format":"markdown"}}}')
+  LIKE '%a' || repeat(chr(92), 6) || chr(124) || 'b%';
+----
+true
+
+# A bare pipe is still escaped exactly once (pinning the pre-existing #55 fix).
+
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT ''a'' || chr(124) || ''b'' AS val","format":"markdown"}}}')
+  LIKE '%a' || repeat(chr(92), 2) || chr(124) || 'b%';
+----
+true
+
+statement ok
+SELECT mcp_server_stop(true);

@@ -213,9 +213,40 @@ string ResultFormatter::FormatAsCSV(QueryResult &result) {
 }
 
 string ResultFormatter::EscapeMarkdownCell(const string &input) {
-	string result = input;
-	for (size_t pos = 0; (pos = result.find('|', pos)) != string::npos; pos += 2) {
-		result.replace(pos, 1, "\\|");
+	// A cell must never introduce a row or column boundary. Three characters can:
+	//   '\n' / '\r' end the table row, so one result row renders as several and
+	//               anything parsing the markdown back sees rows that were never
+	//               in the result set;
+	//   '|'         ends the cell;
+	//   '\\'        is markdown's escape character, so an unescaped backslash
+	//               immediately before a pipe turns our "\|" into an escaped
+	//               backslash followed by a *live* pipe.
+	// Line breaks become <br>, the standard way to carry a break inside a cell.
+	string result;
+	result.reserve(input.size());
+	for (size_t i = 0; i < input.size(); i++) {
+		char c = input[i];
+		switch (c) {
+		case '\\':
+			result += "\\\\";
+			break;
+		case '|':
+			result += "\\|";
+			break;
+		case '\r':
+			// Collapse CRLF into a single break rather than emitting two.
+			if (i + 1 < input.size() && input[i + 1] == '\n') {
+				i++;
+			}
+			result += "<br>";
+			break;
+		case '\n':
+			result += "<br>";
+			break;
+		default:
+			result += c;
+			break;
+		}
 	}
 	return result;
 }

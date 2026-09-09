@@ -1,0 +1,105 @@
+# name: test/sql/mcpfs_glob_semantics.test
+# description: MCPFileSystem::Glob must page, match globs (not substrings), and raise instead of returning empty
+# group: [sql]
+
+# Reproduce-first regression test for issue #84 (item 3).
+#
+# MCPFileSystem::Glob() had three independent ways to hand back a short or
+# wrong file list, none of which raised:
+#
+#   1. It called MCPConnection::ListResources() once and never followed
+#      `nextCursor`, so only the first page of a paginated server was ever
+#      considered.
+#   2. It matched with StringUtil::Contains(), not glob semantics. `*.csv`
+#      therefore did not mean what a caller expects, and a wildcard-free
+#      pattern naming nothing could still match plenty.
+#   3. The whole body was wrapped in `catch (...) {}`, so a missing server, a
+#      dead transport or a JSON-RPC error all became an empty match list.
+#
+# The fixture is a local mock MCP server (test/mcpfs/mock_glob_server.sh)
+# spawned over stdio. It touches no network. Its resource set spans two pages
+# and is shaped so glob and substring matching disagree:
+#
+#   page 1: data://alpha.csv  data://alpha.csv.bak  data://notes.txt
+#   page 2: data://beta.csv
+
+require duckdb_mcp
+
+require notwindows
+
+statement ok
+LOAD duckdb_mcp;
+
+statement ok
+SET allowed_mcp_commands='/bin/sh';
+
+statement ok
+ATTACH '' AS globber (TYPE mcp, COMMAND '/bin/sh', ARGS '["test/mcpfs/mock_glob_server.sh"]', TRANSPORT 'stdio');
+
+# =============================================================================
+# CORE 1: `*.csv` means glob, and every page is searched.
+# =============================================================================
+# Pre-fix: StringUtil::Contains(uri, "data://*.csv") is false for every
+# resource, and Contains(full_path, path) likewise, so this returned ZERO rows.
+#
+# Post-fix: proper glob matching selects alpha.csv and beta.csv; it must NOT
+# select alpha.csv.bak (a substring match would) and must NOT miss beta.csv
+# (which only exists on page 2, behind `nextCursor`).
+
+query I
+SELECT string_agg(file, ',' ORDER BY file) FROM glob('mcp://globber/data://*.csv');
+----
+mcp://globber/data://alpha.csv,mcp://globber/data://beta.csv
+
+# The page-2 resource on its own, to name the pagination failure directly.
+
+query I
+SELECT count(*) FROM glob('mcp://globber/data://beta*');
+----
+1
+
+# =============================================================================
+# CORE 2: a wildcard-free pattern is a name, not a substring.
+# =============================================================================
+# `data://alpha` is not a resource on this server. Pre-fix
+# StringUtil::Contains() matched it against data://alpha.csv AND
+# data://alpha.csv.bak, so a pattern that should match nothing matched plenty.
+
+query I
+SELECT count(*) FROM glob('mcp://globber/data://alpha');
+----
+0
+
+# The exact URI still resolves, so the ordinary read path is unaffected.
+
+query I
+SELECT count(*) FROM glob('mcp://globber/data://alpha.csv');
+----
+1
+
+query I
+SELECT content FROM read_text('mcp://globber/data://alpha.csv');
+----
+ALPHA
+
+# A glob that reaches page 2 must be readable end to end, not just listable.
+
+query I
+SELECT string_agg(content, ',' ORDER BY content) FROM read_text('mcp://globber/data://*.csv');
+----
+ALPHA,BETA
+
+# =============================================================================
+# CORE 3: errors underneath must raise, not become an empty match list.
+# =============================================================================
+# There is no server attached under the name `nosuchserver`, so resolving the
+# connection throws. Pre-fix `catch (...) {}` turned that into zero matches and
+# the caller saw "no files" instead of "no such server".
+
+statement error
+SELECT count(*) FROM glob('mcp://nosuchserver/data://*.csv');
+----
+No MCP connection found in registry for server
+
+statement ok
+DETACH globber;
