@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "zim-lookup": {
+      "command": "duckdb",
+      "args": ["-init", "/path/to/examples/12-zim-lookup/init-mcp-server.sql"],
+      "env": {
+        "ZIM_FILES": "/path/to/wikipedia_en_mini.zim"
+      }
+    }
+  }
+}
