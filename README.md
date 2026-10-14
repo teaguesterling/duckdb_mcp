@@ -28,6 +28,13 @@ INSERT INTO products VALUES (1, 'Widget', 9.99), (2, 'Gadget', 24.99);
 PRAGMA mcp_server_start('stdio');
 ```
 
+> **stdio transport owns stdout.** JSON-RPC is framed on stdout, so anything else printed
+> there corrupts the channel. The extension takes the descriptor away from other writers
+> when the server starts, and the client tolerates host output that arrives before the
+> handshake (the CLI prints an `-- Loading resources from …` banner for `-init`, plus a
+> result table per statement). For a server whose output you cannot afford to have parsed
+> at all, put `.output /dev/null` as the first line of the init script.
+
 Add to Claude Desktop configuration:
 
 ```json

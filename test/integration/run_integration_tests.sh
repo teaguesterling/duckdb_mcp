@@ -830,6 +830,57 @@ fi
 # ==========================================
 log_section "Test Summary"
 
+# ==========================================
+# Stdio self-attach: the README's own server recipe, consumed by our own client
+# ==========================================
+#
+# This is the composition nothing else here covers. The sql/ tests exercise publishing
+# inside ONE process, and the tests above drive the HTTP transport; neither launches the
+# documented stdio server and attaches to it. That gap let a real break survive: the CLI
+# writes its own output on the descriptor JSON-RPC needs -- an ANSI banner for -init, then
+# a result table per statement -- so a client that fed every line to the JSON parser threw
+# on the first one, and reported it as "Failed to send initialization request", naming the
+# request it had just written successfully.
+#
+# The init script below is deliberately the README's recipe with NOTHING added: no
+# `.output /dev/null`, no quiet flags. If this test needs a workaround to pass, the
+# documented instructions are the thing that is wrong.
+log_section "Stdio Self-Attach (documented server recipe)"
+
+STDIO_INIT="$(mktemp -t mcp_stdio_init_XXXXXX.sql)"
+cat > "$STDIO_INIT" <<EOSQL
+LOAD '$EXTENSION';
+PRAGMA mcp_publish_resource('file:///selftest.txt', 'hello from stdio', 'text/plain', 'self-attach probe');
+PRAGMA mcp_server_start('stdio');
+EOSQL
+
+STDIO_RESULT=$(run_sql_with_extension "
+SET allowed_mcp_commands='$DUCKDB';
+ATTACH '$DUCKDB' AS selftest (TYPE mcp, ARGS '[\"-unsigned\",\"-init\",\"$STDIO_INIT\"]');
+SELECT mcp_list_resources('selftest');
+")
+
+if echo "$STDIO_RESULT" | grep -q "file:///selftest.txt"; then
+    pass "Client attaches to the documented stdio server and lists its resources"
+else
+    fail "Stdio self-attach" "resource file:///selftest.txt listed" "$STDIO_RESULT"
+fi
+
+# The payload too, not just the handshake: a resource read goes through the same framing.
+STDIO_READ=$(run_sql_with_extension "
+SET allowed_mcp_commands='$DUCKDB';
+ATTACH '$DUCKDB' AS selftest (TYPE mcp, ARGS '[\"-unsigned\",\"-init\",\"$STDIO_INIT\"]');
+SELECT content FROM read_text('mcp://selftest/file:///selftest.txt');
+")
+
+if echo "$STDIO_READ" | grep -q "hello from stdio"; then
+    pass "Resource content reads through mcp:// from the documented stdio server"
+else
+    fail "Stdio self-attach resource read" "content 'hello from stdio'" "$STDIO_READ"
+fi
+
+rm -f "$STDIO_INIT"
+
 echo -e "${GREEN}Passed: $TESTS_PASSED${NC}"
 echo -e "${RED}Failed: $TESTS_FAILED${NC}"
 echo -e "${YELLOW}Skipped: $TESTS_SKIPPED${NC}"

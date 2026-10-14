@@ -60,6 +60,64 @@ bool IsUncorrelatedError(const MCPMessage &msg) {
 //! not a protocol limit.
 constexpr int MAX_UNRELATED_MESSAGES = 64;
 
+//! Parse one line from a stdio peer as JSON-RPC, tolerating HOST NOISE around it.
+//!
+//! A stdio server's stdout belongs to whatever process hosts it, and the DuckDB CLI writes
+//! on that descriptor BEFORE any extension code runs: an ANSI-coloured
+//! `-- Loading resources from <init.sql>` banner, then one result table per statement in
+//! the init script. ProtocolStdout (see server/stdio_server_transport.hpp) takes fd 1 away
+//! from those writers, but only once `mcp_server_start()` executes -- which is already too
+//! late for every line printed above it. So the documented server recipe,
+//! `duckdb -init init-server.sql`, puts several non-protocol lines on the wire ahead of the
+//! handshake response, and no discipline inside the server can prevent them.
+//!
+//! Handing such a line to MCPMessage::FromJSON throws, and the throw surfaced as
+//! "Failed to initialize MCP connection: Failed to send initialization request" -- which
+//! names the request we just wrote successfully, pointing at the wrong half of the problem
+//! and sending the reader off to check allowlists, args and protocol versions.
+//!
+//! Two shapes are tolerated here, because both actually occur:
+//!   * the line is noise and contains no JSON at all          -> skipped
+//!   * the line is a protocol message with junk PREFIXED,     -> parsed from the first '{'
+//!     e.g. a `\033[00m` colour reset left by a log entry
+//!     written just before it (issue #74)
+//! A line that holds a '{' but does not parse counts as noise rather than propagating, so
+//! a CLI table containing a brace cannot abort a session. The caller's skip budget bounds
+//! the loop either way.
+bool TryParseJsonRpc(const string &line, MCPMessage &out) {
+	auto start = line.find('{');
+	if (start == string::npos) {
+		return false;
+	}
+	try {
+		out = MCPMessage::FromJSON(start == 0 ? line : line.substr(start));
+		return true;
+	} catch (const std::exception &) {
+		return false;
+	}
+}
+
+//! A one-line, printable summary of a noise line, for the error that gives up.
+string DescribeNoise(const string &line) {
+	string shown;
+	for (auto c : line) {
+		if (c == '\033') {
+			shown += "\\033";
+		} else if (c == '\t') {
+			shown += ' ';
+		} else if (static_cast<unsigned char>(c) < 0x20) {
+			continue;
+		} else {
+			shown += c;
+		}
+		if (shown.size() >= 80) {
+			shown += "...";
+			break;
+		}
+	}
+	return shown;
+}
+
 } // namespace
 
 #ifdef _WIN32
@@ -165,11 +223,26 @@ MCPMessage StdioTransport::Receive() {
 
 	try {
 		MCP_PERF_TIMER("mcp_receive", config.command_path);
-		string response = ReadFromProcess();
 
-		MCP_LOG_PROTOCOL(false, config.command_path, response);
+		// Same host-noise tolerance as SendAndReceive below; see TryParseJsonRpc.
+		string first_noise;
+		for (int skipped = 0;; skipped++) {
+			string response = ReadFromProcess();
+			MCP_LOG_PROTOCOL(false, config.command_path, response);
 
-		return MCPMessage::FromJSON(response);
+			MCPMessage parsed;
+			if (TryParseJsonRpc(response, parsed)) {
+				return parsed;
+			}
+			if (first_noise.empty()) {
+				first_noise = DescribeNoise(response);
+			}
+			if (skipped >= MAX_UNRELATED_MESSAGES) {
+				throw IOException("No JSON-RPC message from " + config.command_path + " after " +
+				                  std::to_string(MAX_UNRELATED_MESSAGES) + " non-protocol lines. First was: \"" +
+				                  first_noise + "\"");
+			}
+		}
 	} catch (const std::exception &e) {
 		MCP_LOG_ERROR("TRANSPORT", "Failed to receive message from %s: %s", config.command_path, e.what());
 		throw;
@@ -201,12 +274,21 @@ MCPMessage StdioTransport::SendAndReceive(const MCPMessage &message) {
 		// read as an empty resource/tool list or as the string "NULL", and the
 		// real response then stays buffered so every later call answers the
 		// previous question -- a permanent, well-formed, entirely wrong offset.
+		string first_noise;
 		for (int skipped = 0;; skipped++) {
 			string response = ReadFromProcess();
 			MCP_LOG_PROTOCOL(false, config.command_path, response);
-			auto parsed = MCPMessage::FromJSON(response);
 
-			if (parsed.type != MCPMessageType::RESPONSE) {
+			MCPMessage parsed;
+			if (!TryParseJsonRpc(response, parsed)) {
+				// Host noise, not protocol. Keep the first one: it is the single most
+				// useful thing to show if we run out of budget.
+				if (first_noise.empty()) {
+					first_noise = DescribeNoise(response);
+				}
+				MCP_LOG_DEBUG("TRANSPORT", "Skipping non-protocol line from %s: %s", config.command_path,
+				              DescribeNoise(response).c_str());
+			} else if (parsed.type != MCPMessageType::RESPONSE) {
 				MCP_LOG_DEBUG("TRANSPORT", "Skipping server-initiated '%s' while awaiting response to id %s",
 				              parsed.method.c_str(), DescribeId(message.id).c_str());
 			} else if (MessageIdMatches(message.id, parsed.id) || IsUncorrelatedError(parsed)) {
@@ -217,9 +299,18 @@ MCPMessage StdioTransport::SendAndReceive(const MCPMessage &message) {
 			}
 
 			if (skipped >= MAX_UNRELATED_MESSAGES) {
-				throw IOException("No response to request id " + DescribeId(message.id) + " after " +
-				                  std::to_string(MAX_UNRELATED_MESSAGES) + " unrelated messages from " +
-				                  config.command_path);
+				string detail = "No response to request id " + DescribeId(message.id) + " after " +
+				                std::to_string(MAX_UNRELATED_MESSAGES) + " unrelated messages from " +
+				                config.command_path;
+				if (!first_noise.empty()) {
+					// Name the cause. Without this the message describes the request rather
+					// than the stream, which is what made this take an afternoon to find.
+					detail += ". Expected JSON-RPC on the peer's stdout but read: \"" + first_noise +
+					          "\" -- a stdio server must not share stdout with anything else; if it is "
+					          "launched as `duckdb -init script.sql`, put `.output /dev/null` at the top "
+					          "of that script";
+				}
+				throw IOException(detail);
 			}
 		}
 	} catch (const std::exception &e) {
