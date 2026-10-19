@@ -10,6 +10,7 @@
 #include <cstdlib>
 
 using namespace duckdb_yyjson;
+#include "mcpfs/mcp_path.hpp"
 #ifndef __EMSCRIPTEN__
 #include "mcpfs/mcp_file_system.hpp"
 #include "client/mcp_storage_extension.hpp"
