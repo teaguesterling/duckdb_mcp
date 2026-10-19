@@ -103,17 +103,42 @@ SELECT mcp_server_stop();
 statement ok
 SELECT mcp_server_start('memory');
 
-# Publish with NULL uri should use default (data://tables/{table_name})
+# Publish with NULL uri should use default (data://tables/{table_name}), and
+# the default carries the extension of the published format (issue #100):
+# readers recognise a file by its extension, so a json table becomes
+# data://tables/{table_name}.json.
 query I
-SELECT mcp_publish_table('test_users', NULL, 'json') LIKE '%SUCCESS%';
+SELECT mcp_publish_table('test_users', NULL, 'json');
 ----
-true
+SUCCESS: Published table 'test_users' as resource 'data://tables/test_users.json' in json format
 
 # Should be accessible at default URI
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":20,"method":"resources/read","params":{"uri":"data://tables/test_users"}}') LIKE '%Alice%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":20,"method":"resources/read","params":{"uri":"data://tables/test_users.json"}}') LIKE '%Alice%';
 ----
 true
+
+# The listing advertises the extended URI, not the bare one.
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":21,"method":"resources/list","params":{}}') LIKE '%"data://tables/test_users.json"%';
+----
+true
+
+# markdown gets .md.
+query I
+SELECT mcp_publish_table('test_products', NULL, 'markdown');
+----
+SUCCESS: Published table 'test_products' as resource 'data://tables/test_products.md' in markdown format
+
+# csv has no extension under the ruling (which names .md, .json and .html
+# only), so its default URI stays bare.
+statement ok
+CREATE TABLE test_csv_default AS SELECT 1 AS id;
+
+query I
+SELECT mcp_publish_table('test_csv_default', NULL, 'csv');
+----
+SUCCESS: Published table 'test_csv_default' as resource 'data://tables/test_csv_default' in csv format
 
 statement ok
 SELECT mcp_server_stop();

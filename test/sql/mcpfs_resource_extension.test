@@ -1,0 +1,140 @@
+# name: test/sql/mcpfs_resource_extension.test
+# description: mcp:// resource paths carry the extension of the resource's mimeType, and those paths open
+# group: [sql]
+
+# Reproduce-first regression test for issue #100.
+#
+# Readers decide what they can open from the path's extension. A resource such
+# as `note://readme` (mimeType text/markdown) carries none, so read_markdown
+# refused it with "File is not a markdown file" although mcpfs could read it.
+#
+# Ruling (2026-10-18): the resource path carries the extension that matches the
+# declared mimeType -- .md, .json, .html. Two halves are tested here:
+#
+#   1. EXPOSE: a wildcard glob, which has each resource's mimeType from
+#      resources/list, hands back the decorated name.
+#   2. OPEN: the decorated name is not a URI the server knows, so mcpfs tries
+#      the exact URI first and only then strips the extension -- and only
+#      accepts the stripped resource when its mimeType matches. Without this
+#      half the exposed names could not be opened, which is the lossiness that
+#      ruled out CanonicalizePath.
+#
+# The fixture is a local mock MCP server (test/mcpfs/mock_extension_server.sh)
+# spawned over stdio. It touches no network.
+
+require duckdb_mcp
+
+require notwindows
+
+statement ok
+LOAD duckdb_mcp;
+
+statement ok
+SET allowed_mcp_commands='/bin/sh';
+
+statement ok
+ATTACH '' AS ext (TYPE mcp, COMMAND '/bin/sh', ARGS '["test/mcpfs/mock_extension_server.sh"]', TRANSPORT 'stdio');
+
+# =============================================================================
+# EXPOSE: glob output carries the extension for md / json / html
+# =============================================================================
+# - readme, data, page gain .md, .json, .html (page's mimeType has a charset
+#   parameter, which must not defeat the match).
+# - already.md is not doubled to already.md.md.
+# - plain (text/plain) and bare (no mimeType) are left as they are.
+# - twin is left undecorated because twin.md is a separate resource on the
+#   same server; decorating it would hand back the same name twice.
+
+query I
+SELECT string_agg(file, ',' ORDER BY file) FROM glob('mcp://ext/note://*');
+----
+mcp://ext/note://already.md,mcp://ext/note://bare,mcp://ext/note://data.json,mcp://ext/note://page.html,mcp://ext/note://plain,mcp://ext/note://readme.md,mcp://ext/note://twin,mcp://ext/note://twin.md
+
+# A pattern written against the decorated name finds the resource...
+
+query I
+SELECT string_agg(file, ',' ORDER BY file) FROM glob('mcp://ext/note://*.md');
+----
+mcp://ext/note://already.md,mcp://ext/note://readme.md,mcp://ext/note://twin.md
+
+# ...and so does one written against the server's own URI, which still hands
+# back the decorated name.
+
+query I
+SELECT string_agg(file, ',' ORDER BY file) FROM glob('mcp://ext/note://*me');
+----
+mcp://ext/note://readme.md
+
+# =============================================================================
+# OPEN: every name the glob hands back is readable
+# =============================================================================
+# This is the round trip. Pre-fix the glob emitted bare names, so this passed
+# trivially; with decoration but no strip-on-open, every decorated name
+# would fail with "MCP resource not found".
+
+query I
+SELECT string_agg(content, ',' ORDER BY content) FROM read_text('mcp://ext/note://*');
+----
+ALREADY,BARE,DATA,PAGE,PLAIN,README,TWIN-BARE,TWIN-MD
+
+# A decorated name typed directly -- the issue's own case: the user writes the
+# extension so the reader recognises the file.
+
+query I
+SELECT content FROM read_text('mcp://ext/note://readme.md');
+----
+README
+
+query I
+SELECT content FROM read_text('mcp://ext/note://data.json');
+----
+DATA
+
+query I
+SELECT content FROM read_text('mcp://ext/note://page.html');
+----
+PAGE
+
+# The undecorated URI still opens: the server's own name is never refused.
+
+query I
+SELECT content FROM read_text('mcp://ext/note://readme');
+----
+README
+
+# The exact URI wins over the stripped one: twin.md is its own resource.
+
+query I
+SELECT content FROM read_text('mcp://ext/note://twin.md');
+----
+TWIN-MD
+
+# =============================================================================
+# OPEN: the stripped fallback demands a matching mimeType
+# =============================================================================
+# plain is text/plain, data is application/json, bare declares nothing. None
+# of them may be opened under a .md name: the extension would then assert a
+# type the server never declared.
+
+query I
+SELECT count(*) FROM glob('mcp://ext/note://plain.md');
+----
+0
+
+query I
+SELECT count(*) FROM glob('mcp://ext/note://data.md');
+----
+0
+
+query I
+SELECT count(*) FROM glob('mcp://ext/note://bare.md');
+----
+0
+
+statement error
+SELECT content FROM read_text('mcp://ext/note://plain.md');
+----
+No files found
+
+statement ok
+DETACH ext;
