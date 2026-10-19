@@ -217,21 +217,56 @@ jobs:
           chmod +x test/format/test_format_safety.sh
           ./test/format/test_format_safety.sh
 
+  # THE NEXT LINE, first-class -- NOT a canary and NOT advisory, whatever this
+  # job used to be called. The name said "Canary -- build against DuckDB main
+  # (advisory)" from fb485a0 until this commit, and by then it was wrong twice
+  # over:
+  #
+  #   fb485a0  named it a DuckDB-main canary and gated it to main + dispatch;
+  #            at that point it really did build `main`.
+  #   8bcb10c  moved its target off `main` onto the 2.0 release branch.
+  #   008c5d8  Teague's dual-line ruling (2026-09-13) put `pull_request` back in
+  #            the gate on purpose, making the next line a PR gate -- and left
+  #            the name alone.
+  #
+  # So for a month this job built v2.0-cyanoptera, blocked PRs by design, and
+  # advertised itself as an advisory build of a line nobody ships. A red
+  # required gate that calls itself advisory is worse than either one honestly
+  # labelled: it invites the reader to gate it off PRs, which would drop the
+  # coverage below and leave the regression to be found by the registry.
+  #
+  # WHY IT IS A GATE. The community registry's descriptor for this extension
+  # sets `ref_next == ref` deliberately, so the registry builds and TESTS the
+  # shipped release against v2.0-cyanoptera (v2.3.1 shipped unvalidated on 2.0;
+  # #91 is the fix that made ref_next == ref worth setting). This job is the
+  # only place that build happens before the registry does it. If it is red,
+  # the release is broken on the line the registry serves it on, and the PR
+  # should be red.
+  #
+  # The gate is byte-identical to duck_block_utils' duckdb-next-build and runs
+  # it ONCE per PR, not twice: a push to a PR branch fires both a push run and a
+  # pull_request run for the same commit. Runs on PRs, on push to main, and on
+  # dispatch. `if:` rather than `continue-on-error:` because a job calling a
+  # REUSABLE workflow accepts only a fixed set of keys -- and nothing here wants
+  # continue-on-error anyway, which is the point of the rename.
+  #
+  # The advisory DuckDB-main canary that the old name described does not exist
+  # in this repo. duck_block_utils carries one as a separate duckdb-main-canary
+  # job gated to dispatch + push-to-main; this repo has no job building `main`.
   duckdb-next-build:
-    name: Canary — build against DuckDB main (advisory)
-    # Gated to run once, not twice, per PR: a push to a PR branch fires both a
-    # push run and a pull_request run for the same commit, so an ungated job
-    # would build it twice. Runs on PRs, on push to main, and on dispatch.
+    name: Build extension binaries (duckdb next, v2.0 line)
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@main
     with:
       duckdb_version: v2.0-cyanoptera
       ci_tools_version: main
       extension_name: duckdb_mcp
-      # next tracks duckdb main and is an expected-red forward-compat canary
-      # (upstream API drift, e.g. Identifier). Windows left excluded here since
-      # this leg can't be evaluated green anyway; Windows is re-enabled on the
-      # stable leg below where it's meaningful.
+      # KEPT AS-IS, and its old justification is void. The exclusion was argued
+      # from "this leg can't be evaluated green anyway" -- true of an
+      # expected-red canary, false of a gate. Windows is green on the stable leg
+      # below, and whether it builds on v2.0 has NOT been measured; widening the
+      # matrix here is a separate change that could add newly-red legs, so it is
+      # left for a deliberate measurement rather than smuggled into a rename.
       exclude_archs: 'windows_amd64;windows_amd64_mingw'
 
   duckdb-stable-build:
