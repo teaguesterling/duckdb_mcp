@@ -24,30 +24,61 @@ statement ok
 SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0.1"}}}');
 
 # =============================================================================
-# TEST 1: File export does not execute query more than needed
+# TEST 1: File export does not execute the query more than needed
 # =============================================================================
-# DuckDB's Connection::Query() binds nextval during planning (consuming 1 value)
-# then executes it (consuming another). This is internal DuckDB behavior. The fix
-# ensures we don't add MORE executions on top (the original bug ran the query 4 times).
+# The property under test: the export tool runs the user's query exactly once
+# per tool call and adds no executions of its own. The original bug (issue #37)
+# ran it 4 times.
+#
+# We do NOT pin DuckDB's own evaluation count, because it is not ours and it
+# changes. `mcp_server_send_request(<literal>)` is a foldable call, and here it
+# sits inside another function (LIKE). On DuckDB v1.5.6 such an argument is
+# evaluated twice: once by the function binder, which folds foldable arguments
+# only to test them for NULL and then discards the value, and once more by the
+# optimizer's constant folding. DuckDB PR #26795 ("Fold constant function
+# arguments while binding", on v2.0-cyanoptera since 2026-10-12) keeps the
+# folded value instead of discarding it, so the optimizer has nothing left to
+# evaluate and the count drops to one. The old assertion hard-coded the v1.5
+# number 3 and went red on the 2.0 line with 2 - a true statement about DuckDB's
+# binder, and nothing about our export tool.
+#
+# So measure the export against an in-run control in the identical statement
+# shape: the `query` tool, which also runs its SQL exactly once per call.
+# Whatever multiplier the engine applies to the enclosing statement applies to
+# both tools equally, so it cancels, and only an extra execution of mcp's own
+# makes the two sequences diverge. Equal advance means the export added nothing.
 
 statement ok
-CREATE SEQUENCE test_seq START 1;
+CREATE SEQUENCE control_seq START 1;
 
-# Export nextval('test_seq') to a CSV file
+statement ok
+CREATE SEQUENCE export_seq START 1;
+
+# Control: one tool call that runs its SQL exactly once.
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT nextval(''test_seq'') as val","format":"csv","output":"__TEST_DIR__/mcp_test_double_exec.csv"}}}') LIKE '%Data exported%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT nextval(''control_seq'') as val"}}}') LIKE '%val%';
 ----
 true
 
-# The export consumed 2 values (DuckDB bind + execute), so nextval should return 3.
-# Before the fix, 4 values were consumed and nextval would return 5.
+# File export of a query over its own sequence, in the same statement shape.
 query I
-SELECT nextval('test_seq');
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"export","arguments":{"query":"SELECT nextval(''export_seq'') as val","format":"csv","output":"__TEST_DIR__/mcp_test_double_exec.csv"}}}') LIKE '%Data exported%';
 ----
-3
+true
+
+# Both sequences advanced equally: the export added no executions. With the
+# original 4x bug the export side advances 4 values per control value, so this
+# comparison is false.
+query I
+SELECT nextval('control_seq') = nextval('export_seq');
+----
+true
 
 statement ok
-DROP SEQUENCE test_seq;
+DROP SEQUENCE control_seq;
+
+statement ok
+DROP SEQUENCE export_seq;
 
 # =============================================================================
 # TEST 2: Inline return works correctly
