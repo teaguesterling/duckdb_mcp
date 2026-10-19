@@ -131,10 +131,14 @@ SELECT count(*) FROM glob('mcp://ext/note://bare.md');
 ----
 0
 
-statement error
-SELECT content FROM read_text('mcp://ext/note://plain.md');
+# Read end to end, the refused name is a missing resource: zero rows, as
+# mcpfs_resource_content.test pins for any unknown resource -- and in
+# particular not PLAIN.
+
+query I
+SELECT count(*) FROM read_text('mcp://ext/note://plain.md');
 ----
-No files found
+0
 
 statement ok
 DETACH ext;
