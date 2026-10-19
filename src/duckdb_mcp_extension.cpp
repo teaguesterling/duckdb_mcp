@@ -1078,8 +1078,12 @@ static void MCPServerSendRequestFunction(DataChunk &args, ExpressionState &state
 // Core implementation for publishing table as MCP resource
 static string MCPPublishTableCore(ClientContext &context, const string &table_name, const string &resource_uri_in,
                                   const string &format_in) {
-	string resource_uri = resource_uri_in.empty() ? ("data://tables/" + table_name) : resource_uri_in;
 	string format = format_in.empty() ? "json" : format_in;
+	// The default URI carries the extension of the published format (issue #100).
+	string resource_uri = resource_uri_in.empty()
+	                          ? MCPPathParser::WithExtension("data://tables/" + table_name,
+	                                                         ResultFormatter::GetMimeType(format))
+	                          : resource_uri_in;
 
 	if (!ResultFormatter::IsFormatSupported(format)) {
 		return "ERROR: Unsupported format '" + format +

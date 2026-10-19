@@ -209,6 +209,19 @@ MCPResource MCPConnection::ReadResource(const string &uri) {
 		resource.content = response.result.ToString();
 		resource.content_loaded = true;
 		resource.size = resource.content.length();
+
+		// Keep the mimeType the server declares for the first content part;
+		// mcpfs checks it before opening a resource under an extended name.
+		// Not JSONUtils::Parse: an unparseable result must still read, as the
+		// raw text mcpfs falls back to.
+		yyjson_doc *doc = yyjson_read(resource.content.c_str(), resource.content.length(), 0);
+		DocGuard guard {doc};
+		yyjson_val *root = doc ? yyjson_doc_get_root(doc) : nullptr;
+		yyjson_val *contents = yyjson_is_obj(root) ? yyjson_obj_get(root, "contents") : nullptr;
+		yyjson_val *first = contents && yyjson_is_arr(contents) ? yyjson_arr_get_first(contents) : nullptr;
+		if (first && yyjson_is_obj(first)) {
+			resource.mime_type = JSONUtils::GetString(first, "mimeType");
+		}
 	}
 
 	return resource;
