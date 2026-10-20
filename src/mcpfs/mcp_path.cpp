@@ -1,6 +1,7 @@
 #include "mcpfs/mcp_path.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/common/exception.hpp"
+#include <cstring>
 
 namespace duckdb {
 
@@ -57,6 +58,42 @@ string MCPPathParser::ConstructPath(const string &server_name, const string &mcp
 	}
 
 	return "mcp://" + server_name + "/" + mcp_uri;
+}
+
+static const char *const RESOURCE_EXTENSIONS[] = {".md", ".json", ".html"};
+
+string MCPPathParser::ExtensionForMimeType(const string &mime_type) {
+	// Compare the bare media type: "text/html; charset=utf-8" is text/html.
+	auto essence = StringUtil::Lower(mime_type.substr(0, mime_type.find(';')));
+	StringUtil::Trim(essence);
+	if (essence == "text/markdown") {
+		return ".md";
+	} else if (essence == "application/json") {
+		return ".json";
+	} else if (essence == "text/html") {
+		return ".html";
+	}
+	return "";
+}
+
+string MCPPathParser::WithExtension(const string &uri, const string &mime_type) {
+	auto extension = ExtensionForMimeType(mime_type);
+	if (extension.empty() || uri.find_first_of("?#") != string::npos || StringUtil::EndsWith(uri, "/") ||
+	    StringUtil::EndsWith(StringUtil::Lower(uri), extension)) {
+		return uri;
+	}
+	return uri + extension;
+}
+
+bool MCPPathParser::SplitExtension(const string &uri, string &stem, string &extension) {
+	for (auto candidate : RESOURCE_EXTENSIONS) {
+		if (StringUtil::EndsWith(uri, candidate) && uri.size() > strlen(candidate)) {
+			extension = candidate;
+			stem = uri.substr(0, uri.size() - extension.size());
+			return true;
+		}
+	}
+	return false;
 }
 
 bool MCPPathParser::StartsWithMCP(const string &path) {
