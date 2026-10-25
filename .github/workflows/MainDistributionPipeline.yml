@@ -48,7 +48,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # What this repo pins, ships, and tests against.
-      DUCKDB_VERSION: v1.5.6
+      DUCKDB_VERSION: v2.0.0
       # The next line this workflow builds, for compile-compat and for the
       # test-coverage leg. BRANCH name, not the registry's commit -- see
       # duckdb-v2-test-coverage below for why that distinction is load-bearing.
@@ -63,12 +63,14 @@ jobs:
       DUCKDB_REGISTRY_TAG: v2.0.0-alpha46057
       DUCKDB_REGISTRY_TOOLS: v2.0-cyanoptera
       # scripts/build.py routes a v1.5.6 build to each descriptor's `variegata`
-      # ref, which is the line this repo still ships.
+      # ref, or to `ref` when there is none. This repo sets no `variegata` key,
+      # so v1.5.6 users get the same ref -- duckdb-legacy-build covers that.
       DUCKDB_REGISTRY_VARIANT: v1.5.6
       # Flip day keeps a duckdb-legacy-build at the outgoing version for one
       # release; set this to that version then so the stray-literal scan exempts
       # it instead of flagging it. Empty the rest of the time.
-      DUCKDB_LEGACY: ''
+      # Flipped to v2.0.0 on 2026-10-25 (Teague: flip now, then release).
+      DUCKDB_LEGACY: v1.5.6
     steps:
       - uses: actions/checkout@v4
       - name: Compare the pin with its tag, and the recorded registry values with the registry
@@ -282,15 +284,30 @@ jobs:
       test_config: '{"test_env_variables": {"T": "--test-flags \"--require duckdb_mcp\" \"test/*\""}}'
   duckdb-stable-build:
     name: Build extension binaries
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v2.0-cyanoptera
+    with:
+      # Build against the v2.0.0 release tag, which is also the submodule pin:
+      # ci-tools' set_duckdb_version does `git checkout v2.0.0` before building,
+      # so the produced extension is a proper loadable release binary (a
+      # branch-tip -dev build is not loadable in released DuckDB). `.gitmodules
+      # branch = v2.0-cyanoptera` keeps `submodule update --remote` on the 2.0.x
+      # line for local dev. Windows stays IN this leg: the registry builds it.
+      duckdb_version: v2.0.0
+      ci_tools_version: v2.0-cyanoptera
+      extension_name: duckdb_mcp
+      # Same guard as duckdb-next-build, for the same reason: on 2.0 an
+      # unloadable extension otherwise skips every test and reports green.
+      test_config: '{"test_env_variables": {"T": "--test-flags \"--require duckdb_mcp\" \"test/*\""}}'
+
+  # FLIP-DAY LEGACY LEG, kept for one release (see DUCKDB_LEGACY). The registry
+  # builds the same `ref` for v1.5.6 users, because the descriptor sets no
+  # `variegata` key, so this is the only pre-registry check that a release
+  # still builds and tests on 1.5.6. `require` is inert on this line (see
+  # `make test-require`), so it carries no test_config.
+  duckdb-legacy-build:
+    name: Build extension binaries (duckdb legacy, v1.5 line)
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.5-variegata
     with:
-      # Build against the v1.5.6 release tag even though the submodule pointer
-      # tracks the v1.5-variegata branch tip: ci-tools' set_duckdb_version does
-      # `git checkout v1.5.6` before building, so the produced extension is a
-      # proper loadable release binary (a branch-tip -dev build is not loadable
-      # in released DuckDB). The branch-tip submodule + `.gitmodules
-      # branch = v1.5-variegata` keeps `submodule update --remote` on the 1.5.x
-      # line for local dev.
       duckdb_version: v1.5.6
       ci_tools_version: v1.5-variegata
       extension_name: duckdb_mcp
@@ -308,7 +325,7 @@ jobs:
       - name: Download extension artifact
         uses: actions/download-artifact@v4
         with:
-          name: duckdb_mcp-v1.5.6-extension-linux_amd64
+          name: duckdb_mcp-v2.0.0-extension-linux_amd64
           path: build/release/extension/duckdb_mcp/
 
       - name: List extension files (debug)
@@ -321,8 +338,9 @@ jobs:
       - name: Download DuckDB binary
         run: |
           mkdir -p build/release
-          wget -q https://github.com/duckdb/duckdb/releases/download/v1.5.6/duckdb_cli-linux-amd64.zip
-          unzip duckdb_cli-linux-amd64.zip -d build/release/
+          # v2.0 renamed the asset and switched it from .zip to .tar.gz.
+          wget -q https://github.com/duckdb/duckdb/releases/download/v2.0.0/duckdb-cli-linux-amd64.tar.gz
+          tar xzf duckdb-cli-linux-amd64.tar.gz -C build/release/
           chmod +x build/release/duckdb
 
       - name: Run integration tests
