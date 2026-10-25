@@ -52,6 +52,9 @@ struct MCPServerConfig {
 
 	// CORS configuration
 	string cors_origins; // CORS origins: empty=disabled (default), "*"=wildcard, or comma-separated origins
+	// What an Origin header NOT listed in cors_origins gets: "reject" (default, 403),
+	// "loopback" (localhost/127.0.0.1/[::1] pass), or "allow" (every Origin passes)
+	string origin_policy = "reject";
 
 	// Health endpoint configuration
 	bool enable_health_endpoint = true; // Enable /health endpoint
