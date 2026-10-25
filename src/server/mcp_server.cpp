@@ -360,6 +360,7 @@ HTTPServerConfig MCPServer::MakeHTTPConfig() const {
 	http_config.port = config.port;
 	http_config.auth_token = config.auth_token;
 	http_config.cors_origins = config.cors_origins;
+	http_config.origin_policy = config.origin_policy;
 	http_config.enable_health_endpoint = config.enable_health_endpoint;
 	http_config.auth_health_endpoint = config.auth_health_endpoint;
 
@@ -492,6 +493,10 @@ MCPMessage MCPServer::HandleRequest(const MCPMessage &request) {
 		// Route request based on method
 		if (request.method == MCPMethods::INITIALIZE) {
 			return HandleInitialize(request);
+		} else if (request.method == MCPMethods::PING) {
+			// MCP requires an empty result object; an empty STRUCT serialises as {}
+			// See: https://modelcontextprotocol.io/specification/2024-11-05/basic/utilities/ping
+			return MCPMessage::CreateResponse(Value::STRUCT(child_list_t<Value>()), request.id);
 		} else if (request.method == MCPMethods::RESOURCES_LIST) {
 			return HandleResourcesList(request);
 		} else if (request.method == MCPMethods::RESOURCES_READ) {
@@ -575,9 +580,27 @@ MCPMessage MCPServer::HandleInitialize(const MCPMessage &request) {
 
 	Value server_info = Value::STRUCT({{"name", Value("DuckDB MCP Server")}, {"version", Value(DUCKDB_MCP_VERSION)}});
 
+	// Version negotiation: echo the requested version if we support it, else answer our latest.
+	// See: https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle
+	string requested;
+	if (request.params.type().id() == LogicalTypeId::VARCHAR) {
+		yyjson_doc *doc = JSONUtils::Parse(request.params.ToString());
+		DocGuard guard {doc};
+		requested = JSONUtils::GetString(yyjson_doc_get_root(doc), "protocolVersion");
+	} else if (request.params.type().id() == LogicalTypeId::STRUCT) {
+		auto &struct_values = StructValue::GetChildren(request.params);
+		for (size_t i = 0; i < struct_values.size(); i++) {
+			if (CompatStructFieldName(request.params.type(), i) == "protocolVersion") {
+				requested = struct_values[i].ToString();
+				break;
+			}
+		}
+	}
+	string negotiated = MCPProtocolVersions::IsSupported(requested) ? requested : MCPProtocolVersions::LATEST;
+
 	// MCP initialize response requires protocolVersion, serverInfo, and capabilities at top level
 	Value result = Value::STRUCT(
-	    {{"protocolVersion", Value("2024-11-05")}, {"serverInfo", server_info}, {"capabilities", capabilities}});
+	    {{"protocolVersion", Value(negotiated)}, {"serverInfo", server_info}, {"capabilities", capabilities}});
 
 	return MCPMessage::CreateResponse(result, request.id);
 }
@@ -754,7 +777,7 @@ MCPMessage MCPServer::HandleToolsCall(const MCPMessage &request) {
 		return CreateErrorResponse(request.id, MCPErrorCodes::TOOL_NOT_FOUND, "Tool not found: " + tool_name);
 	}
 
-	auto call_result = handler->Execute(arguments);
+	auto call_result = handler->Call(arguments, config.query_timeout_ms);
 	if (!call_result.success) {
 		return CreateErrorResponse(request.id, MCPErrorCodes::INVALID_TOOL_INPUT, call_result.error_message);
 	}

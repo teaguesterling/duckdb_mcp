@@ -142,7 +142,7 @@ true
 
 # SET should be BLOCKED (requires execute_allow_set)
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"execute","arguments":{"statement":"SET threads TO 1"}}}') LIKE '%not allowed%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"execute","arguments":{"statement":"SET preserve_insertion_order = true"}}}') LIKE '%not allowed%';
 ----
 true
 
@@ -172,10 +172,15 @@ statement ok
 SELECT mcp_server_start('memory', '{"enable_execute_tool": true, "execute_allow_ddl": true, "execute_allow_set": true}');
 
 # SET should now work (side-effectful: use subquery)
+# Returns the response itself on failure, so a red run shows why the SET was refused.
+# The setting must not be `threads`: on DuckDB v2.0.0 mingw, resizing the thread
+# pool fails with "No such process" (ESRCH) inside DuckDB, after the execute tool
+# has already allowed the statement. That is a platform failure, not the policy
+# under test.
 query I
-SELECT r LIKE '%success%' FROM (SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":26,"method":"tools/call","params":{"name":"execute","arguments":{"statement":"SET threads TO 1"}}}') AS r);
+SELECT CASE WHEN r LIKE '%success%' THEN 'success' ELSE r END FROM (SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":26,"method":"tools/call","params":{"name":"execute","arguments":{"statement":"SET preserve_insertion_order = true"}}}') AS r);
 ----
-true
+success
 
 # LOAD should still be blocked
 query I

@@ -1,4 +1,7 @@
 #!/bin/bash
+# DuckDB v2.0 CLI switches to "agent mode" output when it sees AI_AGENT, CLAUDECODE
+# and similar; these scripts parse the plain output, so force it off. v1.5 ignores it.
+export DUCKDB_AGENT_MODE=0
 # Regression test for issue #74 — stdout hygiene of the stdio transport.
 #
 # JSON-RPC over stdio requires fd 1 to carry framed protocol messages and NOTHING
@@ -164,9 +167,17 @@ run_case() {
 # ---------------------------------------------------------------------------
 # Case 1: a DuckDB warning raised by the tool's own SQL (the reported repro).
 #
-# The deprecated `->` lambda makes the binder emit DUCKDB_LOG_WARNING while the
-# tools/call is executing. The CLI shell's log storage prints it to STDOUT.
+# The deprecated `SHOW (query)` form makes the binder emit DUCKDB_LOG_WARNING
+# while the tools/call is executing. The CLI shell's log storage prints it to
+# STDOUT.
+#
+# The trigger was the deprecated `->` lambda until DuckDB v2.0.0, where `->`
+# became a Binder Error. The tool call then failed, its JSON-RPC error quoted
+# the deprecation text on stdout, and the liveness grep below matched that error
+# instead of a warning. So liveness also requires the tool call to SUCCEED: a
+# quoted error is not a logged warning.
 # ---------------------------------------------------------------------------
+WARNING_TEXT='Using "SHOW (query)" to describe a query is deprecated'
 INIT1="${TMPDIR_TEST}/init_warning.sql"
 cat > "$INIT1" <<EOF
 $QUIET_SHELL
@@ -174,7 +185,7 @@ LOAD '${EXTENSION}';
 PRAGMA mcp_publish_tool(
   'provoke',
   'Runs SQL that makes DuckDB log a warning.',
-  'SELECT unnest(list_transform([''a'',''b''], x -> x || ''!'')) AS v',
+  'SHOW (SELECT 1 AS v)',
   '{}', '[]', 'markdown');
 PRAGMA mcp_server_start('stdio');
 EOF
@@ -185,8 +196,8 @@ run_case "$INIT1" "$OUT1" "$ERR1"
 
 # Liveness: the provocation must actually have produced a warning somewhere,
 # otherwise the hygiene assertion below proves nothing.
-if grep -q "Deprecated lambda arrow" "$OUT1" "$ERR1" 2>/dev/null; then
-    pass "Case 1 liveness: the deprecated-lambda warning was emitted"
+if grep -qF "$WARNING_TEXT" "$OUT1" "$ERR1" 2>/dev/null && ! grep -q '"error"' "$OUT1"; then
+    pass "Case 1 liveness: the deprecated SHOW (query) warning was emitted"
 
     RESULT=$(python3 "$VALIDATOR" "$OUT1" 2>&1)
     if [ "$RESULT" = "OK" ]; then
@@ -197,14 +208,19 @@ if grep -q "Deprecated lambda arrow" "$OUT1" "$ERR1" 2>/dev/null; then
     fi
 
     # Nothing may be silently dropped either: the warning must still be visible.
-    if grep -q "Deprecated lambda arrow" "$ERR1"; then
+    if grep -qF "$WARNING_TEXT" "$ERR1"; then
         pass "Case 1: the warning is preserved on stderr"
     else
         fail "Case 1: the warning was lost" "warning text on stderr" \
              "$(head -c 200 "$ERR1")"
     fi
+elif grep -q '"error"' "$OUT1"; then
+    # The tool call itself failed. That is a regression, not a missing trigger:
+    # the trigger exists on v2.0 (bind_showref.cpp), so do not hide it as a skip.
+    fail "Case 1: the provoking tool call failed" "a successful tools/call" \
+         "$(grep '"error"' "$OUT1" | head -c 200)"
 else
-    skip "Case 1" "this DuckDB build does not warn about the deprecated '->' lambda"
+    skip "Case 1" "this DuckDB build does not warn about the deprecated SHOW (query) form (v1.5.x)"
     skip "Case 1 hygiene" "trigger unavailable"
     skip "Case 1 preservation" "trigger unavailable"
 fi

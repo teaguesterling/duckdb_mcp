@@ -101,6 +101,17 @@ constexpr const char *PING = "ping";
 constexpr const char *SHUTDOWN = "shutdown";
 } // namespace MCPMethods
 
+// MCP protocol versions this server can honestly speak (#107).
+// 2025-03-26 is deliberately absent: it requires accepting JSON-RPC batches,
+// which this server rejects (batching was removed again in 2025-06-18).
+namespace MCPProtocolVersions {
+constexpr const char *LATEST = "2025-11-25";
+
+inline bool IsSupported(const string &version) {
+	return version == "2024-11-05" || version == "2025-06-18" || version == "2025-11-25";
+}
+} // namespace MCPProtocolVersions
+
 // Common MCP error codes
 namespace MCPErrorCodes {
 constexpr int PARSE_ERROR = -32700;

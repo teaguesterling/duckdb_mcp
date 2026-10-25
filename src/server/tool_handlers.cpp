@@ -7,8 +7,129 @@
 #include "json_utils.hpp"
 #include "result_formatter.hpp"
 #include <cctype>
+#ifndef __EMSCRIPTEN__
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
+#endif
 
 namespace duckdb {
+
+//===--------------------------------------------------------------------===//
+// Query timeout (#104)
+//===--------------------------------------------------------------------===//
+
+// The current tool call's deadline and whether it fired. Thread-local because
+// ToolHandler::Call runs Execute() on the calling thread, and calls on different
+// threads (HTTP requests run in parallel) must not see each other's. The deadline
+// is per CALL, so a handler with two guarded connections (export to file) shares
+// one budget rather than getting a fresh timeout per guard.
+//
+// Why a watchdog rather than DuckDB's own max_execution_time: that setting exists
+// on v2.0 only, and this extension still ships the v1.5.6 variant.
+static thread_local bool current_query_deadline_set = false;
+#ifndef __EMSCRIPTEN__
+static thread_local std::chrono::steady_clock::time_point current_query_deadline;
+#endif
+static thread_local bool current_query_timed_out = false;
+
+#ifndef __EMSCRIPTEN__
+struct QueryDeadline::State {
+	std::mutex mutex;
+	std::condition_variable cv;
+	bool done = false;
+	std::atomic<bool> fired {false};
+	std::thread watchdog;
+};
+
+// After the deadline the watchdog keeps re-interrupting until the guard is
+// destroyed: DuckDB clears the interrupt flag when each statement starts
+// (InitialCleanup), so a single Interrupt() that lands between two statements --
+// or before a prepared statement executes -- would be lost and the next statement
+// would run with no limit (measured on v1.5.6 by review: 14 s after PREPARE).
+static constexpr auto QUERY_DEADLINE_REINTERRUPT = std::chrono::milliseconds(10);
+
+QueryDeadline::QueryDeadline(Connection &conn) {
+	if (!current_query_deadline_set) {
+		return;
+	}
+	auto deadline = current_query_deadline;
+	state = make_uniq<State>();
+	auto *s = state.get();
+	s->watchdog = std::thread([s, &conn, deadline]() {
+		std::unique_lock<std::mutex> lock(s->mutex);
+		if (s->cv.wait_until(lock, deadline, [s]() { return s->done; })) {
+			return;
+		}
+		// Deadline passed with the work still running: Interrupt() is DuckDB's
+		// thread-safe cancel, so the running statement fails with "Interrupted!"
+		s->fired = true;
+		do {
+			conn.Interrupt();
+		} while (!s->cv.wait_for(lock, QUERY_DEADLINE_REINTERRUPT, [s]() { return s->done; }));
+	});
+}
+
+QueryDeadline::~QueryDeadline() {
+	if (!state) {
+		return;
+	}
+	{
+		std::lock_guard<std::mutex> lock(state->mutex);
+		state->done = true;
+	}
+	state->cv.notify_one();
+	state->watchdog.join();
+	if (state->fired) {
+		current_query_timed_out = true;
+	}
+}
+#else
+struct QueryDeadline::State {};
+QueryDeadline::QueryDeadline(Connection &) {
+}
+QueryDeadline::~QueryDeadline() {
+}
+#endif
+
+CallToolResult ToolHandler::Call(const Value &arguments, uint32_t query_timeout_ms) {
+	current_query_deadline_set = query_timeout_ms > 0;
+#ifndef __EMSCRIPTEN__
+	if (current_query_deadline_set) {
+		current_query_deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(query_timeout_ms);
+	}
+#endif
+	current_query_timed_out = false;
+	auto timeout_error = [query_timeout_ms]() {
+		return CallToolResult::Error("Query cancelled: it ran longer than query_timeout_ms (" +
+		                             std::to_string(query_timeout_ms) + " ms)");
+	};
+	auto finish = [&]() {
+		bool timed_out = current_query_timed_out;
+		current_query_deadline_set = false;
+		current_query_timed_out = false;
+		return timed_out;
+	};
+	CallToolResult result;
+	try {
+		result = Execute(arguments);
+	} catch (...) {
+		if (finish()) {
+			return timeout_error();
+		}
+		throw;
+	}
+	// Only a FAILED call becomes a timeout error. A call that completed is reported
+	// as completed even if the deadline fired during its last moments (e.g. while an
+	// autocommit write was committing): saying "cancelled" for a committed write
+	// would invite a retry that applies it twice.
+	if (finish() && !result.success) {
+		return timeout_error();
+	}
+	return result;
+}
 
 // Delegate to shared implementation in ResultFormatter
 static string EscapeJsonString(const string &input) {
@@ -258,6 +379,7 @@ CallToolResult QueryToolHandler::Execute(const Value &arguments) {
 
 		// Enforce read-only: parse the statement and validate its type
 		Connection conn(db_instance);
+		QueryDeadline deadline(conn); // query_timeout_ms (#104)
 		auto prepared = conn.Prepare(sql);
 		if (prepared->HasError()) {
 			return CallToolResult::Error("SQL error: " + prepared->GetError());
@@ -366,6 +488,7 @@ Value DescribeToolHandler::DescribeTable(const string &table_name) const {
 	string quoted_table = KeywordHelper::WriteOptionallyQuoted(table_name);
 	string describe_query = "DESCRIBE " + quoted_table;
 	Connection conn(db_instance);
+	QueryDeadline deadline(conn); // query_timeout_ms (#104)
 	auto result = conn.Query(describe_query);
 
 	if (result->HasError()) {
@@ -408,6 +531,7 @@ Value DescribeToolHandler::DescribeTable(const string &table_name) const {
 Value DescribeToolHandler::DescribeQuery(const string &query) const {
 	// Enforce read-only: parse the statement and validate its type
 	Connection conn(db_instance);
+	QueryDeadline deadline(conn); // query_timeout_ms (#104)
 	auto prepared = conn.Prepare(query);
 	if (prepared->HasError()) {
 		throw IOException("Failed to parse query: " + prepared->GetError());
@@ -523,6 +647,7 @@ CallToolResult ExportToolHandler::Execute(const Value &arguments) {
 		// Parse-only validation: get statement type without executing (no side effects).
 		// ExtractStatements does not bind or optimize, so nextval etc. are not called.
 		Connection conn(db_instance);
+		QueryDeadline deadline(conn); // query_timeout_ms (#104)
 		auto statements = conn.ExtractStatements(query);
 		if (statements.empty()) {
 			return CallToolResult::Error("Query error: could not parse query");
@@ -608,6 +733,7 @@ string ExportToolHandler::ExportToFile(QueryResult &result, const string &format
 		// Note: the temp table is connection-local and auto-cleaned when conn
 		// goes out of scope, so no cleanup is needed on exception paths.
 		Connection conn(db_instance);
+		QueryDeadline deadline(conn); // query_timeout_ms (#104)
 		string temp_table = "__mcp_export_temp";
 
 		// Build CREATE TEMP TABLE from the result's column names and types
@@ -740,6 +866,7 @@ CallToolResult SQLToolHandler::Execute(const Value &arguments) {
 
 		// Try prepared statement binding first
 		Connection conn(db_instance);
+		QueryDeadline deadline(conn); // query_timeout_ms (#104)
 		auto prepared = conn.Prepare(sql_template);
 
 		if (!prepared->HasError()) {
@@ -1050,6 +1177,7 @@ CallToolResult ExecutionSQLToolHandler::Execute(const Value &arguments) {
 
 		// Extract individual statements
 		Connection conn(db_instance);
+		QueryDeadline deadline(conn); // query_timeout_ms (#104)
 		auto statements = conn.ExtractStatements(sql_template);
 
 		if (statements.empty()) {
@@ -1547,6 +1675,7 @@ CallToolResult ExecuteToolHandler::Execute(const Value &arguments) {
 		}
 
 		Connection conn(db_instance);
+		QueryDeadline deadline(conn); // query_timeout_ms (#104)
 
 		// Use DuckDB's prepared statement to get the actual statement type
 		auto prepared = conn.Prepare(statement);

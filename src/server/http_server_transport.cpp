@@ -4,6 +4,9 @@
 // Note: This must be included before other headers that might conflict
 #include "httplib.hpp"
 
+#include "protocol/mcp_message.hpp"
+#include "duckdb/common/string_util.hpp"
+
 #include <iostream>
 #include <sstream>
 
@@ -76,10 +79,76 @@ static string GetCorsOriginHeader(const HTTPServerConfig &config, const string &
 	return ""; // Origin not allowed
 }
 
+// True for an Origin whose host is localhost, 127.0.0.1 or [::1], on any port and scheme.
+// Parses scheme://host[:port] exactly, so "http://localhost.evil.com" is NOT loopback.
+static bool IsLoopbackOrigin(const string &origin) {
+	// Only web schemes: a browser page's Origin is http(s); anything else is not
+	// the loopback page this policy is meant to admit
+	string rest;
+	if (StringUtil::StartsWith(origin, "http://")) {
+		rest = origin.substr(7);
+	} else if (StringUtil::StartsWith(origin, "https://")) {
+		rest = origin.substr(8);
+	} else {
+		return false;
+	}
+	string host;
+	if (!rest.empty() && rest[0] == '[') {
+		auto close = rest.find(']');
+		if (close == string::npos) {
+			return false;
+		}
+		host = rest.substr(0, close + 1);
+		rest = rest.substr(close + 1);
+	} else {
+		auto colon = rest.find(':');
+		host = rest.substr(0, colon);
+		rest = colon == string::npos ? "" : rest.substr(colon);
+	}
+	// Anything after the host may only be ":<digits>"
+	if (!rest.empty()) {
+		if (rest[0] != ':' || rest.size() == 1 || rest.find_first_not_of("0123456789", 1) != string::npos) {
+			return false;
+		}
+	}
+	return host == "localhost" || host == "127.0.0.1" || host == "[::1]";
+}
+
+// Origin validation (MCP 2025-11-25 Streamable HTTP): an Origin header that is present
+// and not allowed MUST get 403, on every incoming connection (DNS rebinding defence).
+// No Origin header (non-browser clients) always passes.
+static bool IsOriginAllowed(const HTTPServerConfig &config, const string &origin) {
+	if (origin.empty()) {
+		return true;
+	}
+	if (!GetCorsOriginHeader(config, origin).empty()) {
+		return true; // listed in cors_origins, or cors_origins = "*"
+	}
+	if (config.origin_policy == "allow") {
+		return true;
+	}
+	if (config.origin_policy == "loopback") {
+		return IsLoopbackOrigin(origin);
+	}
+	return false; // "reject"
+}
+
 // Helper to set up common routes on a server (works with both Server and SSLServer)
 template <typename ServerType>
 void SetupRoutes(ServerType &server, const HTTPServerConfig &config,
                  HTTPServerTransport::RequestHandler &request_handler) {
+	// Origin check runs before routing and before auth, for every method and path
+	server.set_pre_routing_handler(
+	    [&config](const CPPHTTPLIB_NAMESPACE::Request &req, CPPHTTPLIB_NAMESPACE::Response &res) {
+		    if (IsOriginAllowed(config, req.get_header_value("Origin"))) {
+			    return CPPHTTPLIB_NAMESPACE::Server::HandlerResponse::Unhandled;
+		    }
+		    res.status = 403;
+		    res.set_content(R"({"jsonrpc":"2.0","error":{"code":-32600,"message":"Forbidden: Origin not allowed"}})",
+		                    "application/json");
+		    return CPPHTTPLIB_NAMESPACE::Server::HandlerResponse::Handled;
+	    });
+
 	// Configure CORS preflight if enabled
 	if (!config.cors_origins.empty()) {
 		server.Options(".*", [&config](const CPPHTTPLIB_NAMESPACE::Request &req, CPPHTTPLIB_NAMESPACE::Response &res) {
@@ -88,7 +157,9 @@ void SetupRoutes(ServerType &server, const HTTPServerConfig &config,
 			if (!cors_value.empty()) {
 				res.set_header("Access-Control-Allow-Origin", cors_value);
 				res.set_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
-				res.set_header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+				// MCP-Protocol-Version: 2025-06-18+ browser clients MUST send it after
+				// initialize, and a browser drops headers the preflight does not list
+				res.set_header("Access-Control-Allow-Headers", "Content-Type, Authorization, MCP-Protocol-Version");
 				res.set_header("Access-Control-Max-Age", "86400");
 				if (cors_value != "*") {
 					res.set_header("Vary", "Origin");
@@ -122,6 +193,17 @@ void SetupRoutes(ServerType &server, const HTTPServerConfig &config,
 				    "application/json");
 				return;
 			}
+		}
+
+		// MCP-Protocol-Version (2025-06-18+): unsupported or invalid MUST get 400.
+		// Absent is accepted: 2024-11-05 clients never send it.
+		if (req.has_header("MCP-Protocol-Version") &&
+		    !MCPProtocolVersions::IsSupported(req.get_header_value("MCP-Protocol-Version"))) {
+			res.status = 400;
+			res.set_content(
+			    R"({"jsonrpc":"2.0","error":{"code":-32600,"message":"Unsupported MCP-Protocol-Version"},"id":null})",
+			    "application/json");
+			return;
 		}
 
 		// Set CORS headers on response
@@ -159,6 +241,19 @@ void SetupRoutes(ServerType &server, const HTTPServerConfig &config,
 
 	// Alternative MCP endpoint
 	server.Post("/mcp", mcp_handler);
+
+	// Streamable HTTP: GET MUST open an SSE stream or return 405, and 405 is how a
+	// server declines DELETE (session termination). We offer neither, so say so;
+	// a 404 reads to clients as a broken connection.
+	// See: https://modelcontextprotocol.io/specification/2025-03-26/basic/transports
+	auto method_not_allowed = [](const CPPHTTPLIB_NAMESPACE::Request &, CPPHTTPLIB_NAMESPACE::Response &res) {
+		res.status = 405;
+		res.set_header("Allow", "POST");
+	};
+	server.Get("/", method_not_allowed);
+	server.Get("/mcp", method_not_allowed);
+	server.Delete("/", method_not_allowed);
+	server.Delete("/mcp", method_not_allowed);
 
 	// Health check endpoint (conditionally enabled, optionally auth-protected)
 	if (config.enable_health_endpoint) {

@@ -86,6 +86,12 @@ When `enable_execute_tool` is `true`, you can control which statement types are 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `cors_origins` | string | `""` | CORS origins: empty = disabled, `"*"` = wildcard, or comma-separated origins |
+| `origin_policy` | string | `"reject"` | What a request whose `Origin` header is **not** in `cors_origins` gets: `"reject"` = 403, `"loopback"` = allowed only for `localhost`, `127.0.0.1` and `[::1]` (any port), `"allow"` = allowed. A request with no `Origin` header (CLI clients) always passes. Any other value is an error at server start. |
+
+The Origin check runs on every HTTP route, before authentication, as the MCP
+2025-11-25 Streamable HTTP transport requires (DNS rebinding defence). A browser
+client needs its origin in `cors_origins` to read responses anyway; `origin_policy`
+only decides what happens to origins that are not listed.
 
 ### Health Endpoint Options
 
@@ -136,6 +142,7 @@ PRAGMA mcp_server_start('stdio', '{
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `max_requests` | integer | `0` | Maximum requests before auto-shutdown (0 = unlimited) |
+| `query_timeout_ms` | integer | `0` | Interrupt the SQL of a tool call that runs longer than this many milliseconds, and return a tool error naming the setting (0 = no limit). Covers `query`, `describe`, `export`, `execute` and published SQL tools; not `list_tables` or `database_info`, which run fixed catalog queries. A value that is not a non-negative integer fails server start. No effect on DuckDB-Wasm. |
 | `background` | boolean | `false` | Run server in background thread |
 
 ---

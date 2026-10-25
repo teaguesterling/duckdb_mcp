@@ -1,0 +1,85 @@
+# name: test/sql/mcp_protocol_version.test
+# description: initialize negotiates the protocol version (#107)
+# group: [sql]
+
+# The lifecycle rule, every version: if the server supports the requested
+# version it MUST answer with that version; otherwise it MUST answer with
+# another version it supports, which SHOULD be its latest. The server used to
+# answer 2024-11-05 whatever was asked, while serving the Streamable HTTP
+# transport that only exists from 2025-03-26.
+#
+# Offered: 2024-11-05, 2025-06-18, 2025-11-25. NOT 2025-03-26: that version
+# requires accepting JSON-RPC batches, which this server rejects.
+
+require duckdb_mcp
+
+statement ok
+LOAD duckdb_mcp;
+
+# Each supported version is echoed back
+query I
+SELECT mcp_server_test('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}') LIKE '%"protocolVersion":"2024-11-05"%';
+----
+true
+
+query I
+SELECT mcp_server_test('{"jsonrpc":"2.0","id":2,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}') LIKE '%"protocolVersion":"2025-06-18"%';
+----
+true
+
+query I
+SELECT mcp_server_test('{"jsonrpc":"2.0","id":3,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}') LIKE '%"protocolVersion":"2025-11-25"%';
+----
+true
+
+# 2025-03-26 is not offered (batching), so the server answers its latest
+query I
+SELECT mcp_server_test('{"jsonrpc":"2.0","id":4,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}') LIKE '%"protocolVersion":"2025-11-25"%';
+----
+true
+
+# An unknown version also gets the latest, not an error
+query I
+SELECT mcp_server_test('{"jsonrpc":"2.0","id":5,"method":"initialize","params":{"protocolVersion":"2099-01-01","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}') LIKE '%"protocolVersion":"2025-11-25"%';
+----
+true
+
+# No protocolVersion at all: the latest
+query I
+SELECT mcp_server_test('{"jsonrpc":"2.0","id":6,"method":"initialize","params":{}}') LIKE '%"protocolVersion":"2025-11-25"%';
+----
+true
+
+# origin_policy is validated when the server starts: a typo must not silently
+# fall back to a weaker policy
+statement ok
+SELECT mcp_server_stop(true);
+
+# mcp_server_start reports failures in its status struct rather than throwing
+query II
+SELECT s.success, s.message LIKE '%origin_policy must be%' FROM (SELECT mcp_server_start('memory', '{"origin_policy": "allow-all"}') AS s);
+----
+false	true
+
+statement ok
+SELECT mcp_server_start('memory', '{"origin_policy": "loopback"}');
+
+query T
+SELECT value FROM mcp_server_config() WHERE key = 'origin_policy';
+----
+loopback
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# The default is reject
+statement ok
+SELECT mcp_server_start('memory');
+
+query T
+SELECT value FROM mcp_server_config() WHERE key = 'origin_policy';
+----
+reject
+
+statement ok
+SELECT mcp_server_stop(true);

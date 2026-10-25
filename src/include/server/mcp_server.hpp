@@ -52,6 +52,9 @@ struct MCPServerConfig {
 
 	// CORS configuration
 	string cors_origins; // CORS origins: empty=disabled (default), "*"=wildcard, or comma-separated origins
+	// What an Origin header NOT listed in cors_origins gets: "reject" (default, 403),
+	// "loopback" (localhost/127.0.0.1/[::1] pass), or "allow" (every Origin passes)
+	string origin_policy = "reject";
 
 	// Health endpoint configuration
 	bool enable_health_endpoint = true; // Enable /health endpoint
@@ -62,6 +65,7 @@ struct MCPServerConfig {
 	string default_result_format = "json"; // Default format for query results ("json", "jsonl", "csv", "markdown")
 	uint32_t max_connections = 10;         // Maximum concurrent connections
 	uint32_t request_timeout_seconds = 30; // Request timeout
+	uint32_t query_timeout_ms = 0;         // Interrupt tool SQL after this long (0 = no limit, #104)
 	uint32_t max_requests = 0;             // Maximum requests before shutdown (0 = unlimited)
 	bool background = false;               // Run server in background thread (for testing)
 	bool require_auth = false;             // Authentication required

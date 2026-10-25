@@ -28,6 +28,7 @@ using namespace duckdb_yyjson;
 #include "server/memory_transport.hpp"
 #include "server/mcp_state_table_functions.hpp"
 #include "duckdb/common/exception.hpp"
+#include "duckdb/common/error_data.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/parser/keyword_helper.hpp"
 #include "duckdb/common/enums/set_scope.hpp"
@@ -560,6 +561,16 @@ static Value MCPServerStartCore(ClientContext &context, const string &transport,
 				// Parse max_requests
 				server_config.max_requests = static_cast<uint32_t>(JSONUtils::GetInt(root, "max_requests", 0));
 
+				// Parse query_timeout_ms (#104). Validated rather than defaulted: a
+				// mistyped value silently becoming 0 would mean "no limit".
+				yyjson_val *timeout_val = yyjson_obj_get(root, "query_timeout_ms");
+				if (timeout_val) {
+					if (!yyjson_is_uint(timeout_val) || yyjson_get_uint(timeout_val) > UINT32_MAX) {
+						throw InvalidInputException("query_timeout_ms must be a non-negative integer (milliseconds)");
+					}
+					server_config.query_timeout_ms = static_cast<uint32_t>(yyjson_get_uint(timeout_val));
+				}
+
 				// Blanket built-in tool switch (issue #75). This is an alias over the
 				// individual enable_*_tool flags below, for the common "publish a
 				// curated tool and nothing else" case.
@@ -655,6 +666,13 @@ static Value MCPServerStartCore(ClientContext &context, const string &transport,
 
 				// Parse CORS configuration
 				server_config.cors_origins = JSONUtils::GetString(root, "cors_origins", "");
+				// Fail closed: a typo must not silently become a weaker policy
+				server_config.origin_policy = JSONUtils::GetString(root, "origin_policy", "reject");
+				if (server_config.origin_policy != "reject" && server_config.origin_policy != "loopback" &&
+				    server_config.origin_policy != "allow") {
+					throw InvalidInputException("origin_policy must be 'reject', 'loopback' or 'allow', got '%s'",
+					                            server_config.origin_policy);
+				}
 
 				// Parse health endpoint configuration
 				val = yyjson_obj_get(root, "enable_health_endpoint");
@@ -975,6 +993,18 @@ static void MCPServerStatusFunction(DataChunk &args, ExpressionState &state, Vec
 
 // Test MCP server protocol handling (for unit testing)
 // Takes a JSON-RPC request string, processes it through the MCP server, returns response JSON
+// A -32603 JSON-RPC error carrying the exception's plain reason (#114). Built through
+// MCPMessage so the reason is escaped: DuckDB's what() is itself JSON, and splicing it
+// into a hand-written string produced invalid JSON.
+static string InternalErrorJSON(const string &prefix, const std::exception &e) {
+	try {
+		return MCPMessage::CreateError(MCPErrorCodes::INTERNAL_ERROR, prefix + ErrorData(e).RawMessage(), Value())
+		    .ToJSON();
+	} catch (...) {
+		return R"({"jsonrpc":"2.0","error":{"code":-32603,"message":"Internal error"},"id":null})";
+	}
+}
+
 static void MCPServerTestFunction(DataChunk &args, ExpressionState &state, Vector &result) {
 	auto &request_vector = args.data[0];
 
@@ -1012,16 +1042,12 @@ static void MCPServerTestFunction(DataChunk &args, ExpressionState &state, Vecto
 				string json_response = response.ToJSON();
 				result_data[i] = StringVector::AddString(result, json_response);
 			} catch (const std::exception &e) {
-				result_data[i] = StringVector::AddString(
-				    result, R"({"jsonrpc":"2.0","error":{"code":-32603,"message":"ToJSON failed: )" + string(e.what()) +
-				                R"("},"id":null})");
+				result_data[i] = StringVector::AddString(result, InternalErrorJSON("ToJSON failed: ", e));
 			}
 
 		} catch (const std::exception &e) {
 			// Return a JSON-RPC error response
-			string error_response =
-			    R"({"jsonrpc":"2.0","error":{"code":-32603,"message":")" + string(e.what()) + R"("},"id":null})";
-			result_data[i] = StringVector::AddString(result, error_response);
+			result_data[i] = StringVector::AddString(result, InternalErrorJSON("", e));
 		}
 	}
 }
@@ -1063,15 +1089,11 @@ static void MCPServerSendRequestFunction(DataChunk &args, ExpressionState &state
 				string json_response = response.ToJSON();
 				result_data[i] = StringVector::AddString(result, json_response);
 			} catch (const std::exception &e) {
-				result_data[i] = StringVector::AddString(
-				    result, R"json({"jsonrpc":"2.0","error":{"code":-32603,"message":"ToJSON failed: )json" +
-				                string(e.what()) + R"json("},"id":null})json");
+				result_data[i] = StringVector::AddString(result, InternalErrorJSON("ToJSON failed: ", e));
 			}
 
 		} catch (const std::exception &e) {
-			string error_response = R"json({"jsonrpc":"2.0","error":{"code":-32603,"message":")json" +
-			                        string(e.what()) + R"json("},"id":null})json";
-			result_data[i] = StringVector::AddString(result, error_response);
+			result_data[i] = StringVector::AddString(result, InternalErrorJSON("", e));
 		}
 	}
 }

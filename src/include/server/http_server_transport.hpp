@@ -20,6 +20,7 @@ struct HTTPServerConfig {
 	int port = 8080;
 	string auth_token;                  // Optional: Bearer token for authentication
 	string cors_origins;                // CORS: empty=disabled (default), "*"=wildcard, or comma-separated origins
+	string origin_policy = "reject";    // Unlisted Origin: "reject" (403), "loopback", or "allow"
 	bool enable_health_endpoint = true; // Enable /health endpoint
 	bool auth_health_endpoint = false;  // Require auth for /health endpoint
 	int request_timeout_ms = 30000;

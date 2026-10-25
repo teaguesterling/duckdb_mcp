@@ -1,4 +1,7 @@
 #!/bin/bash
+# DuckDB v2.0 CLI switches to "agent mode" output when it sees AI_AGENT, CLAUDECODE
+# and similar; these scripts parse the plain output, so force it off. v1.5 ignores it.
+export DUCKDB_AGENT_MODE=0
 # Integration test runner for DuckDB MCP Extension
 # Runs comprehensive tests for HTTP transport, memory transport, and client-server communication
 

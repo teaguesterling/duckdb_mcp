@@ -71,6 +71,17 @@ SELECT mcp_server_test('{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{
 ----
 true
 
+# Test 10: ping (#106)
+# Every MCP version requires the receiver to answer ping "promptly with an empty
+# response": {"result": {}}, not an error. Clients MAY reset a connection whose
+# pings fail, so Method-not-found here reads as a dead server. No params, as in
+# the spec's own example.
+query II
+SELECT r LIKE '%"result":{}%', r LIKE '%"error"%'
+FROM (SELECT mcp_server_test('{"jsonrpc":"2.0","id":"123","method":"ping"}') AS r);
+----
+true	false
+
 # Cleanup
 statement ok
 DROP TABLE test_protocol_data;
