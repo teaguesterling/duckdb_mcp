@@ -49,10 +49,18 @@ jobs:
     env:
       # What this repo pins, ships, and tests against.
       DUCKDB_VERSION: v2.0.0
-      # The next line this workflow builds, for compile-compat and for the
-      # test-coverage leg. BRANCH name, not the registry's commit -- see
-      # duckdb-v2-test-coverage below for why that distinction is load-bearing.
-      DUCKDB_NEXT: v2.0-cyanoptera
+      # The next line this workflow builds: the v2.0-cyanoptera tip, pinned as an
+      # explicit STAGED VERSION + COMMIT pair (Teague, 2026-10-25). Not the branch
+      # name: ci-tools' prebuilt path (ci_phase.py prebuilt(), at 2de8029) resolves
+      # a non-semver duckdb_version to the tip's staged version for the download
+      # URL only and never writes it back, so the extension was stamped
+      # `v2.0-cyanoptera` while the linked library reports `v2.0.1-alpha50125`,
+      # and no test could load it. A staged version matches ci-tools'
+      # STAGED_DUCKDB_VERSION_PATTERN and is used as given. Bump both together
+      # when the tip moves: the version is the commit's
+      # https://duckdb-staging.duckdb.org/<commit[:10]>/latest_alpha_version.txt
+      DUCKDB_NEXT: v2.0.1-alpha50125
+      DUCKDB_NEXT_COMMIT: bb5bdadda4ee51d39b359fe8f4d1960973191175
       # What the community registry builds by default, as of #3154 (2026-10-20):
       # the commit is the upstream v2.0.0 release tag. Recorded so
       # that the registry moving again is a FAILURE here rather than a surprise
@@ -114,6 +122,7 @@ jobs:
             for v in $(printf '%s\n' "$line" | grep -oE "$ver_re" || true); do
               [ "$v" = "$DUCKDB_VERSION" ] && continue
               [ "$v" = "$DUCKDB_REGISTRY_TAG" ] && continue
+              [ "$v" = "$DUCKDB_NEXT" ] && continue
               [ -n "$DUCKDB_LEGACY" ] && [ "$v" = "$DUCKDB_LEGACY" ] && continue
               echo "::error::line ${lineno}: ${line} -- a DuckDB version literal that is not the shipped ${DUCKDB_VERSION} or the recorded registry tag ${DUCKDB_REGISTRY_TAG}: derive it from the shipped version or bump it"
               bad=1
@@ -128,6 +137,7 @@ jobs:
             printf '%s\n' "$line" | grep -qE '^[[:space:]]*vcpkg_commit:' && continue
             for h in $(printf '%s\n' "$line" | grep -oE '[0-9a-f]{40}' || true); do
               [ "$h" = "$DUCKDB_REGISTRY_COMMIT" ] && continue
+              [ "$h" = "$DUCKDB_NEXT_COMMIT" ] && continue
               echo "::error::line ${lineno}: ${line} -- a commit literal that is not the recorded registry commit ${DUCKDB_REGISTRY_COMMIT}: derive it or bump it"
               bad=1
             done
@@ -262,7 +272,9 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@main
     with:
-      duckdb_version: v2.0-cyanoptera
+      # The DUCKDB_NEXT pair from the duckdb-pin job; see the note there.
+      duckdb_version: v2.0.1-alpha50125
+      duckdb_commit: bb5bdadda4ee51d39b359fe8f4d1960973191175
       ci_tools_version: main
       extension_name: duckdb_mcp
       # KEPT AS-IS, and its old justification is void. The exclusion was argued
