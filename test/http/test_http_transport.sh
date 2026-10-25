@@ -122,10 +122,10 @@ else
     fail "Initialize request" "Response containing serverInfo" "$RESPONSE"
 fi
 
-if echo "$RESPONSE" | grep -q '"version":"2.0.0"'; then
-    pass "Server reports version 2.0.0"
+if echo "$RESPONSE" | grep -q '"version":"2.4.0"'; then
+    pass "Server reports version 2.4.0"
 else
-    fail "Server version" "2.0.0" "$RESPONSE"
+    fail "Server version" "2.4.0" "$RESPONSE"
 fi
 
 stop_server
@@ -411,6 +411,14 @@ else
     fail "Wildcard CORS headers" "Access-Control-Allow-Headers containing Content-Type" "$CORS_HEADERS_HDR"
 fi
 
+# 2025-06-18+: browser clients MUST send MCP-Protocol-Version after initialize, and a
+# browser drops any custom header the preflight does not list (#107 review)
+if echo "$CORS_HEADERS_HDR" | grep -qi "MCP-Protocol-Version"; then
+    pass "Wildcard CORS returns Allow-Headers including MCP-Protocol-Version"
+else
+    fail "Wildcard CORS headers" "Access-Control-Allow-Headers containing MCP-Protocol-Version" "$CORS_HEADERS_HDR"
+fi
+
 # Wildcard should NOT have Vary: Origin
 VARY_HEADER=$(echo "$OPTIONS_HEADERS" | grep -i "^Vary:" | grep -i "Origin" || echo "")
 if [ -z "$VARY_HEADER" ]; then
@@ -582,6 +590,10 @@ PORT=18098
 start_server $PORT '{"auth_token":"secret123"}'
 # Origin runs before auth: a rebinding page gets 403 without reaching the token check
 expect_status "Origin checked before auth" 403 POST /mcp -H "Content-Type: application/json" -H "Origin: https://evil.example.com" -d "$INIT_BODY"
+# A valid token does not get past a bad Origin either
+expect_status "Valid token, bad Origin" 403 POST /mcp -H "Content-Type: application/json" -H "Authorization: Bearer secret123" -H "Origin: https://evil.example.com" -d "$INIT_BODY"
+# The version header is checked AFTER auth: no token + bad version is 401, not 400
+expect_status "Version check after auth" 401 POST /mcp -H "Content-Type: application/json" -H "MCP-Protocol-Version: banana" -d "$INIT_BODY"
 stop_server
 
 # ==========================================

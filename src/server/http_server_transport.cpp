@@ -5,6 +5,7 @@
 #include "httplib.hpp"
 
 #include "protocol/mcp_message.hpp"
+#include "duckdb/common/string_util.hpp"
 
 #include <iostream>
 #include <sstream>
@@ -81,11 +82,16 @@ static string GetCorsOriginHeader(const HTTPServerConfig &config, const string &
 // True for an Origin whose host is localhost, 127.0.0.1 or [::1], on any port and scheme.
 // Parses scheme://host[:port] exactly, so "http://localhost.evil.com" is NOT loopback.
 static bool IsLoopbackOrigin(const string &origin) {
-	auto scheme_end = origin.find("://");
-	if (scheme_end == string::npos) {
+	// Only web schemes: a browser page's Origin is http(s); anything else is not
+	// the loopback page this policy is meant to admit
+	string rest;
+	if (StringUtil::StartsWith(origin, "http://")) {
+		rest = origin.substr(7);
+	} else if (StringUtil::StartsWith(origin, "https://")) {
+		rest = origin.substr(8);
+	} else {
 		return false;
 	}
-	string rest = origin.substr(scheme_end + 3);
 	string host;
 	if (!rest.empty() && rest[0] == '[') {
 		auto close = rest.find(']');
@@ -101,8 +107,7 @@ static bool IsLoopbackOrigin(const string &origin) {
 	}
 	// Anything after the host may only be ":<digits>"
 	if (!rest.empty()) {
-		if (rest[0] != ':' || rest.size() == 1 ||
-		    rest.find_first_not_of("0123456789", 1) != string::npos) {
+		if (rest[0] != ':' || rest.size() == 1 || rest.find_first_not_of("0123456789", 1) != string::npos) {
 			return false;
 		}
 	}
@@ -139,9 +144,8 @@ void SetupRoutes(ServerType &server, const HTTPServerConfig &config,
 			    return CPPHTTPLIB_NAMESPACE::Server::HandlerResponse::Unhandled;
 		    }
 		    res.status = 403;
-		    res.set_content(
-		        R"({"jsonrpc":"2.0","error":{"code":-32600,"message":"Forbidden: Origin not allowed"}})",
-		        "application/json");
+		    res.set_content(R"({"jsonrpc":"2.0","error":{"code":-32600,"message":"Forbidden: Origin not allowed"}})",
+		                    "application/json");
 		    return CPPHTTPLIB_NAMESPACE::Server::HandlerResponse::Handled;
 	    });
 
@@ -153,7 +157,9 @@ void SetupRoutes(ServerType &server, const HTTPServerConfig &config,
 			if (!cors_value.empty()) {
 				res.set_header("Access-Control-Allow-Origin", cors_value);
 				res.set_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
-				res.set_header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+				// MCP-Protocol-Version: 2025-06-18+ browser clients MUST send it after
+				// initialize, and a browser drops headers the preflight does not list
+				res.set_header("Access-Control-Allow-Headers", "Content-Type, Authorization, MCP-Protocol-Version");
 				res.set_header("Access-Control-Max-Age", "86400");
 				if (cors_value != "*") {
 					res.set_header("Vary", "Origin");

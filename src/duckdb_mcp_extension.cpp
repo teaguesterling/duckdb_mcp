@@ -1088,15 +1088,11 @@ static void MCPServerSendRequestFunction(DataChunk &args, ExpressionState &state
 				string json_response = response.ToJSON();
 				result_data[i] = StringVector::AddString(result, json_response);
 			} catch (const std::exception &e) {
-				result_data[i] = StringVector::AddString(
-				    result, R"json({"jsonrpc":"2.0","error":{"code":-32603,"message":"ToJSON failed: )json" +
-				                string(e.what()) + R"json("},"id":null})json");
+				result_data[i] = StringVector::AddString(result, InternalErrorJSON("ToJSON failed: ", e));
 			}
 
 		} catch (const std::exception &e) {
-			string error_response = R"json({"jsonrpc":"2.0","error":{"code":-32603,"message":")json" +
-			                        string(e.what()) + R"json("},"id":null})json";
-			result_data[i] = StringVector::AddString(result, error_response);
+			result_data[i] = StringVector::AddString(result, InternalErrorJSON("", e));
 		}
 	}
 }

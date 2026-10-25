@@ -45,3 +45,19 @@ query I
 SELECT json_extract_string(mcp_server_test('[1,2]'), '$.error.message') LIKE '%Invalid JSON message format%';
 ----
 true
+
+# The same splice existed in mcp_server_send_request (reviewer, #115); a running
+# server is needed for that path
+statement ok
+SELECT mcp_server_stop(true);
+
+statement ok
+SELECT mcp_server_start('memory');
+
+query II
+SELECT json_valid(r), json_exists(r, '$.id') FROM (SELECT mcp_server_send_request('[1,2]') AS r);
+----
+true	true
+
+statement ok
+SELECT mcp_server_stop(true);
