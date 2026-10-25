@@ -10,8 +10,8 @@
 // duckdb_compat.hpp — fleet-standard cross-version shim for DuckDB extensions.
 //
 // Cross-version coverage:
-//   - duckdb v1.5.x (this extension's pin): old API everywhere
-//   - duckdb main / v2.0-cyanoptera:        new API everywhere
+//   - duckdb v1.5.x (legacy leg):                     old API everywhere
+//   - duckdb v2.0.0 (this extension's pin) / main:    new API everywhere
 //
 // DETECT FEATURES, NOT VERSIONS -- AND NOT PROXY HEADERS EITHER.
 //
