@@ -142,6 +142,7 @@ PRAGMA mcp_server_start('stdio', '{
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `max_requests` | integer | `0` | Maximum requests before auto-shutdown (0 = unlimited) |
+| `query_timeout_ms` | integer | `0` | Interrupt the SQL of a tool call that runs longer than this many milliseconds, and return a tool error naming the setting (0 = no limit). Covers `query`, `describe`, `export`, `execute` and published SQL tools; not `list_tables` or `database_info`, which run fixed catalog queries. A value that is not a non-negative integer fails server start. No effect on DuckDB-Wasm. |
 | `background` | boolean | `false` | Run server in background thread |
 
 ---

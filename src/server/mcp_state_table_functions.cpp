@@ -157,6 +157,7 @@ static vector<pair<string, string>> ConfigToKVPairs(const MCPServerConfig &confi
 	pairs.emplace_back("default_result_format", config.default_result_format);
 	pairs.emplace_back("max_connections", to_string(config.max_connections));
 	pairs.emplace_back("request_timeout_seconds", to_string(config.request_timeout_seconds));
+	pairs.emplace_back("query_timeout_ms", to_string(config.query_timeout_ms));
 	pairs.emplace_back("max_requests", to_string(config.max_requests));
 	pairs.emplace_back("require_auth", config.require_auth ? "true" : "false");
 	pairs.emplace_back("allow_direct_requests", config.allow_direct_requests ? "true" : "false");

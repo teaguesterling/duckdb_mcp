@@ -777,7 +777,7 @@ MCPMessage MCPServer::HandleToolsCall(const MCPMessage &request) {
 		return CreateErrorResponse(request.id, MCPErrorCodes::TOOL_NOT_FOUND, "Tool not found: " + tool_name);
 	}
 
-	auto call_result = handler->Execute(arguments);
+	auto call_result = handler->Call(arguments, config.query_timeout_ms);
 	if (!call_result.success) {
 		return CreateErrorResponse(request.id, MCPErrorCodes::INVALID_TOOL_INPUT, call_result.error_message);
 	}

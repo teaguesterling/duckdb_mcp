@@ -57,10 +57,31 @@ struct ToolInputSchema {
 // Parse properties and required JSON into ToolInputSchema
 ToolInputSchema ParseToolInputSchema(const string &properties_json, const string &required_json);
 
+// Interrupts a tool's connection when the current tool call's query_timeout_ms
+// passes (#104). Construct one right after the handler's Connection: it covers
+// every query run on that connection until it goes out of scope. It does nothing
+// when the timeout is 0, outside ToolHandler::Call, or on Emscripten (no threads).
+class QueryDeadline {
+public:
+	explicit QueryDeadline(Connection &conn);
+	~QueryDeadline();
+	QueryDeadline(const QueryDeadline &) = delete;
+	QueryDeadline &operator=(const QueryDeadline &) = delete;
+
+private:
+	struct State;
+	unique_ptr<State> state;
+};
+
 // Abstract base class for tool handlers
 class ToolHandler {
 public:
 	virtual ~ToolHandler() = default;
+
+	// Run Execute() under a query timeout (0 = none). If a QueryDeadline fired
+	// during the call, the result is a timeout error naming the setting, rather than
+	// DuckDB's bare "Interrupted!".
+	CallToolResult Call(const Value &arguments, uint32_t query_timeout_ms);
 
 	// Execute tool with given arguments
 	virtual CallToolResult Execute(const Value &arguments) = 0;

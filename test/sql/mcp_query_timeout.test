@@ -1,0 +1,92 @@
+# name: test/sql/mcp_query_timeout.test
+# description: query_timeout_ms interrupts tool SQL that runs past its deadline (#104)
+# group: [sql]
+
+# Clients give up on a tool call (Claude Code: 60 s) but the server used to run
+# the query to completion anyway, so abandoned queries piled up and slowed every
+# other request. query_timeout_ms (default 0 = off) interrupts the request's
+# connection at the deadline and returns a tool error that names the setting.
+#
+# The slow query below takes ~47 s on a 36-core box. With the timeout working,
+# each case returns in about the deadline; if the timeout is broken the query
+# SUCCEEDS and the LIKE assertions fail (slowly, but they fail).
+
+require duckdb_mcp
+
+statement ok
+LOAD duckdb_mcp;
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# Off by default
+statement ok
+SELECT mcp_server_start('memory');
+
+query T
+SELECT value FROM mcp_server_config() WHERE key = 'query_timeout_ms';
+----
+0
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# A published SQL tool that is slow on purpose
+statement ok
+SELECT mcp_publish_tool(
+    'slow_count',
+    'Counts slowly',
+    'SELECT count(*) AS c FROM range(3000000000) r(a) WHERE a % 7 = 3',
+    '{}',
+    '[]'
+);
+
+statement ok
+SELECT mcp_server_start('memory', '{"query_timeout_ms": 300, "enable_execute_tool": true}');
+
+query T
+SELECT value FROM mcp_server_config() WHERE key = 'query_timeout_ms';
+----
+300
+
+# Built-in query tool: interrupted, and the error names the setting
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT count(*) FROM range(3000000000) r(a) WHERE a % 7 = 3"}}}') LIKE '%query_timeout_ms%';
+----
+true
+
+# The interrupt does not poison the server: a fast query right after succeeds
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 42 AS answer"}}}') LIKE '%42%';
+----
+true
+
+# Published SQL tools are covered too
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"slow_count","arguments":{}}}') LIKE '%query_timeout_ms%';
+----
+true
+
+# The execute tool is covered too
+query I
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"execute","arguments":{"statement":"CREATE TABLE slow_t AS SELECT count(*) AS c FROM range(3000000000) r(a) WHERE a % 7 = 3"}}}') LIKE '%query_timeout_ms%';
+----
+true
+
+# ...and its interrupted CREATE TABLE AS left nothing behind
+query I
+SELECT count(*) FROM duckdb_tables() WHERE table_name = 'slow_t';
+----
+0
+
+statement ok
+SELECT mcp_server_stop(true);
+
+# A value that is not a non-negative integer fails server start, like any other bad option
+query I
+SELECT (mcp_server_start('memory', '{"query_timeout_ms": "soon"}')).success;
+----
+false
+
+statement ok
+SELECT mcp_server_stop(true);
