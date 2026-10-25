@@ -291,9 +291,9 @@ jobs:
     name: Build extension binaries
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v2.0-cyanoptera
     with:
-      # Build against the v2.0.0 release tag, which is also the submodule pin:
-      # ci-tools' set_duckdb_version does `git checkout v2.0.0` before building,
-      # so the produced extension is a proper loadable release binary (a
+      # Build the v2.0.0 release commit, which is also the submodule pin: with
+      # duckdb_commit set, ci-tools checks out that commit and stamps the build
+      # with duckdb_version, so the extension loads in released v2.0.0 (a
       # branch-tip -dev build is not loadable in released DuckDB). `.gitmodules
       # branch = v2.0-cyanoptera` keeps `submodule update --remote` on the 2.0.x
       # line for local dev. Windows stays IN this leg: the registry builds it.

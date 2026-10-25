@@ -142,7 +142,7 @@ true
 
 # SET should be BLOCKED (requires execute_allow_set)
 query I
-SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"execute","arguments":{"statement":"SET threads TO 1"}}}') LIKE '%not allowed%';
+SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"execute","arguments":{"statement":"SET preserve_insertion_order = true"}}}') LIKE '%not allowed%';
 ----
 true
 

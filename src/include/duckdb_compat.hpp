@@ -10,7 +10,7 @@
 // duckdb_compat.hpp — fleet-standard cross-version shim for DuckDB extensions.
 //
 // Cross-version coverage:
-//   - duckdb v1.5.x (legacy leg):                     old API everywhere
+//   - duckdb v1.5.x (the v1.5.6 variant leg):         old API everywhere
 //   - duckdb v2.0.0 (this extension's pin) / main:    new API everywhere
 //
 // DETECT FEATURES, NOT VERSIONS -- AND NOT PROXY HEADERS EITHER.
@@ -122,7 +122,7 @@ inline void CompatSetOutputCardinality(DataChunk &chunk, idx_t count) {
 // --- ScalarFunction property setters ------------------------------------------
 // v2.0 made BaseScalarFunction's property fields private behind accessors. The
 // accessors (SetNullHandling, SetStability, SetFallible, ...) are ALSO present
-// on the pinned v1.5 -- verified at function.hpp:192-217 of the pin -- so there
+// on v1.5 -- verified at function.hpp:192-217 of the then-pin -- so there
 // is nothing to branch on: call the accessor on both lines. Reaching for
 // `func.null_handling = ...` on v1.5 only creates a v2.0 compile error for no
 // benefit.
@@ -178,7 +178,7 @@ inline void PreventStructConstantFolding(ScalarFunction &func) {
 // conversions) WITHOUT changing table_function_bind_t, which still takes
 // `vector<string> &names` there:
 //
-//   v1.5-variegata @ b155d6f6 (our pin): no identifier.hpp,   bind: vector<string>
+//   v1.5-variegata @ b155d6f6 (then-pin): no identifier.hpp,   bind: vector<string>
 //   v1.5-variegata @ branch tip:         HAS identifier.hpp,  bind: vector<string>
 //   main (v2.0):                         HAS identifier.hpp,  bind: vector<Identifier>
 //
@@ -247,7 +247,7 @@ inline CompatName CompatMakeName(string name) {
 // This is not covered by the migration guide; it only bites extensions that
 // implement their own Catalog/SchemaCatalogEntry (i.e. a storage extension).
 //
-//   v1.5 @ our pin:  CreateInfo::schema, DropInfo::name           (public fields)
+//   v1.5 (variant):  CreateInfo::schema, DropInfo::name           (public fields)
 //   v2.0:            GetQualifiedName().Schema() / .Name()        (accessors)
 //
 // Probed on GetQualifiedName rather than on the absent field, so the new branch

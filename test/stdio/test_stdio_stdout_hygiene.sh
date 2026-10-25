@@ -214,8 +214,13 @@ if grep -qF "$WARNING_TEXT" "$OUT1" "$ERR1" 2>/dev/null && ! grep -q '"error"' "
         fail "Case 1: the warning was lost" "warning text on stderr" \
              "$(head -c 200 "$ERR1")"
     fi
+elif grep -q '"error"' "$OUT1"; then
+    # The tool call itself failed. That is a regression, not a missing trigger:
+    # the trigger exists on v2.0 (bind_showref.cpp), so do not hide it as a skip.
+    fail "Case 1: the provoking tool call failed" "a successful tools/call" \
+         "$(grep '"error"' "$OUT1" | head -c 200)"
 else
-    skip "Case 1" "this DuckDB build does not warn about the deprecated SHOW (query) form, or the tool call failed"
+    skip "Case 1" "this DuckDB build does not warn about the deprecated SHOW (query) form (v1.5.x)"
     skip "Case 1 hygiene" "trigger unavailable"
     skip "Case 1 preservation" "trigger unavailable"
 fi
