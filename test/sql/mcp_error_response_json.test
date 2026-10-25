@@ -1,0 +1,47 @@
+# name: test/sql/mcp_error_response_json.test
+# description: error responses are valid JSON, whatever the exception text holds (#114)
+# group: [sql]
+
+# A JSON-RPC error a client cannot parse is an error the client cannot read.
+# mcp_server_test used to splice e.what() into a hand-written JSON string, and
+# DuckDB's exception text is itself JSON ({"exception_type":...}), so its quotes
+# ended the "message" string early:
+#   {"jsonrpc":"2.0","error":{"code":-32603,"message":"{"exception_type":...}"},"id":null}
+
+require duckdb_mcp
+
+require json
+
+statement ok
+LOAD duckdb_mcp;
+
+# A batch (array) is rejected by the message parser: the reported repro
+query II
+SELECT json_valid(r), r LIKE '%"error"%' FROM (SELECT mcp_server_test('[{"jsonrpc":"2.0","id":1,"method":"tools/list"}]') AS r);
+----
+true	true
+
+# Truncated JSON, whose parse error quotes the input back
+query II
+SELECT json_valid(r), r LIKE '%"error"%' FROM (SELECT mcp_server_test('{"bogus":') AS r);
+----
+true	true
+
+# Input full of quotes and backslashes
+query II
+SELECT json_valid(r), r LIKE '%"error"%' FROM (SELECT mcp_server_test('"\"}{\\') AS r);
+----
+true	true
+
+# JSON-RPC 2.0: a response MUST carry "id", and it MUST be null when the request's
+# id could not be determined. The serializer used to omit a null id altogether.
+query II
+SELECT json_exists(r, '$.id'), json_type(r, '$.id') FROM (SELECT mcp_server_test('[1,2]') AS r);
+----
+true	NULL
+
+# The human-readable reason survives, not a JSON blob inside a string
+query I
+SELECT json_extract_string(mcp_server_test('[1,2]'), '$.error.message') LIKE '%Invalid JSON message format%';
+----
+true
