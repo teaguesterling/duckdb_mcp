@@ -541,6 +541,34 @@ fi
 stop_server
 
 # ==========================================
+# Test 13: GET / DELETE on the MCP endpoints return 405 (#105)
+# ==========================================
+# Streamable HTTP: a GET MUST get either an SSE stream or 405 Method Not
+# Allowed, and 405 is also how a server declines DELETE (session termination).
+# A 404 reads to clients as a broken connection, not "no SSE stream offered".
+echo -e "${YELLOW}Test 13: GET / DELETE return 405${NC}"
+PORT=18092
+start_server $PORT '{"auth_token":"secret123"}'
+
+for spec in "GET /mcp" "GET /" "DELETE /mcp" "DELETE /"; do
+    method=${spec% *}
+    path=${spec#* }
+    HEADERS=$(curl -s -o /dev/null -D - -X "$method" "http://localhost:$PORT$path" \
+        -H "Authorization: Bearer secret123" \
+        -H "Accept: text/event-stream" \
+        2>/dev/null || echo "CURL_ERROR")
+    STATUS=$(echo "$HEADERS" | head -1 | tr -d '\r')
+    ALLOW=$(echo "$HEADERS" | grep -i '^Allow:' | tr -d '\r')
+    if echo "$STATUS" | grep -q ' 405' && echo "$ALLOW" | grep -qi 'POST'; then
+        pass "$spec returns 405 with Allow: POST"
+    else
+        fail "$spec" "405 with Allow: POST" "$STATUS / ${ALLOW:-no Allow header}"
+    fi
+done
+
+stop_server
+
+# ==========================================
 # Summary
 # ==========================================
 echo ""

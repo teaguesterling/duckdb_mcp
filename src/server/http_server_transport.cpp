@@ -160,6 +160,19 @@ void SetupRoutes(ServerType &server, const HTTPServerConfig &config,
 	// Alternative MCP endpoint
 	server.Post("/mcp", mcp_handler);
 
+	// Streamable HTTP: GET MUST open an SSE stream or return 405, and 405 is how a
+	// server declines DELETE (session termination). We offer neither, so say so;
+	// a 404 reads to clients as a broken connection.
+	// See: https://modelcontextprotocol.io/specification/2025-03-26/basic/transports
+	auto method_not_allowed = [](const CPPHTTPLIB_NAMESPACE::Request &, CPPHTTPLIB_NAMESPACE::Response &res) {
+		res.status = 405;
+		res.set_header("Allow", "POST");
+	};
+	server.Get("/", method_not_allowed);
+	server.Get("/mcp", method_not_allowed);
+	server.Delete("/", method_not_allowed);
+	server.Delete("/mcp", method_not_allowed);
+
 	// Health check endpoint (conditionally enabled, optionally auth-protected)
 	if (config.enable_health_endpoint) {
 		server.Get("/health", [&config](const CPPHTTPLIB_NAMESPACE::Request &req, CPPHTTPLIB_NAMESPACE::Response &res) {
