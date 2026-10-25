@@ -4,7 +4,12 @@ All notable changes to the DuckDB MCP Extension.
 
 ---
 
-## Unreleased
+## v2.4.0
+
+Ships against **DuckDB v2.0.0**, the community registry's default since
+duckdb/community-extensions#3154. v1.5.6 is still built and tested as the
+registry's variant. Read **Changed** before upgrading an HTTP deployment
+that serves browser clients.
 
 ### Added
 
@@ -28,6 +33,26 @@ All notable changes to the DuckDB MCP Extension.
     `cors_origins` now gets 403, on every route and before authentication. The
     new `origin_policy` option (`reject` default, `loopback`, `allow`) sets what
     an unlisted Origin gets. Requests without an `Origin` header are unaffected.
+- **DuckDB v2.0.0 is the shipped line** (#109). The submodule is pinned to the
+  v2.0.0 tag; CI builds v2.0.0 (all platforms), the v1.5.6 variant, and the
+  v2.0-cyanoptera tip as the next line.
+
+### Fixed
+
+- **`ping` answers with an empty result** (#106) instead of `-32601 Method not
+  found`, on every transport.
+- **HTTP: `GET` and `DELETE` on `/` and `/mcp` return 405** with `Allow: POST`
+  (#105), not 404. Streamable HTTP clients read 405 as "no SSE stream offered".
+- **Error responses are valid JSON** (#114). `mcp_server_test` and
+  `mcp_server_send_request` spliced DuckDB's JSON-formatted exception text into
+  hand-built JSON; responses also now always carry `"id"`, as `null` when the
+  request's id is unknown.
+- **`serverInfo.version` reports the release.** It had said `2.0.0` since v2.1.
+
+## v2.3.2 and earlier
+
+These notes sat under "Unreleased" when v2.2.0 – v2.3.2 were tagged; the fixes
+below first shipped in v2.3.2.
 
 ### Fixed
 
