@@ -559,6 +559,16 @@ static Value MCPServerStartCore(ClientContext &context, const string &transport,
 				// Parse max_requests
 				server_config.max_requests = static_cast<uint32_t>(JSONUtils::GetInt(root, "max_requests", 0));
 
+				// Parse query_timeout_ms (#104). Validated rather than defaulted: a
+				// mistyped value silently becoming 0 would mean "no limit".
+				yyjson_val *timeout_val = yyjson_obj_get(root, "query_timeout_ms");
+				if (timeout_val) {
+					if (!yyjson_is_uint(timeout_val) || yyjson_get_uint(timeout_val) > UINT32_MAX) {
+						throw InvalidInputException("query_timeout_ms must be a non-negative integer (milliseconds)");
+					}
+					server_config.query_timeout_ms = static_cast<uint32_t>(yyjson_get_uint(timeout_val));
+				}
+
 				// Blanket built-in tool switch (issue #75). This is an alias over the
 				// individual enable_*_tool flags below, for the common "publish a
 				// curated tool and nothing else" case.

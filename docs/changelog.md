@@ -6,6 +6,15 @@ All notable changes to the DuckDB MCP Extension.
 
 ## Unreleased
 
+### Added
+
+- **`query_timeout_ms` server option** (#104). MCP clients time out on their
+  side, but the server used to run an abandoned query to completion, so slow
+  queries piled up and slowed every other request. With `query_timeout_ms` set,
+  a tool call's SQL is interrupted at the deadline (`Connection::Interrupt()`)
+  and the call returns `Query cancelled: it ran longer than query_timeout_ms
+  (N ms)`. The default, 0, keeps the old behaviour.
+
 ### Fixed
 
 - **A failed registration no longer reports a successful server start** (#84).
