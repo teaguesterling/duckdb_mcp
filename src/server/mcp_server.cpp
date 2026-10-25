@@ -492,6 +492,10 @@ MCPMessage MCPServer::HandleRequest(const MCPMessage &request) {
 		// Route request based on method
 		if (request.method == MCPMethods::INITIALIZE) {
 			return HandleInitialize(request);
+		} else if (request.method == MCPMethods::PING) {
+			// MCP requires an empty result object; an empty STRUCT serialises as {}
+			// See: https://modelcontextprotocol.io/specification/2024-11-05/basic/utilities/ping
+			return MCPMessage::CreateResponse(Value::STRUCT(child_list_t<Value>()), request.id);
 		} else if (request.method == MCPMethods::RESOURCES_LIST) {
 			return HandleResourcesList(request);
 		} else if (request.method == MCPMethods::RESOURCES_READ) {
