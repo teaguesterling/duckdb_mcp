@@ -156,6 +156,25 @@ PRAGMA mcp_server_start('http', 'localhost', 8080, '{
 !!! warning
     Avoid `"cors_origins": "*"` in production. Wildcard CORS combined with bearer token auth allows any webpage to make cross-origin requests to your server.
 
+Since v2.4.0 the server also **validates the `Origin` header** on every HTTP
+request, before authentication: an origin that is not in `cors_origins` gets
+`403 Forbidden` by default. This stops a web page, including one reached
+through DNS rebinding, from calling a server bound to localhost. Keep the
+default `"origin_policy": "reject"` unless you need a local browser client
+(`"loopback"`); `"allow"` restores the pre-v2.4.0 behaviour.
+
+### Bound query time
+
+Set `query_timeout_ms` so that a slow or abandoned tool call cannot hold a
+connection and CPU indefinitely; the call is interrupted at the deadline:
+
+```sql
+PRAGMA mcp_server_start('http', 'localhost', 8080, '{
+    "auth_token": "secret",
+    "query_timeout_ms": 30000
+}');
+```
+
 ### Secure the Health Endpoint
 
 The `/health` endpoint is enabled by default and unauthenticated. In security-sensitive environments, either require auth or disable it:
@@ -390,6 +409,8 @@ High error rates may indicate:
 - [ ] Validate inputs at SQL level
 - [ ] Configure `auth_token` and `require_auth` for HTTP transport
 - [ ] Set specific `cors_origins` (not `"*"`) for HTTP transport
+- [ ] Keep `origin_policy` at `"reject"` (the default) unless a local browser client needs `"loopback"`
+- [ ] Set `query_timeout_ms` to bound how long a tool call's SQL can run
 - [ ] Bind to localhost, not `0.0.0.0`
 - [ ] Use containers for isolation
 - [ ] Monitor server statistics

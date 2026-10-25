@@ -419,7 +419,7 @@ For version and log level info (useful in bug reports):
 
 ```sql
 SELECT mcp_get_diagnostics();
--- {"log_level":"info","extension_version":"2.1.0","logging_available":true}
+-- {"log_level":"info","extension_version":"2.4.0","logging_available":true}
 ```
 
 ## Best Practices

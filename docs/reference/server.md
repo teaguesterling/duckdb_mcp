@@ -559,14 +559,14 @@ mcp_get_diagnostics() → JSON
 | Field | Type | Description |
 |-------|------|-------------|
 | `log_level` | string | Active log level: `trace`, `debug`, `info`, `warn`, `error`, `off` |
-| `extension_version` | string | Loaded extension version (e.g. `2.1.0`) |
+| `extension_version` | string | Loaded extension version (e.g. `2.4.0`) |
 | `logging_available` | boolean | Whether MCP logging is wired into DuckDB's logging facility |
 
 **Example:**
 
 ```sql
 SELECT mcp_get_diagnostics();
--- {"log_level":"info","extension_version":"2.1.0","logging_available":true}
+-- {"log_level":"info","extension_version":"2.4.0","logging_available":true}
 ```
 
 Use this when filing bug reports — it captures the exact extension version and log level without requiring a separate `duckdb_extensions()` query.
@@ -864,6 +864,19 @@ The `http` and `https` transports provide an HTTP server for MCP clients, enabli
 | `/health` | GET | Health check, returns `{"status":"ok"}` |
 | `/` | POST | MCP JSON-RPC endpoint |
 | `/mcp` | POST | Alternative MCP JSON-RPC endpoint |
+| `/`, `/mcp` | GET, DELETE | `405 Method Not Allowed` with `Allow: POST`: the server offers no SSE stream and no session termination |
+
+### Protocol version
+
+`initialize` negotiates the protocol version on every transport. The server
+answers with the client's requested version when it supports it
+(`2024-11-05`, `2025-06-18`, `2025-11-25`), and with `2025-11-25` otherwise.
+`2025-03-26` is not offered: it requires JSON-RPC batches, which the server
+does not accept.
+
+Over HTTP, a request that carries an `MCP-Protocol-Version` header with an
+unsupported value gets `400 Bad Request`. A request without the header is
+accepted, because `2024-11-05` clients never send it.
 
 ### Authentication
 
@@ -881,12 +894,28 @@ curl -X POST http://localhost:8080/mcp \
 | Status | Condition |
 |--------|-----------|
 | 200 OK | Request successful |
+| 400 Bad Request | `MCP-Protocol-Version` header present but unsupported (checked after authentication) |
 | 401 Unauthorized | No `Authorization` header provided |
-| 403 Forbidden | Invalid token provided |
+| 403 Forbidden | Invalid token provided, or an `Origin` that is not allowed (see below; checked before authentication) |
+| 405 Method Not Allowed | `GET` or `DELETE` on `/` or `/mcp` |
 
-### CORS
+### CORS and Origin validation
 
-CORS is disabled by default. To enable CORS for browser-based clients, set the `cors_origins` configuration option:
+Every HTTP request that carries an `Origin` header is checked before routing
+and before authentication, as the MCP Streamable HTTP transport requires
+(DNS-rebinding defence). An origin listed in `cors_origins`, or any origin
+when `cors_origins` is `"*"`, passes. What an unlisted origin gets is set by
+`origin_policy`:
+
+| `origin_policy` | Unlisted `Origin` |
+|---|---|
+| `reject` (default) | `403 Forbidden` |
+| `loopback` | allowed only for `http(s)://localhost`, `127.0.0.1` or `[::1]`, any port |
+| `allow` | allowed (the behaviour before v2.4.0) |
+
+Requests without an `Origin` header, such as those from CLI clients, are not affected.
+
+CORS response headers are off by default. To enable CORS for browser-based clients, set the `cors_origins` configuration option:
 
 ```sql
 -- Allow all origins

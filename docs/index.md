@@ -129,7 +129,7 @@ PRAGMA mcp_publish_tool(
 
 ## Requirements
 
-- DuckDB 1.5.0 or later
+- DuckDB v2.0.0 (the shipped line); DuckDB v1.5.6 is also built and tested
 - C++17 compatible compiler (for building from source)
 - Python 3.8+ (for running example MCP servers)
 
