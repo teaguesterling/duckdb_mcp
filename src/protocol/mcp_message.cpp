@@ -199,11 +199,10 @@ string MCPMessage::ToJSON() const {
 				JSONUtils::AddObject(doc, msg, "result", result_val);
 			}
 
-			// Add ID
-			if (!id.IsNull()) {
-				yyjson_mut_val *id_val = JSONUtils::ValueToJSON(doc, id);
-				JSONUtils::AddObject(doc, msg, "id", id_val);
-			}
+			// Add ID. JSON-RPC 2.0: a response always carries "id", and it is null when
+			// the request's id could not be determined (ValueToJSON writes NULL as null).
+			yyjson_mut_val *id_val = JSONUtils::ValueToJSON(doc, id);
+			JSONUtils::AddObject(doc, msg, "id", id_val);
 		}
 
 		string json_str = JSONUtils::Serialize(doc);
