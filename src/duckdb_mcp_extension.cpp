@@ -27,6 +27,7 @@ using namespace duckdb_yyjson;
 #include "server/memory_transport.hpp"
 #include "server/mcp_state_table_functions.hpp"
 #include "duckdb/common/exception.hpp"
+#include "duckdb/common/error_data.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/parser/keyword_helper.hpp"
 #include "duckdb/common/enums/set_scope.hpp"
@@ -974,6 +975,18 @@ static void MCPServerStatusFunction(DataChunk &args, ExpressionState &state, Vec
 
 // Test MCP server protocol handling (for unit testing)
 // Takes a JSON-RPC request string, processes it through the MCP server, returns response JSON
+// A -32603 JSON-RPC error carrying the exception's plain reason (#114). Built through
+// MCPMessage so the reason is escaped: DuckDB's what() is itself JSON, and splicing it
+// into a hand-written string produced invalid JSON.
+static string InternalErrorJSON(const string &prefix, const std::exception &e) {
+	try {
+		return MCPMessage::CreateError(MCPErrorCodes::INTERNAL_ERROR, prefix + ErrorData(e).RawMessage(), Value())
+		    .ToJSON();
+	} catch (...) {
+		return R"({"jsonrpc":"2.0","error":{"code":-32603,"message":"Internal error"},"id":null})";
+	}
+}
+
 static void MCPServerTestFunction(DataChunk &args, ExpressionState &state, Vector &result) {
 	auto &request_vector = args.data[0];
 
@@ -1011,16 +1024,12 @@ static void MCPServerTestFunction(DataChunk &args, ExpressionState &state, Vecto
 				string json_response = response.ToJSON();
 				result_data[i] = StringVector::AddString(result, json_response);
 			} catch (const std::exception &e) {
-				result_data[i] = StringVector::AddString(
-				    result, R"({"jsonrpc":"2.0","error":{"code":-32603,"message":"ToJSON failed: )" + string(e.what()) +
-				                R"("},"id":null})");
+				result_data[i] = StringVector::AddString(result, InternalErrorJSON("ToJSON failed: ", e));
 			}
 
 		} catch (const std::exception &e) {
 			// Return a JSON-RPC error response
-			string error_response =
-			    R"({"jsonrpc":"2.0","error":{"code":-32603,"message":")" + string(e.what()) + R"("},"id":null})";
-			result_data[i] = StringVector::AddString(result, error_response);
+			result_data[i] = StringVector::AddString(result, InternalErrorJSON("", e));
 		}
 	}
 }
