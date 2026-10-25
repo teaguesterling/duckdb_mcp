@@ -172,10 +172,11 @@ statement ok
 SELECT mcp_server_start('memory', '{"enable_execute_tool": true, "execute_allow_ddl": true, "execute_allow_set": true}');
 
 # SET should now work (side-effectful: use subquery)
+# Returns the response itself on failure, so a red run shows why the SET was refused.
 query I
-SELECT r LIKE '%success%' FROM (SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":26,"method":"tools/call","params":{"name":"execute","arguments":{"statement":"SET threads TO 1"}}}') AS r);
+SELECT CASE WHEN r LIKE '%success%' THEN 'success' ELSE r END FROM (SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":26,"method":"tools/call","params":{"name":"execute","arguments":{"statement":"SET threads TO 1"}}}') AS r);
 ----
-true
+success
 
 # LOAD should still be blocked
 query I
