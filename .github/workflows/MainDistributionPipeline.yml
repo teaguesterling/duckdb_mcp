@@ -53,11 +53,13 @@ jobs:
       # test-coverage leg. BRANCH name, not the registry's commit -- see
       # duckdb-v2-test-coverage below for why that distinction is load-bearing.
       DUCKDB_NEXT: v2.0-cyanoptera
-      # What the community registry builds by default, as of #3079. Recorded so
+      # What the community registry builds by default, as of #3154 (2026-10-20):
+      # the commit is the upstream v2.0.0 release tag. Recorded so
       # that the registry moving again is a FAILURE here rather than a surprise
       # in a release. DUCKDB_REGISTRY_TAG is not an upstream tag: ci-tools tags
       # the commit with it locally so the built extension reports a version.
-      DUCKDB_REGISTRY_COMMIT: b15358c371daf10dad799a43b6167f6ccdce84d8
+      # The registry still writes the alpha tag beside the v2.0.0 commit.
+      DUCKDB_REGISTRY_COMMIT: d54cbbe3df17e8e5ce68312f483b4155836112aa
       DUCKDB_REGISTRY_TAG: v2.0.0-alpha46057
       DUCKDB_REGISTRY_TOOLS: v2.0-cyanoptera
       # scripts/build.py routes a v1.5.6 build to each descriptor's `variegata`
