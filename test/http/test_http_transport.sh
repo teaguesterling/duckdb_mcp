@@ -508,6 +508,82 @@ fi
 
 stop_server
 
+# Status code of one request. Usage: http_status METHOD PATH [curl args...]
+http_status() {
+    local method=$1 path=$2; shift 2
+    curl -s -o /dev/null -w "%{http_code}" -X "$method" "http://localhost:$PORT$path" "$@" 2>/dev/null || echo "000"
+}
+# Expect one status. Usage: expect_status NAME WANT METHOD PATH [curl args...]
+expect_status() {
+    local name=$1 want=$2; shift 2
+    local got
+    got=$(http_status "$@")
+    if [ "$got" = "$want" ]; then pass "$name ($want)"; else fail "$name" "$want" "$got"; fi
+}
+INIT_BODY='{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+
+# ==========================================
+# Test 11b: MCP-Protocol-Version header (#107)
+# ==========================================
+# 2025-06-18+: an invalid or unsupported version header MUST get 400. A missing
+# header is accepted: 2024-11-05 clients never send one.
+echo -e "${YELLOW}Test 11b: MCP-Protocol-Version header${NC}"
+PORT=18093
+start_server $PORT
+
+expect_status "No version header accepted" 200 POST /mcp -H "Content-Type: application/json" -d "$INIT_BODY"
+expect_status "Version 2025-11-25 accepted" 200 POST /mcp -H "Content-Type: application/json" -H "MCP-Protocol-Version: 2025-11-25" -d "$INIT_BODY"
+expect_status "Version 2024-11-05 accepted" 200 POST /mcp -H "Content-Type: application/json" -H "MCP-Protocol-Version: 2024-11-05" -d "$INIT_BODY"
+expect_status "Version 2025-03-26 rejected (not offered)" 400 POST /mcp -H "Content-Type: application/json" -H "MCP-Protocol-Version: 2025-03-26" -d "$INIT_BODY"
+expect_status "Garbage version rejected" 400 POST /mcp -H "Content-Type: application/json" -H "MCP-Protocol-Version: banana" -d "$INIT_BODY"
+
+stop_server
+
+# ==========================================
+# Test 11c: Origin validation (#107)
+# ==========================================
+# 2025-11-25: Origin present and invalid MUST get 403, on all incoming
+# connections (DNS rebinding). origin_policy decides what an Origin that is not
+# in cors_origins gets: reject (default) | loopback | allow.
+echo -e "${YELLOW}Test 11c: Origin validation${NC}"
+
+PORT=18094
+start_server $PORT
+expect_status "Default: no Origin passes" 200 POST /mcp -H "Content-Type: application/json" -d "$INIT_BODY"
+expect_status "Default: foreign Origin on POST" 403 POST /mcp -H "Content-Type: application/json" -H "Origin: https://evil.example.com" -d "$INIT_BODY"
+expect_status "Default: localhost Origin on POST" 403 POST /mcp -H "Content-Type: application/json" -H "Origin: http://localhost:3000" -d "$INIT_BODY"
+expect_status "Default: foreign Origin on /health" 403 GET /health -H "Origin: https://evil.example.com"
+expect_status "Default: foreign Origin on GET /mcp" 403 GET /mcp -H "Origin: https://evil.example.com"
+expect_status "Default: no Origin on /health" 200 GET /health
+stop_server
+
+PORT=18095
+start_server $PORT '{"cors_origins": "https://allowed.example.com"}'
+expect_status "Listed Origin passes" 200 POST /mcp -H "Content-Type: application/json" -H "Origin: https://allowed.example.com" -d "$INIT_BODY"
+expect_status "Unlisted Origin rejected" 403 POST /mcp -H "Content-Type: application/json" -H "Origin: https://evil.example.com" -d "$INIT_BODY"
+expect_status "Unlisted Origin preflight rejected" 403 OPTIONS /mcp -H "Origin: https://evil.example.com"
+stop_server
+
+PORT=18096
+start_server $PORT '{"origin_policy": "loopback"}'
+expect_status "Loopback: localhost passes" 200 POST /mcp -H "Content-Type: application/json" -H "Origin: http://localhost:3000" -d "$INIT_BODY"
+expect_status "Loopback: 127.0.0.1 passes" 200 POST /mcp -H "Content-Type: application/json" -H "Origin: http://127.0.0.1:8080" -d "$INIT_BODY"
+expect_status "Loopback: [::1] passes" 200 POST /mcp -H "Content-Type: application/json" -H "Origin: http://[::1]:8080" -d "$INIT_BODY"
+expect_status "Loopback: lookalike host rejected" 403 POST /mcp -H "Content-Type: application/json" -H "Origin: http://localhost.evil.com" -d "$INIT_BODY"
+expect_status "Loopback: foreign Origin rejected" 403 POST /mcp -H "Content-Type: application/json" -H "Origin: https://evil.example.com" -d "$INIT_BODY"
+stop_server
+
+PORT=18097
+start_server $PORT '{"origin_policy": "allow"}'
+expect_status "Allow: foreign Origin passes" 200 POST /mcp -H "Content-Type: application/json" -H "Origin: https://evil.example.com" -d "$INIT_BODY"
+stop_server
+
+PORT=18098
+start_server $PORT '{"auth_token":"secret123"}'
+# Origin runs before auth: a rebinding page gets 403 without reaching the token check
+expect_status "Origin checked before auth" 403 POST /mcp -H "Content-Type: application/json" -H "Origin: https://evil.example.com" -d "$INIT_BODY"
+stop_server
+
 # ==========================================
 # Test 12: Alternative endpoint (/mcp)
 # ==========================================

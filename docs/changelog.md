@@ -6,6 +6,20 @@ All notable changes to the DuckDB MCP Extension.
 
 ## Unreleased
 
+### Changed
+
+- **The server negotiates the protocol version, and HTTP enforces the
+  Streamable HTTP rules** (#107). `initialize` used to answer `2024-11-05`
+  whatever the client asked. It now echoes `2024-11-05`, `2025-06-18` or
+  `2025-11-25`, and answers `2025-11-25` to anything else. `2025-03-26` is not
+  offered: it requires JSON-RPC batches, which the server rejects.
+  - HTTP: a present but unsupported `MCP-Protocol-Version` header gets 400. A
+    missing one is accepted.
+  - HTTP, **breaking**: a request whose `Origin` header is not in
+    `cors_origins` now gets 403, on every route and before authentication. The
+    new `origin_policy` option (`reject` default, `loopback`, `allow`) sets what
+    an unlisted Origin gets. Requests without an `Origin` header are unaffected.
+
 ### Fixed
 
 - **A failed registration no longer reports a successful server start** (#84).

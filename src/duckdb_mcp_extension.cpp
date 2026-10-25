@@ -654,6 +654,13 @@ static Value MCPServerStartCore(ClientContext &context, const string &transport,
 
 				// Parse CORS configuration
 				server_config.cors_origins = JSONUtils::GetString(root, "cors_origins", "");
+				// Fail closed: a typo must not silently become a weaker policy
+				server_config.origin_policy = JSONUtils::GetString(root, "origin_policy", "reject");
+				if (server_config.origin_policy != "reject" && server_config.origin_policy != "loopback" &&
+				    server_config.origin_policy != "allow") {
+					throw InvalidInputException("origin_policy must be 'reject', 'loopback' or 'allow', got '%s'",
+					                            server_config.origin_policy);
+				}
 
 				// Parse health endpoint configuration
 				val = yyjson_obj_get(root, "enable_health_endpoint");

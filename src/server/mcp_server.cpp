@@ -360,6 +360,7 @@ HTTPServerConfig MCPServer::MakeHTTPConfig() const {
 	http_config.port = config.port;
 	http_config.auth_token = config.auth_token;
 	http_config.cors_origins = config.cors_origins;
+	http_config.origin_policy = config.origin_policy;
 	http_config.enable_health_endpoint = config.enable_health_endpoint;
 	http_config.auth_health_endpoint = config.auth_health_endpoint;
 
@@ -579,9 +580,27 @@ MCPMessage MCPServer::HandleInitialize(const MCPMessage &request) {
 
 	Value server_info = Value::STRUCT({{"name", Value("DuckDB MCP Server")}, {"version", Value(DUCKDB_MCP_VERSION)}});
 
+	// Version negotiation: echo the requested version if we support it, else answer our latest.
+	// See: https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle
+	string requested;
+	if (request.params.type().id() == LogicalTypeId::VARCHAR) {
+		yyjson_doc *doc = JSONUtils::Parse(request.params.ToString());
+		DocGuard guard {doc};
+		requested = JSONUtils::GetString(yyjson_doc_get_root(doc), "protocolVersion");
+	} else if (request.params.type().id() == LogicalTypeId::STRUCT) {
+		auto &struct_values = StructValue::GetChildren(request.params);
+		for (size_t i = 0; i < struct_values.size(); i++) {
+			if (CompatStructFieldName(request.params.type(), i) == "protocolVersion") {
+				requested = struct_values[i].ToString();
+				break;
+			}
+		}
+	}
+	string negotiated = MCPProtocolVersions::IsSupported(requested) ? requested : MCPProtocolVersions::LATEST;
+
 	// MCP initialize response requires protocolVersion, serverInfo, and capabilities at top level
 	Value result = Value::STRUCT(
-	    {{"protocolVersion", Value("2024-11-05")}, {"serverInfo", server_info}, {"capabilities", capabilities}});
+	    {{"protocolVersion", Value(negotiated)}, {"serverInfo", server_info}, {"capabilities", capabilities}});
 
 	return MCPMessage::CreateResponse(result, request.id);
 }

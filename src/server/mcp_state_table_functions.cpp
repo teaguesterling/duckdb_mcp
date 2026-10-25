@@ -151,6 +151,7 @@ static vector<pair<string, string>> ConfigToKVPairs(const MCPServerConfig &confi
 	pairs.emplace_back("execute_allow_attach", config.execute_allow_attach ? "true" : "false");
 	pairs.emplace_back("execute_allow_set", config.execute_allow_set ? "true" : "false");
 	pairs.emplace_back("cors_origins", config.cors_origins);
+	pairs.emplace_back("origin_policy", config.origin_policy);
 	pairs.emplace_back("enable_health_endpoint", config.enable_health_endpoint ? "true" : "false");
 	pairs.emplace_back("auth_health_endpoint", config.auth_health_endpoint ? "true" : "false");
 	pairs.emplace_back("default_result_format", config.default_result_format);
