@@ -21,10 +21,18 @@ namespace duckdb {
 // Query timeout (#104)
 //===--------------------------------------------------------------------===//
 
-// The current tool call's timeout and whether a deadline fired during it. Thread-
-// local because ToolHandler::Call runs Execute() on the calling thread, and calls
-// on different threads (HTTP requests run in parallel) must not see each other's.
-static thread_local uint32_t current_query_timeout_ms = 0;
+// The current tool call's deadline and whether it fired. Thread-local because
+// ToolHandler::Call runs Execute() on the calling thread, and calls on different
+// threads (HTTP requests run in parallel) must not see each other's. The deadline
+// is per CALL, so a handler with two guarded connections (export to file) shares
+// one budget rather than getting a fresh timeout per guard.
+//
+// Why a watchdog rather than DuckDB's own max_execution_time: that setting exists
+// on v2.0 only, and this extension still ships the v1.5.6 variant.
+static thread_local bool current_query_deadline_set = false;
+#ifndef __EMSCRIPTEN__
+static thread_local std::chrono::steady_clock::time_point current_query_deadline;
+#endif
 static thread_local bool current_query_timed_out = false;
 
 #ifndef __EMSCRIPTEN__
@@ -36,21 +44,31 @@ struct QueryDeadline::State {
 	std::thread watchdog;
 };
 
+// After the deadline the watchdog keeps re-interrupting until the guard is
+// destroyed: DuckDB clears the interrupt flag when each statement starts
+// (InitialCleanup), so a single Interrupt() that lands between two statements --
+// or before a prepared statement executes -- would be lost and the next statement
+// would run with no limit (measured on v1.5.6 by review: 14 s after PREPARE).
+static constexpr auto QUERY_DEADLINE_REINTERRUPT = std::chrono::milliseconds(10);
+
 QueryDeadline::QueryDeadline(Connection &conn) {
-	auto timeout_ms = current_query_timeout_ms;
-	if (timeout_ms == 0) {
+	if (!current_query_deadline_set) {
 		return;
 	}
+	auto deadline = current_query_deadline;
 	state = make_uniq<State>();
 	auto *s = state.get();
-	s->watchdog = std::thread([s, &conn, timeout_ms]() {
+	s->watchdog = std::thread([s, &conn, deadline]() {
 		std::unique_lock<std::mutex> lock(s->mutex);
-		if (!s->cv.wait_for(lock, std::chrono::milliseconds(timeout_ms), [s]() { return s->done; })) {
-			// Deadline passed with the work still running: Interrupt() is DuckDB's
-			// thread-safe cancel, so the query fails promptly with "Interrupted!"
-			s->fired = true;
-			conn.Interrupt();
+		if (s->cv.wait_until(lock, deadline, [s]() { return s->done; })) {
+			return;
 		}
+		// Deadline passed with the work still running: Interrupt() is DuckDB's
+		// thread-safe cancel, so the running statement fails with "Interrupted!"
+		s->fired = true;
+		do {
+			conn.Interrupt();
+		} while (!s->cv.wait_for(lock, QUERY_DEADLINE_REINTERRUPT, [s]() { return s->done; }));
 	});
 }
 
@@ -77,26 +95,37 @@ QueryDeadline::~QueryDeadline() {
 #endif
 
 CallToolResult ToolHandler::Call(const Value &arguments, uint32_t query_timeout_ms) {
-	current_query_timeout_ms = query_timeout_ms;
+	current_query_deadline_set = query_timeout_ms > 0;
+#ifndef __EMSCRIPTEN__
+	if (current_query_deadline_set) {
+		current_query_deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(query_timeout_ms);
+	}
+#endif
 	current_query_timed_out = false;
 	auto timeout_error = [query_timeout_ms]() {
 		return CallToolResult::Error("Query cancelled: it ran longer than query_timeout_ms (" +
 		                             std::to_string(query_timeout_ms) + " ms)");
 	};
+	auto finish = [&]() {
+		bool timed_out = current_query_timed_out;
+		current_query_deadline_set = false;
+		current_query_timed_out = false;
+		return timed_out;
+	};
 	CallToolResult result;
 	try {
 		result = Execute(arguments);
 	} catch (...) {
-		current_query_timeout_ms = 0;
-		if (current_query_timed_out) {
-			current_query_timed_out = false;
+		if (finish()) {
 			return timeout_error();
 		}
 		throw;
 	}
-	current_query_timeout_ms = 0;
-	if (current_query_timed_out) {
-		current_query_timed_out = false;
+	// Only a FAILED call becomes a timeout error. A call that completed is reported
+	// as completed even if the deadline fired during its last moments (e.g. while an
+	// autocommit write was committing): saying "cancelled" for a committed write
+	// would invite a retry that applies it twice.
+	if (finish() && !result.success) {
 		return timeout_error();
 	}
 	return result;

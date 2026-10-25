@@ -7,9 +7,11 @@
 # other request. query_timeout_ms (default 0 = off) interrupts the request's
 # connection at the deadline and returns a tool error that names the setting.
 #
-# The slow query below takes ~47 s on a 36-core box. With the timeout working,
-# each case returns in about the deadline; if the timeout is broken the query
-# SUCCEEDS and the LIKE assertions fail (slowly, but they fail).
+# The slow query below takes ~47 s on a 36-core box. A LIKE on the error text alone
+# cannot tell a working interrupt from one that does nothing (the deadline still
+# "fires" and the message still names the setting, ~47 s later). So the query-tool
+# case is also bounded by wall-clock time: now() is per statement under
+# autocommit, so the difference between two statements' now() spans the call.
 
 require duckdb_mcp
 
@@ -50,12 +52,22 @@ SELECT value FROM mcp_server_config() WHERE key = 'query_timeout_ms';
 300
 
 # Built-in query tool: interrupted, and the error names the setting
+statement ok
+SET VARIABLE t0 = epoch_ms(now());
+
 query I
 SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT count(*) FROM range(3000000000) r(a) WHERE a % 7 = 3"}}}') LIKE '%query_timeout_ms%';
 ----
 true
 
-# The interrupt does not poison the server: a fast query right after succeeds
+# ...and it actually stopped: well under the ~47 s the query needs
+query I
+SELECT epoch_ms(now()) - getvariable('t0') < 10000;
+----
+true
+
+# Sanity: a fast query still succeeds with the timeout set (each call opens its own
+# connection, so this does not test interrupt carry-over)
 query I
 SELECT mcp_server_send_request('{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT 42 AS answer"}}}') LIKE '%42%';
 ----
