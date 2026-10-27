@@ -7,6 +7,7 @@
 #include "duckdb/common/open_file_info.hpp"
 #include "duckdb/common/types/timestamp.hpp"
 #include "duckdb/common/types/blob.hpp"
+#include "duckdb/common/unordered_set.hpp"
 #include "duckdb/function/scalar/string_common.hpp"
 #include "json_utils.hpp"
 
@@ -84,6 +85,31 @@ bool ExtractResourceContents(const string &json_result, string &out) {
 	return true;
 }
 
+//! The server-side URI an mcp:// resource name refers to, or "" if none.
+//!
+//! The exact URI always wins. Failing that, a name that ends in the extension
+//! of its mimeType (issue #100; Glob hands such names out) resolves to the URI
+//! without it -- but only when the server declares that mimeType for it, so
+//! an extension never asserts a type the server did not.
+string ResolveResourceUri(MCPConnection &connection, const string &uri) {
+	if (connection.ResourceExists(uri)) {
+		return uri;
+	}
+	string stem, extension;
+	if (!MCPPathParser::SplitExtension(uri, stem, extension)) {
+		return "";
+	}
+	try {
+		auto resource = connection.ReadResource(stem);
+		if (MCPPathParser::ExtensionForMimeType(resource.mime_type) == extension) {
+			return stem;
+		}
+	} catch (const std::exception &) {
+		// Same as ResourceExists: an unreadable stem is not this resource.
+	}
+	return "";
+}
+
 } // namespace
 
 // MCPFileHandle implementation
@@ -147,10 +173,12 @@ unique_ptr<FileHandle> MCPFileSystem::OpenFile(const string &path, FileOpenFlags
 		}
 	}
 
-	// Check if resource exists
-	if (!connection->ResourceExists(parsed_path.resource_uri)) {
+	// Check if resource exists, and read it under the URI the server knows
+	auto resolved_uri = ResolveResourceUri(*connection, parsed_path.resource_uri);
+	if (resolved_uri.empty()) {
 		throw IOException("MCP resource not found: " + parsed_path.resource_uri);
 	}
+	parsed_path.resource_uri = resolved_uri;
 
 	return make_uniq<MCPFileHandle>(*this, path, flags, connection, parsed_path);
 }
@@ -215,7 +243,7 @@ bool MCPFileSystem::FileExists(const string &filename, optional_ptr<FileOpener> 
 			return false;
 		}
 
-		return connection->ResourceExists(parsed_path.resource_uri);
+		return !ResolveResourceUri(*connection, parsed_path.resource_uri).empty();
 	} catch (...) {
 		return false;
 	}
@@ -310,7 +338,7 @@ vector<OpenFileInfo> MCPFileSystem::Glob(const string &path, FileOpener *opener)
 	// A pattern with no wildcard names one resource. Ask for it directly rather
 	// than listing every resource on the server.
 	if (!FileSystem::HasGlob(parsed_path.resource_uri)) {
-		if (connection->ResourceExists(parsed_path.resource_uri)) {
+		if (!ResolveResourceUri(*connection, parsed_path.resource_uri).empty()) {
 			results.emplace_back(path); // Use the original path as requested
 		}
 		return results;
@@ -323,12 +351,26 @@ vector<OpenFileInfo> MCPFileSystem::Glob(const string &path, FileOpener *opener)
 	// since no URI contains the literal asterisk).
 	auto resources = connection->ListAllResources();
 
+	// Each match is handed out with the extension of its mimeType, so readers
+	// that go by extension recognise it (issue #100) -- unless that name is
+	// itself a listed resource, which the decorated name would then shadow.
+	unordered_set<string> listed_uris;
 	for (const auto &resource : resources) {
-		if (!duckdb::Glob(resource.uri.c_str(), resource.uri.size(), parsed_path.resource_uri.c_str(),
-		                  parsed_path.resource_uri.size())) {
+		listed_uris.insert(resource.uri);
+	}
+	auto &pattern = parsed_path.resource_uri;
+
+	for (const auto &resource : resources) {
+		auto exposed_uri = MCPPathParser::WithExtension(resource.uri, resource.mime_type);
+		if (exposed_uri != resource.uri && listed_uris.count(exposed_uri)) {
+			exposed_uri = resource.uri;
+		}
+		// A pattern may be written against either name.
+		if (!duckdb::Glob(resource.uri.c_str(), resource.uri.size(), pattern.c_str(), pattern.size()) &&
+		    !duckdb::Glob(exposed_uri.c_str(), exposed_uri.size(), pattern.c_str(), pattern.size())) {
 			continue;
 		}
-		results.emplace_back(MCPPathParser::ConstructPath(parsed_path.server_name, resource.uri));
+		results.emplace_back(MCPPathParser::ConstructPath(parsed_path.server_name, exposed_uri));
 		// Note: OpenFileInfo doesn't have a size field
 		// Size information would need to be stored in extended_info if needed
 	}

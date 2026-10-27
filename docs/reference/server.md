@@ -138,7 +138,7 @@ SELECT mcp_publish_table('table_name', 'uri', 'format');
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `table_name` | VARCHAR | Name of the table to publish |
-| `uri` | VARCHAR | Resource URI (default: `data://tables/<table_name>`) |
+| `uri` | VARCHAR | Resource URI (default: `data://tables/<table_name>`, plus `.json` or `.md` for those formats) |
 | `format` | VARCHAR | Output format: `json`, `csv`, `markdown` |
 
 **Example:**

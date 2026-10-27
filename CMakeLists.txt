@@ -28,6 +28,8 @@ set(EXTENSION_SOURCES
   src/server/resource_providers.cpp
   src/server/tool_handlers.cpp
   src/server/memory_transport.cpp
+  # Path helpers only; the server's default resource URI uses them too (#100).
+  src/mcpfs/mcp_path.cpp
 )
 
 # Sources that are incompatible with WASM (process management, HTTP server,
@@ -43,7 +45,6 @@ if(NOT EMSCRIPTEN)
     src/client/mcp_transaction_manager.cpp
     src/catalog/mcp_catalog.cpp
     src/catalog/mcp_schema_entry.cpp
-    src/mcpfs/mcp_path.cpp
     src/mcpfs/mcp_file_system.cpp
   )
 endif()

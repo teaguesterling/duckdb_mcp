@@ -4,6 +4,26 @@ All notable changes to the DuckDB MCP Extension.
 
 ---
 
+## Unreleased
+
+### Changed
+
+- **Resource paths carry the extension of their mimeType** (#100). Readers
+  recognise a file by its extension, so `read_markdown('mcp://srv/note://readme')`
+  failed with "File is not a markdown file" although mcpfs could read it.
+  A wildcard `mcp://` glob now hands back each match with the extension of its
+  declared mimeType — `.md` for `text/markdown`, `.json` for `application/json`,
+  `.html` for `text/html` — and mcpfs opens such a name: the exact URI first,
+  then the URI without the extension, provided the server declares the matching
+  mimeType for it. Other types, resources without a mimeType, and names that
+  already end in the extension are unchanged. A resource whose extended name
+  would collide with another listed resource keeps its bare name.
+
+  **Breaking:** the default URI of `mcp_publish_table` gains the format's
+  extension — `data://tables/<table>.json` for `json`, `.md` for `markdown`.
+  `csv`, `jsonl` and `text` keep the bare default. Clients that requested the
+  old default URI must add the extension.
+
 ## v2.4.0
 
 Ships against **DuckDB v2.0.0**, the community registry's default since
