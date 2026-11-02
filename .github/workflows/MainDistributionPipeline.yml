@@ -66,18 +66,15 @@ jobs:
       # leaving -- it is DUCKDB_VARIANT above, built by duckdb-variegata-build and
       # already exempt from the scan. So there is no legacy job to exempt.
       DUCKDB_LEGACY: ''
-      # DIVERGENCE FROM THE FLEET COPY (duck_tails #73), duckdb_mcp only: the next
-      # leg pins the v2.0-cyanoptera tip as an explicit STAGED VERSION + COMMIT
-      # pair (Teague, 2026-10-25), instead of the branch name. With the branch
-      # name, ci-tools' prebuilt path (ci_phase.py prebuilt() at 2de8029) resolves
-      # the staged version for the download URL only and never writes it back, so
-      # the extension is stamped `v2.0-cyanoptera` against a library reporting
-      # `v2.0.1-alpha50125` and nothing loads. Bump both together when the tip
-      # moves; the version is the commit's
-      # https://duckdb-staging.duckdb.org/<commit[:10]>/latest_alpha_version.txt
-      # Both are exempt from the scans below, and are grepped like the others.
-      DUCKDB_NEXT: v2.0.1-alpha50125
-      DUCKDB_NEXT_COMMIT: bb5bdadda4ee51d39b359fe8f4d1960973191175
+      # THE NEXT LEG IS NO LONGER PINNED HERE. It used to carry a DUCKDB_NEXT /
+      # DUCKDB_NEXT_COMMIT pair that had to be bumped by hand whenever the
+      # v2.0-cyanoptera tip moved, and it went stale every time. The settled
+      # fleet recipe is "promote plus resolve" (Teague, 2026-10-25):
+      # duckdb-next-ref resolves the newest STAGED cyanoptera commit at run time
+      # and passes the pair it finds, so both constants CEASE TO EXIST -- out of
+      # this env, out of the drift loop below, and out of both scans'
+      # exemptions. A hardcoded next-leg version is now a stray literal, which
+      # is the point.
     steps:
       - uses: actions/checkout@v4
       - name: Compare the submodule pin with the registry default commit
@@ -95,7 +92,7 @@ jobs:
           echo "registry default commit -> ${DUCKDB_COMMIT} (${DUCKDB_VERSION})"
           echo "submodule pin           -> ${have}"
           [ "$DUCKDB_COMMIT" = "$have" ] || { echo "::error::duckdb submodule pin ${have} is not the registry default commit ${DUCKDB_COMMIT}; run: git -C duckdb fetch origin ${DUCKDB_CI_TOOLS} && git -C duckdb checkout ${DUCKDB_COMMIT}"; exit 1; }
-          for want in "duckdb_commit: ${DUCKDB_COMMIT}" "duckdb_version: ${DUCKDB_VERSION}" "ci_tools_version: ${DUCKDB_CI_TOOLS}" "duckdb_version: ${DUCKDB_VARIANT}" "duckdb_version: ${DUCKDB_NEXT}" "duckdb_commit: ${DUCKDB_NEXT_COMMIT}"; do
+          for want in "duckdb_commit: ${DUCKDB_COMMIT}" "duckdb_version: ${DUCKDB_VERSION}" "ci_tools_version: ${DUCKDB_CI_TOOLS}" "duckdb_version: ${DUCKDB_VARIANT}"; do
             c=$(grep -c "${want}$" "$wf" || true)
             [ "$c" -ge 1 ] || { echo "::error::no build job in this workflow uses ${want}; this job's constants have drifted"; exit 1; }
           done
@@ -119,7 +116,6 @@ jobs:
             for v in $(printf '%s\n' "$line" | grep -oE "$ver_re" || true); do
               [ "$v" = "$DUCKDB_VERSION" ] && continue
               [ "$v" = "$DUCKDB_VARIANT" ] && continue
-              [ "$v" = "$DUCKDB_NEXT" ] && continue
               [ -n "$DUCKDB_LEGACY" ] && [ "$v" = "$DUCKDB_LEGACY" ] && continue
               echo "::error::line ${lineno}: ${line} -- a DuckDB version literal that is not the shipped ${DUCKDB_VERSION} or ${DUCKDB_VARIANT}: derive it from the shipped version or bump it"
               bad=1
@@ -134,7 +130,6 @@ jobs:
             printf '%s\n' "$line" | grep -qE '^[[:space:]]*vcpkg_commit:' && continue
             for h in $(printf '%s\n' "$line" | grep -oE '[0-9a-f]{40}' || true); do
               [ "$h" = "$DUCKDB_COMMIT" ] && continue
-              [ "$h" = "$DUCKDB_NEXT_COMMIT" ] && continue
               echo "::error::line ${lineno}: ${line} -- a commit literal that is not the registry default ${DUCKDB_COMMIT}: derive it from the pinned commit or bump it"
               bad=1
             done
@@ -257,17 +252,106 @@ jobs:
   # REUSABLE workflow accepts only a fixed set of keys -- and nothing here wants
   # continue-on-error anyway, which is the point of the rename.
   #
-  # The advisory DuckDB-main canary that the old name described does not exist
-  # in this repo. duck_block_utils carries one as a separate duckdb-main-canary
-  # job gated to dispatch + push-to-main; this repo has no job building `main`.
+  # THERE IS DELIBERATELY NO DuckDB-main canary in this repo. One was written and
+  # withdrawn (Teague, 2026-11-01) on measured cost: a main commit has no staged
+  # prebuilt, so ci-tools compiles DuckDB from source -- about 107 minutes of
+  # runner time per push to main across the matrix, against ~6 minutes for the
+  # prebuilt next leg below. Its all-time benefit fleet-wide was one real catch
+  # (duckdb_urlpattern's GetArgumentNames removal, since fixed), and DuckDB main
+  # is v2.1.0-dev, a full minor release past what the registry serves. This leg,
+  # on v2.0-cyanoptera, watches the line that actually becomes the next release,
+  # and it GATES.
+  duckdb-next-ref:
+    name: Next-line build — resolve DuckDB v2.0
+    # Gated to run once, not twice, per PR: a push to a PR branch fires both a
+    # push run and a pull_request run for the same commit, so an ungated job
+    # would build it twice. Runs on PRs, on push to main, and on dispatch.
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    outputs:
+      commit: ${{ steps.resolve.outputs.commit }}
+      version: ${{ steps.resolve.outputs.version }}
+    steps:
+      # WALK BACK FROM THE TIP to the newest commit that duckdb-staging actually
+      # built. Resolving the tip alone is what this job used to do, and it is red
+      # whenever staging lags -- measured 2026-10-26: of the 8 newest cyanoptera
+      # commits, only 2 had a staged build, and the tip was not one of them:
+      #
+      #   af2d380a19  404      <- tip
+      #   99b013ad36  404
+      #   c4d7b8bd7e  200  v2.0.1-alpha50398
+      #   defed5fd79  404
+      #   3ea22a8bc3  404
+      #   bb5bdadda4  200  v2.0.1-alpha50125
+      #
+      # So the premise "the tip has a staged build" is false most of the time. The
+      # walk keeps what the resolver was for -- no manual bump, and a version that
+      # matches the prebuilt libduckdb the build will download -- while taking the
+      # newest commit that can actually be built. It still fails loudly when NO
+      # commit in range is staged, which is a real staging outage rather than lag.
+      # Teague ruled the SHAPE (walk back to the newest staged commit). The CAP is
+      # fleet-ci-plan-a's (plinking_duck #74), and unlike the two invented values before it (25, then the
+      # coordinator's 50) this one is measured.
+      #
+      # Staging does not keep a trailing window of recent builds; it builds SOME
+      # commits and skips runs of others. Probing the newest 60 commits found only
+      # 2 staged, with a run of 54 CONSECUTIVE unstaged commits spanning just 0.8
+      # days -- while a staged build 3.1 days old was still being served. Age does
+      # not explain it, so a burst of commits can get one build for the whole burst.
+      #
+      # That makes the run length the thing the cap must clear, and 50 does not
+      # clear it: on 2026-10-23 around 10:13, when 420d03f67 was the tip, a walk of
+      # depth 50 would have found nothing and failed. 150 gives roughly 3x the
+      # worst run measured. It costs nothing in the normal case, because the loop
+      # breaks at the first staged commit -- today the 3rd probe.
+      - id: resolve
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEPTH=150
+          tip=$(git ls-remote https://github.com/duckdb/duckdb.git refs/heads/v2.0-cyanoptera | cut -f1)
+          [ -n "$tip" ] || { echo "::error::could not resolve duckdb v2.0-cyanoptera"; exit 1; }
+
+          tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+          git clone --quiet --filter=blob:none --no-checkout --depth "$DEPTH" \
+              --branch v2.0-cyanoptera https://github.com/duckdb/duckdb.git "$tmp/duckdb"
+
+          commit=""; version=""; behind=0
+          for sha in $(git -C "$tmp/duckdb" log --format=%H -n "$DEPTH"); do
+            v=$(curl -sSfL "https://duckdb-staging.duckdb.org/${sha:0:10}/latest_alpha_version.txt" 2>/dev/null | tr -d '[:space:]') || { behind=$((behind+1)); continue; }
+            if [[ "$v" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|rc|dev)[0-9]+)?$ ]]; then
+              commit="$sha"; version="$v"; break
+            fi
+            behind=$((behind+1))
+          done
+
+          if [ -z "$commit" ]; then
+            echo "::error::no staged DuckDB build for v2.0-cyanoptera in its last $DEPTH commits (tip $tip)"
+            exit 1
+          fi
+
+          echo "v2.0-cyanoptera tip is $tip"
+          echo "resolved $commit, version $version ($behind commit(s) behind the tip)"
+          if [ "$behind" -gt 0 ]; then
+            echo "::notice::the v2.0-cyanoptera tip ($tip) has no staged build; using $commit ($version), $behind commit(s) back"
+          fi
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+
   duckdb-next-build:
     name: Build extension binaries (duckdb next, v2.0 line)
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    needs: duckdb-next-ref
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@main
     with:
-      # The DUCKDB_NEXT pair from the duckdb-pin job; see the note there.
-      duckdb_version: v2.0.1-alpha50125
-      duckdb_commit: bb5bdadda4ee51d39b359fe8f4d1960973191175
+      # The pair duckdb-next-ref resolved: the newest STAGED cyanoptera commit,
+      # and the version staging reports for it. NEVER the branch name -- with
+      # the branch name ci-tools' prebuilt path (ci_phase.py prebuilt() at
+      # 2de8029) resolves the staged version for the download URL only and never
+      # writes it back, so the extension is stamped `v2.0-cyanoptera` against a
+      # library reporting a different version and nothing loads.
+      duckdb_version: ${{ needs.duckdb-next-ref.outputs.version }}
+      duckdb_commit: ${{ needs.duckdb-next-ref.outputs.commit }}
       ci_tools_version: main
       extension_name: duckdb_mcp
       # KEPT AS-IS, and its old justification is void. The exclusion was argued
