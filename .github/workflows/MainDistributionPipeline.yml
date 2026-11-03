@@ -3,7 +3,14 @@
 #
 name: Main Extension Distribution Pipeline
 on:
+  # Pushes build only on main. A push to a PR branch fires a push run AND a
+  # pull_request run for the same commit, so every job built twice per push.
+  # The pull_request run is the one whose status matters. What the filter costs:
+  # a branch with no PR open gets no CI until the PR opens, and a tag push no
+  # longer starts a run. Nothing here deploys on tags, and workflow_dispatch
+  # still runs on any branch.
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
