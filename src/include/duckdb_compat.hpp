@@ -11,7 +11,7 @@
 //
 // Cross-version coverage:
 //   - duckdb v1.5.x (the v1.5.6 variant leg):         old API everywhere
-//   - duckdb v2.0.0 (this extension's pin) / main:    new API everywhere
+//   - duckdb v2.0.1 (this extension's pin) / main:    new API everywhere
 //
 // DETECT FEATURES, NOT VERSIONS -- AND NOT PROXY HEADERS EITHER.
 //
